@@ -123,7 +123,10 @@ def arguments(call: Node) -> list[Node]:
 def unwrap(node: Node | None) -> Node | None:
     while node is not None and node.type in WRAPPERS:
         named = [c for c in node.named_children if c.type != "comment"]
-        node = named[0] if named else None
+        if node.type == "type_assertion":
+            node = named[-1] if named else None
+        else:
+            node = named[0] if named else None
     return node
 
 
@@ -221,17 +224,29 @@ def exported_functions(tree: JsTree) -> dict[str, Node]:
 
 def resolve_identifier(ident: Node) -> Node | None:
     name = node_text(ident)
-    scope = enclosing_function(ident)
-    if scope is None:
-        scope = ident
-        while scope.parent is not None:
-            scope = scope.parent
+    ident_scope = enclosing_function(ident)
+    if ident_scope is None:
+        search_root = ident
+        while search_root.parent is not None:
+            search_root = search_root.parent
+    else:
+        search_root = ident_scope
     best = None
-    for decl in walk(scope, {"variable_declarator"}):
+    for decl in walk(search_root, {"variable_declarator"}):
         target = decl.child_by_field_name("name")
         if target is None or target.type != "identifier" or \
            node_text(target) != name:
             continue
+        decl_scope = enclosing_function(decl)
+        if ident_scope is None:
+            if decl_scope is not None:
+                continue
+        else:
+            if (decl_scope is None or
+                decl_scope.start_byte != ident_scope.start_byte or
+                decl_scope.end_byte != ident_scope.end_byte or
+                decl_scope.type != ident_scope.type):
+                continue
         if decl.start_byte < ident.start_byte:
             best = decl.child_by_field_name("value")
     return unwrap(best)

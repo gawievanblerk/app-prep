@@ -95,3 +95,45 @@ def test_vue_script_blocks_keep_file_line_numbers(tmp_path):
     [call] = list(jsts.calls(t, "fetchIt"))
     assert jsts.line(t, call) == 5
     assert jsts.parse_file(index, "C.vue") is jsts.parse_file(index, "C.vue")
+
+
+def test_unwrap_type_assertions():
+    t = tree(
+        """const a = <Foo>bar
+const b = baz as Foo
+const c = qux!
+const d = (await zap) satisfies Foo""",
+        rel="a.ts"
+    )
+    values = []
+    for stmt in t.root.named_children:
+        if stmt.type in ("lexical_declaration", "variable_declaration"):
+            for decl in stmt.named_children:
+                if decl.type == "variable_declarator":
+                    value = decl.child_by_field_name("value")
+                    values.append(jsts.node_text(jsts.unwrap(value)))
+    assert values == ["bar", "baz", "qux", "zap"]
+
+
+def test_resolve_identifier_respects_scope():
+    t = tree(
+        """function outer() {
+  function helper() { const secret = "inner"; return secret }
+  helper()
+  log(secret)
+}""",
+        rel="a.js"
+    )
+    [log_call] = list(jsts.calls(t, "log"))
+    secret_ident = jsts.arguments(log_call)[0]
+    assert jsts.resolve_identifier(secret_ident) is None
+
+    t2 = tree(
+        """function f() { const ok = "yes"; function g() {} ; log(ok) }""",
+        rel="a.js"
+    )
+    [log_call2] = list(jsts.calls(t2, "log"))
+    ok_ident = jsts.arguments(log_call2)[0]
+    value = jsts.resolve_identifier(ok_ident)
+    assert value is not None
+    assert jsts.string_value(value) == "yes"
