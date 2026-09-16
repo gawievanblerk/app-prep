@@ -422,7 +422,7 @@ Input: `SchemaState` from migrations and, when given, `--db-dump`.
 | `RLS-NO-POLICIES` | Enabled, zero policies | CONFIRMED | low | low |
 | `RLS-SELECT-ONLY` | Select policies only (deviation 1 in section 3) | CONFIRMED | low | low |
 | `RLS-POLICY-TRUE` | `USING (true)` on a table with an owner or tenant column | CONFIRMED | high | high |
-| `RLS-AUTHENTICATED-NOT-OWNER` | Predicate only checks `auth.role() = 'authenticated'`, or `TO authenticated` with a predicate that never references `auth.uid()` or `auth.jwt()` | CONFIRMED | high | high |
+| `RLS-AUTHENTICATED-NOT-OWNER` | Predicate only checks `auth.role() = 'authenticated'`, or `TO authenticated` with a predicate that never references `auth.uid()` or `auth.jwt()`. Like `RLS-POLICY-TRUE`, only on tables with an owner or tenant column, or with unknown columns (dump only) | CONFIRMED | high | high |
 | `RLS-WEAK-WITH-CHECK` | `INSERT`, `UPDATE` or `ALL` policy on a table with an owner column whose `WITH CHECK` is present and references neither the owner column, `auth.uid()` nor `auth.jwt()` (deviation 2 in section 3) | CONFIRMED | high for `INSERT`; for `UPDATE` and `ALL`, high when no select policy on the table references the owner column or `auth.uid()`, else low | high |
 | `RLS-WRONG-ROLE` | Write policy granted `TO public` or `TO anon` on a table with an owner column | CONFIRMED | high | high |
 | `RLS-CLIENT-OWNER` | Predicate reads `user_metadata` from `auth.jwt()`, or `current_setting('request.headers'` | CONFIRMED | high | high |
