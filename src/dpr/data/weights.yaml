@@ -1,0 +1,13 @@
+severity: {critical: 100, high: 40, medium: 10, low: 3}
+exploitability: {high: 3, medium: 2, low: 1}
+tag_factor: {CONFIRMED: 1.0, INFERRED: 0.6, UNVERIFIED: 0.4}
+boost: {A01: 1.5}
+leaks_order:
+  - LEAK-PUBLIC-SECRET
+  - LEAK-HARDCODED-KEY
+  - LEAK-KEY-IN-BUILD
+  - LEAK-ENV-TRACKED
+  - LEAK-ENV-IN-HISTORY
+  - LEAK-BROAD-RESPONSE
+  - LEAK-SSR-PROPS
+  - LEAK-LOGGED-PII
