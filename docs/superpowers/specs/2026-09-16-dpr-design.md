@@ -36,7 +36,7 @@ Success means: on the fixture apps, every planted defect is reported with the co
 | Decision | Choice | Reason |
 |---|---|---|
 | Matching depth | Regex for simple patterns, real parsers for structure | Without an LLM, accuracy is the product. Parsers let findings reach CONFIRMED. |
-| JS/TS parser | `tree-sitter` + `tree-sitter-language-pack` | Prebuilt wheels, no compiler, one API for js, ts, tsx. |
+| JS/TS parser | `tree-sitter` + `tree-sitter-javascript` + `tree-sitter-typescript` | Prebuilt wheels with the grammars inside, no compiler, no runtime download. `tree-sitter-language-pack` 1.x was rejected: it downloads grammars into a user cache at first use, which breaks the no-network rule. |
 | Python parser | stdlib `ast` | No dependency, exact. |
 | SQL and Prisma | Small own parsers | Only a narrow set of statements matters (section 7). |
 | OWASP breadth | Optional Semgrep adapter | Free rule packs give injection, XSS, crypto and config coverage. Rules license allows internal use, which fits private use. |
@@ -49,8 +49,9 @@ Success means: on the fixture apps, every planted defect is reported with the co
 ### Deliberate deviations from the skill text
 
 1. **"Policy on select only leaves insert, update and delete wide open."** In Postgres, once RLS is enabled, a command with no matching policy is denied for roles without `BYPASSRLS`. So `dpr` does not report this as open. It reports `RLS-SELECT-ONLY` as a low informational finding: client writes are denied, so if the app writes to that table it is probably using a service key, which is then checked by the leaks review.
-2. **Report title** uses a colon instead of a dash: `# Data Protection Review: <project>`.
-3. **SARIF.** GitHub shows SARIF inline only for public repositories or with paid GitHub Code Security. The CI example therefore uploads the Markdown report as a workflow artifact. SARIF output is still produced.
+2. **"USING without WITH CHECK on insert/update lets the caller write rows owned by someone else."** Tested on PostgreSQL 14.17: an UPDATE policy with only `USING` reuses it as the check and blocks moving a row to another owner, and an INSERT policy with no `WITH CHECK` blocks the insert. The real defect is a `WITH CHECK` that is present but does not check ownership, such as `WITH CHECK (true)`. For UPDATE that is only exploitable when the table's select policies do not restrict ownership either, because Postgres also checks the new row against select policies when the update has a filter. `dpr` reports this as `RLS-WEAK-WITH-CHECK` (section 10.2).
+3. **Report title** uses a colon instead of a dash: `# Data Protection Review: <project>`.
+4. **SARIF.** GitHub shows SARIF inline only for public repositories or with paid GitHub Code Security. The CI example therefore uploads the Markdown report as a workflow artifact. SARIF output is still produced.
 
 ## 4. Non-negotiable rules, enforced in code
 
@@ -169,7 +170,7 @@ No module over about 400 lines. A review that grows past that splits into a pack
 
 ### 5.4 Dependencies
 
-Runtime: `tree-sitter`, `tree-sitter-language-pack`, `pyyaml`, `jinja2`. Everything else is stdlib, including `urllib` for header reads and `argparse` for the CLI.
+Runtime: `tree-sitter`, `tree-sitter-javascript`, `tree-sitter-typescript`, `pyyaml`, `jinja2`. Everything else is stdlib, including `urllib` for header reads and `argparse` for the CLI.
 
 Dev: `pytest`, `pytest-cov`, `ruff`.
 
@@ -420,9 +421,9 @@ Input: `SchemaState` from migrations and, when given, `--db-dump`.
 | `RLS-TABLE-OFF` | Table in `public` schema never enabled, or disabled last | CONFIRMED | critical when `public_supabase_key` is true, else high with a reduced-relevance note | high |
 | `RLS-NO-POLICIES` | Enabled, zero policies | CONFIRMED | low | low |
 | `RLS-SELECT-ONLY` | Select policies only (deviation 1 in section 3) | CONFIRMED | low | low |
-| `RLS-POLICY-TRUE` | `USING (true)` or `WITH CHECK (true)` on a table with an owner or tenant column | CONFIRMED | high | high |
+| `RLS-POLICY-TRUE` | `USING (true)` on a table with an owner or tenant column | CONFIRMED | high | high |
 | `RLS-AUTHENTICATED-NOT-OWNER` | Predicate only checks `auth.role() = 'authenticated'`, or `TO authenticated` with a predicate that never references `auth.uid()` or `auth.jwt()` | CONFIRMED | high | high |
-| `RLS-MISSING-WITH-CHECK` | `INSERT`, `UPDATE` or `ALL` policy without `WITH CHECK` | CONFIRMED | high | high |
+| `RLS-WEAK-WITH-CHECK` | `INSERT`, `UPDATE` or `ALL` policy on a table with an owner column whose `WITH CHECK` is present and references neither the owner column, `auth.uid()` nor `auth.jwt()` (deviation 2 in section 3) | CONFIRMED | high for `INSERT`; for `UPDATE` and `ALL`, high when no select policy on the table references the owner column or `auth.uid()`, else low | high |
 | `RLS-WRONG-ROLE` | Write policy granted `TO public` or `TO anon` on a table with an owner column | CONFIRMED | high | high |
 | `RLS-CLIENT-OWNER` | Predicate reads `user_metadata` from `auth.jwt()`, or `current_setting('request.headers'` | CONFIRMED | high | high |
 | `RLS-TENANT-UNBOUND` | Predicate has a subquery over a membership-like table (`member`, `membership`, `org_users`, `team_users`) filtered by `auth.uid()` but never references the policy table's tenant column (`org_id`, `organization_id`, `tenant_id`, `workspace_id`, `team_id`) | INFERRED | high | high |
@@ -609,7 +610,7 @@ Exit codes: `0` completed and nothing at or above `--fail-on`; `1` a finding at 
 - **Unit tests** per parser: SQL splitter (dollar quoting, comments, nested quotes), policy extraction, Prisma, schema extraction per ORM, route extraction per framework, Vue/Svelte script offsets.
 - **Rule tests**: each rule has at least one positive and one negative snippet test.
 - **Fixture apps** in `tests/fixtures/`:
-  - `next-supabase-bad`: public-prefixed service role key reference; hardcoded live Stripe-shaped key; migrations with a table without RLS, a `using (true)` policy, an update policy without `WITH CHECK`, a view without `security_invoker`; invoice route with an unscoped `findUnique`; generate route calling OpenAI with no auth and no limiter; signup route logging the body, returning "already registered", and setting a cookie without `httpOnly`; `productionBrowserSourceMaps: true`; Sentry `sendDefaultPii: true`; reflected CORS with credentials; `dangerouslySetInnerHTML` with user content; tracked `.env`; `metadata jsonb` column; `medical_conditions` column.
+  - `next-supabase-bad`: public-prefixed service role key reference; hardcoded live Stripe-shaped key; migrations with a table without RLS, a `using (true)` policy, an update policy with `with check (true)`, a view without `security_invoker`; invoice route with an unscoped `findUnique`; generate route calling OpenAI with no auth and no limiter; signup route logging the body, returning "already registered", and setting a cookie without `httpOnly`; `productionBrowserSourceMaps: true`; Sentry `sendDefaultPii: true`; reflected CORS with credentials; `dangerouslySetInnerHTML` with user content; tracked `.env`; `metadata jsonb` column; `medical_conditions` column.
   - `next-supabase-good`: the same app with each defect fixed and security headers configured.
   - `django-bad`: `DEBUG = True`, MD5 first in `PASSWORD_HASHERS`, `get_object_or_404(Invoice, pk=pk)` without a user filter, `CORS_ALLOW_ALL_ORIGINS = True`, `SESSION_COOKIE_SECURE = False`, `requests.get(request.GET["url"])`, f-string SQL with a request value, `traceback.format_exc()` in a response, serializer `fields = "__all__"`, `send_default_pii=True`.
   - `fastapi-good`: response models, `get_current_user` scoping, `slowapi` limiter, CORS allowlist, bcrypt hashing.
