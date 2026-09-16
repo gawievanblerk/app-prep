@@ -27,4 +27,4 @@ def test_rule_text_has_no_legal_verdicts_or_em_dashes():
         for phrase in ("compliant with", "complies with", "satisfies article",
                        "satisfies section", "lawful basis is"):
             assert phrase not in lowered, (item.name, phrase)
-        assert "—" not in raw, item.name
+        assert "\u2014" not in raw, item.name
