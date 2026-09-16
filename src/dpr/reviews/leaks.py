@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from dpr.model import Finding, Location, Part, ReviewSection, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import find_keys, is_secret_name, public_prefix, snippet
+from dpr.reviews import leaks_code  # noqa: F401  (registers the leaks_code rules)
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
 
