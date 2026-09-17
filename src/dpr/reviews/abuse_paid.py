@@ -78,7 +78,13 @@ def paid_unauth(ctx: Context) -> Iterator[Finding]:
         route = paid.route
         level = access(ctx, route)
         if level.level == PUBLIC and not is_test(route.file):
-            proof = unread_guard(level)
+            proofs = [unread_guard(level)]
+            if not paid.exact:
+                proofs.append(
+                    f"The {paid.via}() helper was matched by name only; confirm the route calls "
+                    f"the function that uses {paid.sdk.name}."
+                )
+            proof = " ".join(p for p in proofs if p) or None
             yield make_finding(
                 "ABUSE-PAID-UNAUTH",
                 tag=Tag.INFERRED if proof else Tag.CONFIRMED,
