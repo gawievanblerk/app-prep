@@ -99,3 +99,56 @@ def test_public_forms_without_challenge(tmp_path):
         "api/auth.py:6",
     ]
     assert "POST /auth/register, POST /auth/forgot-password" in found["api/auth.py"].detail
+
+
+def fastapi_paid(root, main_extra=""):
+    write(root, "requirements.txt", "fastapi\nopenai\n")
+    write(
+        root,
+        "app/main.py",
+        "from fastapi import FastAPI\nfrom openai import OpenAI\nfrom app.middleware import AuthMiddleware\n"
+        f"app = FastAPI()\nclient = OpenAI()\n{main_extra}"
+        "@app.post('/generate')\ndef generate(prompt: str):\n"
+        "    return client.responses.create(model='x', input=prompt)\n",
+    )
+    return root
+
+
+def test_paid_unauth_is_inferred_when_a_global_auth_mechanism_cannot_be_read(tmp_path):
+    plain = fastapi_paid(
+        tmp_path / "plain", "app.add_middleware(CORSMiddleware, allow_origins=['x'])\n"
+    )
+    [confirmed] = findings_for(plain, "abuse", "ABUSE-PAID-UNAUTH")
+    assert confirmed.tag.value == "CONFIRMED"
+
+    guarded = fastapi_paid(tmp_path / "guarded", "app.add_middleware(AuthMiddleware)\n")
+    [inferred] = findings_for(guarded, "abuse", "ABUSE-PAID-UNAUTH")
+    assert inferred.tag.value == "INFERRED"
+    assert "AuthMiddleware" in inferred.proof_needed
+
+    hook = fastapi_paid(
+        tmp_path / "hook",
+        "@app.middleware('http')\nasync def check(request, call_next):\n"
+        "    if not request.headers.get('authorization'):\n        return JSONResponse({}, status_code=401)\n"
+        "    return await call_next(request)\n",
+    )
+    [hooked] = findings_for(hook, "abuse", "ABUSE-PAID-UNAUTH")
+    assert hooked.tag.value == "INFERRED"
+
+
+def test_express_unknown_app_middleware_makes_paid_unauth_inferred(tmp_path):
+    write(tmp_path, "package.json", '{"dependencies": {"express": "4", "openai": "4"}}')
+    write(
+        tmp_path,
+        "server.js",
+        "const express = require('express')\nconst OpenAI = require('openai')\n"
+        "const { clerkMiddleware } = require('@clerk/express')\n"
+        "const app = express()\nconst ai = new OpenAI()\n"
+        "app.use(express.json())\napp.use(clerkMiddleware())\n"
+        "app.post('/generate', async (req, res) => {\n"
+        "  res.json(await ai.chat.completions.create({ model: 'x', messages: req.body.messages }))\n"
+        "})\n",
+    )
+    [finding] = findings_for(tmp_path, "abuse", "ABUSE-PAID-UNAUTH")
+    assert finding.tag.value == "INFERRED"
+    assert "clerkMiddleware" in finding.proof_needed

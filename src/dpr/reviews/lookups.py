@@ -94,7 +94,7 @@ def request_keys(route: Route) -> set[str]:
     return keys
 
 
-def _subject_text(text: str, subjects: tuple[str, ...]) -> bool:
+def subject_text(text: str, subjects: tuple[str, ...]) -> bool:
     return any(re.search(rf"(?<![\w.]){re.escape(s)}\b", text) for s in subjects)
 
 
@@ -201,7 +201,7 @@ def py_lookups(
         text = ast.unparse(value)
         names = pyast.names_in(value)
         used = names & keys
-        if not used or _subject_text(text, subjects):
+        if not used or subject_text(text, subjects):
             continue
         if PY_ORM.search(text):
             found.append(
@@ -269,7 +269,7 @@ def py_checked_after(fn: ast.AST, lookup: Lookup, subjects: tuple[str, ...]) -> 
             text = " ".join(ast.unparse(a) for a in [*node.args, *node.keywords])
         else:
             continue
-        if not _subject_text(text, subjects):
+        if not subject_text(text, subjects):
             continue
         if pattern is None or pattern.search(text):
             return "owner"
@@ -296,7 +296,7 @@ def js_lookups(route: Route, subjects: tuple[str, ...]) -> list[Lookup]:
             continue
         text = jsts.node_text(call)
         used = {k for k in keys if re.search(rf"\b{re.escape(k)}\b", text)}
-        if not used or _subject_text(text, subjects):
+        if not used or subject_text(text, subjects):
             continue
         model = match.group(1) or match.group(3)
         target = None
@@ -322,7 +322,7 @@ def js_checked_after(route: Route, lookup: Lookup, subjects: tuple[str, ...]) ->
         if jsts.line(route.tree, node) <= lookup.location.line:
             continue
         text = jsts.node_text(node)
-        if _subject_text(text, subjects) and (
+        if subject_text(text, subjects) and (
             lookup.target is None or re.search(rf"\b{re.escape(lookup.target)}\b", text)
         ):
             return "owner"
@@ -339,7 +339,7 @@ def route_lookups(ctx: Context, route: Route, access: Access) -> list[tuple[Look
         derived = tuple(
             _target(s)
             for s in _statements(fn)
-            if _target(s) and _subject_text(ast.unparse(s.value), subjects)
+            if _target(s) and subject_text(ast.unparse(s.value), subjects)
         )
         subjects = (*subjects, *derived)
         keys = request_keys(route)

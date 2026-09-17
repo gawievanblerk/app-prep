@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from dpr.model import Finding, Location, Route, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
-from dpr.reviews.access import ADMIN, PUBLIC, access
+from dpr.reviews.access import ADMIN, PUBLIC, access, unread_guard
 from dpr.reviews.lookups import USER_MODELS, model_for, owned, route_lookups
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
@@ -119,12 +119,15 @@ def unguarded_method(ctx: Context) -> Iterator[Finding]:
         if not guarded:
             continue
         for route in routes:
-            if route.method in WRITE_METHODS and access(ctx, route).level == PUBLIC:
+            level = access(ctx, route)
+            if route.method in WRITE_METHODS and level.level == PUBLIC:
+                proof = unread_guard(level)
                 yield make_finding(
                     "OWASP-A01-UNGUARDED-METHOD",
-                    tag=Tag.CONFIRMED,
+                    tag=Tag.INFERRED if proof else Tag.CONFIRMED,
                     locations=[Location(route.file, route.line)],
                     snippet=snippet(ctx.index.text(route.file), route.line),
+                    proof_needed=proof,
                     method=route.method,
                     path=path,
                     guarded=", ".join(sorted({r.method for r in guarded})),

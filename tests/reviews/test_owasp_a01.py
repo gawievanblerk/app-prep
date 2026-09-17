@@ -208,3 +208,27 @@ def test_email_ownership(tmp_path):
         ("app/portal.py:2", "INFERRED"),
         ("lib/portal.ts:1", "INFERRED"),
     ]
+
+
+def test_unguarded_method_is_inferred_when_app_middleware_cannot_be_read(tmp_path):
+    write(
+        tmp_path,
+        "server.js",
+        "const express = require('express')\nconst app = express()\n"
+        "app.use(tenantGate)\n"
+        "app.get('/notes/:id', requireAuth, (req, res) => res.json({}))\n"
+        "app.delete('/notes/:id', (req, res) => res.json({}))\n",
+    )
+    [f] = findings_for(tmp_path, "owasp", "OWASP-A01-UNGUARDED-METHOD")
+    assert (str(f.locations[0]), f.tag.value) == ("server.js:5", "INFERRED")
+    assert "tenantGate" in f.proof_needed
+    write(
+        tmp_path,
+        "server.js",
+        "const express = require('express')\nconst app = express()\n"
+        "app.use(express.json())\n"
+        "app.get('/notes/:id', requireAuth, (req, res) => res.json({}))\n"
+        "app.delete('/notes/:id', (req, res) => res.json({}))\n",
+    )
+    [f] = findings_for(tmp_path, "owasp", "OWASP-A01-UNGUARDED-METHOD")
+    assert f.tag.value == "CONFIRMED"

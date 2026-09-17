@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from dpr.model import Finding, Location, Route, Tag
 from dpr.parsing import jsts
 from dpr.redact import snippet
-from dpr.reviews.access import PUBLIC, access
+from dpr.reviews.access import PUBLIC, access, unread_guard
 from dpr.reviews.paid import PaidRoute, costs, paid_routes
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
@@ -76,12 +76,15 @@ def _paid_detail(paid: PaidRoute) -> dict[str, object]:
 def paid_unauth(ctx: Context) -> Iterator[Finding]:
     for paid in paid_routes(ctx):
         route = paid.route
-        if access(ctx, route).level == PUBLIC and not is_test(route.file):
+        level = access(ctx, route)
+        if level.level == PUBLIC and not is_test(route.file):
+            proof = unread_guard(level)
             yield make_finding(
                 "ABUSE-PAID-UNAUTH",
-                tag=Tag.CONFIRMED,
+                tag=Tag.INFERRED if proof else Tag.CONFIRMED,
                 locations=[Location(route.file, route.line)],
                 snippet=snippet(ctx.index.text(route.file), route.line),
+                proof_needed=proof,
                 **_paid_detail(paid),
             )
 

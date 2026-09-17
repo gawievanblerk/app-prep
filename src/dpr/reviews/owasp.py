@@ -14,7 +14,7 @@ import dpr.reviews.owasp_paths  # noqa: F401  (registers rules)
 from dpr.model import Finding, Part, ReviewSection, Route
 from dpr.parsing import jsts
 from dpr.reviews.access import ADMIN, PUBLIC, access
-from dpr.reviews.lookups import PY_ORM, route_lookups
+from dpr.reviews.lookups import PY_ORM, route_lookups, subject_text
 from dpr.reviews.owasp_a01 import unscoped
 from dpr.rules import Context
 
@@ -58,7 +58,7 @@ def _ownership_checked(ctx: Context, route: Route) -> bool:
     else:
         statements = [jsts.node_text(c) for c in jsts.walk(route.handler, {"call_expression"})]
         orm = re.compile(r"\.(?:findUnique|findFirst|findMany|update|delete|eq|where)\(")
-    return any(orm.search(s) and any(subject in s for subject in subjects) for s in statements)
+    return any(orm.search(s) and subject_text(s, subjects) for s in statements)
 
 
 def classify(ctx: Context, route: Route) -> str:

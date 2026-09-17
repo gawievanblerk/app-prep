@@ -67,3 +67,48 @@ def test_audit_option_is_recorded(tmp_path):
         "Dependency audit not run: the audit adapters arrive in a later version"
         in report.not_covered
     )
+
+
+def test_ownership_subjects_are_compared_as_identifiers(tmp_path):
+    write(
+        tmp_path,
+        "app/deps.py",
+        "from typing import Annotated\nfrom fastapi import Depends\n"
+        "CurrentUser = Annotated[dict, Depends(get_current_user)]\n",
+    )
+    write(
+        tmp_path,
+        "app/models.py",
+        "class Invoice(Base):\n    __tablename__ = 'invoices'\n    id = Column(Integer, primary_key=True)\n"
+        "    user_id = Column(Integer)\n    name = Column(String)\n",
+    )
+    write(
+        tmp_path,
+        "app/main.py",
+        "from fastapi import FastAPI, Depends\nfrom sqlalchemy import select\n"
+        "from app.deps import CurrentUser\napp = FastAPI()\n"
+        "@app.get('/invoices')\ndef all_invoices(me: CurrentUser, db=Depends(get_db)):\n"
+        "    return db.execute(select(Invoice).order_by(Invoice.name)).scalars().all()\n"
+        "@app.get('/mine')\ndef mine(me: CurrentUser, db=Depends(get_db)):\n"
+        "    return db.execute(select(Invoice).where(Invoice.user_id == me.id)).scalars().all()\n",
+    )
+    report = review(tmp_path, reviews=["owasp"])
+    parts = {p.title: p for p in report.sections["owasp"].parts}
+    access = {(row[0], row[1]): row[3] for row in parts["Route classification"].rows}
+    assert access[("GET", "/invoices")] == "authenticated"
+    assert access[("GET", "/mine")] == "authenticated and ownership-checked"
+
+
+def test_route_table_shows_database_session_routes_as_public(tmp_path):
+    write(
+        tmp_path,
+        "app/main.py",
+        "from fastapi import FastAPI, Depends\nfrom sqlmodel import Session\napp = FastAPI()\n"
+        "@app.get('/invoices/{invoice_id}')\n"
+        "def read_invoice(invoice_id: int, session: Session = Depends(get_session)):\n"
+        "    return session.get(Invoice, invoice_id)\n",
+    )
+    report = review(tmp_path, reviews=["owasp"])
+    parts = {p.title: p for p in report.sections["owasp"].parts}
+    [row] = parts["Route classification"].rows
+    assert row[3] == "public" and row[4] == "no authentication dependency"
