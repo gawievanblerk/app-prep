@@ -287,3 +287,48 @@ def test_js_helpers_resolve_through_imports(tmp_path):
     assert [(str(f.locations[0]), f.tag.value) for f in found] == [
         ("app/api/relative/route.ts:2", "CONFIRMED")
     ]
+
+
+def test_next_and_django_global_guards_make_paid_unauth_inferred(tmp_path):
+    nxt = tmp_path / "next"
+    write(nxt, "package.json", '{"dependencies": {"next": "14", "openai": "4"}}')
+    write(
+        nxt,
+        "app/api/generate/route.ts",
+        "import OpenAI from 'openai'\nconst ai = new OpenAI()\n"
+        "export async function POST() {\n  return Response.json(await ai.responses.create({}))\n}\n",
+    )
+    [plain] = findings_for(nxt, "abuse", "ABUSE-PAID-UNAUTH")
+    assert plain.tag.value == "CONFIRMED"
+    write(
+        nxt,
+        "middleware.ts",
+        "export function middleware(req) { return gate(req) }\n"
+        "export const config = { matcher: ['/api/:path*'] }\n",
+    )
+    [guarded] = findings_for(nxt, "abuse", "ABUSE-PAID-UNAUTH")
+    assert guarded.tag.value == "INFERRED"
+    assert "middleware.ts" in guarded.proof_needed
+
+    django = tmp_path / "django"
+    write(django, "requirements.txt", "django\nopenai\n")
+    write(
+        django,
+        "config/settings.py",
+        "INSTALLED_APPS = ['shop']\nMIDDLEWARE = ['django.middleware.security.SecurityMiddleware', "
+        "'shop.middleware.TokenAuthMiddleware']\n",
+    )
+    write(
+        django,
+        "shop/urls.py",
+        "from django.urls import path\nfrom . import views\nurlpatterns = [path('ask/', views.ask)]\n",
+    )
+    write(
+        django,
+        "shop/views.py",
+        "from openai import OpenAI\nclient = OpenAI()\n"
+        "def ask(request):\n    return client.responses.create(model='x', input='hi')\n",
+    )
+    [django_finding] = findings_for(django, "abuse", "ABUSE-PAID-UNAUTH")
+    assert django_finding.tag.value == "INFERRED"
+    assert "TokenAuthMiddleware" in django_finding.proof_needed
