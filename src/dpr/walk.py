@@ -178,7 +178,7 @@ class RepoIndex:
         if is_env_file(Path(rel).name):
             raise ValueError("env files are read for variable names only")
         if rel not in self._text:
-            self._text[rel] = (self.root / rel).read_text(encoding="utf-8", errors="replace")
+            self._text[rel] = (self.root / rel).read_text(encoding="utf-8-sig", errors="replace")
         return self._text[rel]
 
     def with_suffix(self, *suffixes: str) -> list[SourceFile]:
@@ -201,7 +201,7 @@ class RepoIndex:
 
     def env_names(self, entry: SourceFile) -> list[tuple[str, int]]:
         names: list[tuple[str, int]] = []
-        with entry.path.open("r", encoding="utf-8", errors="replace") as fh:
+        with entry.path.open("r", encoding="utf-8-sig", errors="replace") as fh:
             for number, raw in enumerate(fh, start=1):
                 match = ENV_LINE.match(raw)
                 if match:

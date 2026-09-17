@@ -169,3 +169,19 @@ def test_sanity_check_accepts_any_supported_source(tmp_path):
     write(empty, "package.json", "{}")
     with pytest.raises(ScanError, match="package.json"):
         RepoIndex(empty).sanity_check()
+
+
+def test_byte_order_mark_is_dropped_when_reading(tmp_path):
+    from dpr.discovery.packages import collect_packages
+    from dpr.parsing import pyast
+
+    bom = b"\xef\xbb\xbf"
+    write(tmp_path, "app.py", bom + b"import os\nx = 1\n", mode="wb")
+    write(tmp_path, "package.json", bom + b'{"dependencies": {"next": "14"}}', mode="wb")
+    write(tmp_path, ".env.local", bom + b"NEXT_PUBLIC_X=1\nSECOND=2\n", mode="wb")
+    index = RepoIndex(tmp_path)
+    assert index.text("app.py").startswith("import os")
+    assert pyast.parse_file(index, "app.py") is not None
+    assert index.skipped == []
+    assert "next" in collect_packages(index)[0]
+    assert index.env_names(index.env_files[0]) == [("NEXT_PUBLIC_X", 1), ("SECOND", 2)]

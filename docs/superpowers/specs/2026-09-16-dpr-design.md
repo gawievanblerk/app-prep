@@ -258,7 +258,7 @@ Each review returns a `ReviewSection` holding the tables and text blocks its par
 - Symlinks are not followed.
 - Binary files (null byte in the first 8 KB) are skipped.
 - Source files over 1 MB are skipped and listed in `not_covered`. Build files up to 10 MB are scanned with key regexes only.
-- Text read as UTF-8 with `errors="replace"`.
+- Text read as UTF-8 with `errors="replace"`; a leading byte order mark is dropped (`utf-8-sig`).
 - Parsed trees are cached per file for the run.
 
 **Sanity check.** If a `package.json`, `pyproject.toml` or `requirements*.txt` is present and no supported source file was indexed at all (no JS/TS/Vue/Svelte file and no `.py` file), raise `ScanError`. A Python repository with a tooling-only `package.json`, or a JS repository with a docs `requirements.txt`, scans normally. This is the silent empty-scan failure the skill hit.
