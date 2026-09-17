@@ -14,8 +14,9 @@ def run_git(root: Path, *args: str, timeout: int = 30) -> str | None:
         return None
     command = ["git", "-c", "core.fsmonitor=false", "-C", str(root), *args]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout,
-                                check=False)
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=timeout, check=False
+        )
     except (OSError, subprocess.TimeoutExpired):
         return None
     return result.stdout if result.returncode == 0 else None

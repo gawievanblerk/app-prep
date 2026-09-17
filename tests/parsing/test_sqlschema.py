@@ -57,7 +57,11 @@ def test_policies():
     policies = {p.name: p for p in s.policies_for("public.profiles")}
     assert sorted(policies) == ["profiles_update", "read_all"]
     update = policies["profiles_update"]
-    assert (update.command, update.roles, update.roles_explicit) == ("update", ("authenticated",), True)
+    assert (update.command, update.roles, update.roles_explicit) == (
+        "update",
+        ("authenticated",),
+        True,
+    )
     assert update.using == "(select auth.uid()) = user_id"
     assert update.with_check == "true"
     assert update.location.line == 10
@@ -130,5 +134,7 @@ def test_apply_dump_csv_replaces_table_policies():
 
 
 def test_apply_dump_reports_bad_rows():
-    problems = apply_dump(SchemaState(), " schemaname | tablename | rowsecurity\n public | x\n", "d")
+    problems = apply_dump(
+        SchemaState(), " schemaname | tablename | rowsecurity\n public | x\n", "d"
+    )
     assert problems == ["d:2: row skipped, unexpected column count"]

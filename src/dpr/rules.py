@@ -48,8 +48,9 @@ CHECKS: dict[str, list[tuple[str, CheckFn]]] = {}
 _OWNERS: dict[str, str] = {}
 
 
-def rule(rule_id: str, *, review: str, severity: str, exploitability: str,
-         owasp: str | None = None) -> Callable[[CheckFn], CheckFn]:
+def rule(
+    rule_id: str, *, review: str, severity: str, exploitability: str, owasp: str | None = None
+) -> Callable[[CheckFn], CheckFn]:
     def wrap(fn: CheckFn) -> CheckFn:
         owner = f"{getattr(fn, '__module__', '')}.{getattr(fn, '__qualname__', '')}"
         if rule_id in _OWNERS:
@@ -102,13 +103,23 @@ def _fill(value: str | None, fmt: dict[str, object]) -> str | None:
     return Template(value).safe_substitute({k: str(v) for k, v in fmt.items()})
 
 
-def make_finding(rule_id: str, *, tag: Tag | str, locations: Iterable,
-                 detail: str | None = None, snippet: str | None = None,
-                 severity: str | None = None, exploitability: str | None = None,
-                 fix: str | None = None, proof_needed: str | None = None,
-                 attack: str | None = None, blast: str | None = None,
-                 verify: str | None = None, refs: Iterable[str] = (),
-                 **fmt: object) -> Finding:
+def make_finding(
+    rule_id: str,
+    *,
+    tag: Tag | str,
+    locations: Iterable,
+    detail: str | None = None,
+    snippet: str | None = None,
+    severity: str | None = None,
+    exploitability: str | None = None,
+    fix: str | None = None,
+    proof_needed: str | None = None,
+    attack: str | None = None,
+    blast: str | None = None,
+    verify: str | None = None,
+    refs: Iterable[str] = (),
+    **fmt: object,
+) -> Finding:
     spec = SPECS[rule_id]
     text = rule_text(rule_id)
     tag = Tag(tag)

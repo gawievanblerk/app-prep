@@ -25,9 +25,12 @@ def app(tmp_path, public_key=True):
     write(tmp_path, "supabase/migrations/001_init.sql", MIG)
     if public_key:
         write(tmp_path, ".env.example", "NEXT_PUBLIC_SUPABASE_ANON_KEY=\n")
-    write(tmp_path, "lib/q.ts",
-          "export const q = () => supabase.from('invoices').select('id')\n"
-          "export const b = () => supabase.storage.createBucket('uploads', { public: true })\n")
+    write(
+        tmp_path,
+        "lib/q.ts",
+        "export const q = () => supabase.from('invoices').select('id')\n"
+        "export const b = () => supabase.storage.createBucket('uploads', { public: true })\n",
+    )
     return tmp_path
 
 
@@ -38,7 +41,10 @@ def lines(found):
 def test_table_off(tmp_path):
     [f] = findings_for(app(tmp_path), "rls", "RLS-TABLE-OFF")
     assert (str(f.locations[0]), f.severity.value, f.tag.value) == (
-        "supabase/migrations/001_init.sql:1", "critical", "CONFIRMED")
+        "supabase/migrations/001_init.sql:1",
+        "critical",
+        "CONFIRMED",
+    )
     assert "alter table public.invoices enable row level security;" in f.fix
     assert "for select using (auth.uid() = user_id);" in f.fix
     assert "rest/v1/invoices" in f.verify
@@ -72,7 +78,8 @@ def test_not_applicable(tmp_path):
     ctx = rules.Context(index=index, detection=detect(index))
     assert reviews.available()["rls"].run(ctx) is None
     assert ctx.not_covered == [
-        "Review 2 (rls): not applicable, no SQL tables, Supabase client or database dump found"]
+        "Review 2 (rls): not applicable, no SQL tables, Supabase client or database dump found"
+    ]
 
 
 def test_section_parts_and_breakage_note(tmp_path):
@@ -80,11 +87,19 @@ def test_section_parts_and_breakage_note(tmp_path):
     ctx = rules.Context(index=index, detection=detect(index))
     section = reviews.available()["rls"].run(ctx)
     assert [p.title for p in section.parts] == [
-        "Table protection status", "Policy defects", "Missing policies (runnable SQL)",
-        "How to confirm from outside the app", "Confirm in the database",
+        "Table protection status",
+        "Policy defects",
+        "Missing policies (runnable SQL)",
+        "How to confirm from outside the app",
+        "Confirm in the database",
     ]
     table = section.parts[0]
-    assert [r[0] for r in table.rows] == ["public.documents", "public.invoices", "public.lookup", "public.members"]
+    assert [r[0] for r in table.rows] == [
+        "public.documents",
+        "public.invoices",
+        "public.lookup",
+        "public.members",
+    ]
     invoices = next(r for r in table.rows if r[0] == "public.invoices")
     assert invoices[1:5] == ("no", "0", "yes, every row", "exposed")
     missing = section.parts[2].body
@@ -95,8 +110,11 @@ def test_section_parts_and_breakage_note(tmp_path):
 
 def test_db_dump_is_source_of_truth(tmp_path):
     root = app(tmp_path)
-    dump = write(tmp_path, "dump.csv",
-                 "schemaname,tablename,rowsecurity\npublic,invoices,t\n\n"
-                 "schemaname,tablename,policyname,permissive,roles,cmd,qual,with_check\n"
-                 "public,invoices,inv_own,PERMISSIVE,{authenticated},SELECT,(auth.uid() = user_id),\n")
+    dump = write(
+        tmp_path,
+        "dump.csv",
+        "schemaname,tablename,rowsecurity\npublic,invoices,t\n\n"
+        "schemaname,tablename,policyname,permissive,roles,cmd,qual,with_check\n"
+        "public,invoices,inv_own,PERMISSIVE,{authenticated},SELECT,(auth.uid() = user_id),\n",
+    )
     assert findings_for(root, "rls", "RLS-TABLE-OFF", db_dump=str(dump)) == []

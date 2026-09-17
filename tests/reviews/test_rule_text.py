@@ -3,8 +3,13 @@ from importlib.resources import files
 from dpr import reviews, rules
 from dpr.reviews.leaks import ROTATE
 
-KEY_RULES = ("LEAK-PUBLIC-SECRET", "LEAK-HARDCODED-KEY", "LEAK-KEY-IN-BUILD",
-             "LEAK-ENV-TRACKED", "LEAK-ENV-IN-HISTORY")
+KEY_RULES = (
+    "LEAK-PUBLIC-SECRET",
+    "LEAK-HARDCODED-KEY",
+    "LEAK-KEY-IN-BUILD",
+    "LEAK-ENV-TRACKED",
+    "LEAK-ENV-IN-HISTORY",
+)
 
 
 def test_rule_text_matches_registered_rules():
@@ -24,7 +29,12 @@ def test_rule_text_has_no_legal_verdicts_or_em_dashes():
     for item in folder.iterdir():
         raw = item.read_text(encoding="utf-8")
         lowered = raw.lower()
-        for phrase in ("compliant with", "complies with", "satisfies article",
-                       "satisfies section", "lawful basis is"):
+        for phrase in (
+            "compliant with",
+            "complies with",
+            "satisfies article",
+            "satisfies section",
+            "lawful basis is",
+        ):
             assert phrase not in lowered, (item.name, phrase)
         assert "\u2014" not in raw, item.name

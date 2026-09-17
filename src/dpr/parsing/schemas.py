@@ -65,8 +65,15 @@ def _django_model(entry_rel: str, cls: ast.ClassDef) -> DataModel | None:
         pk = pyast.constant(pyast.kwarg(stmt.value, "primary_key")) is True
         unique = pk or pyast.constant(pyast.kwarg(stmt.value, "unique")) is True
         has_pk = has_pk or pk
-        fields.append(Field(stmt.targets[0].id, kind, Location(entry_rel, stmt.lineno), unique,
-                            kind in DJANGO_AUTO))
+        fields.append(
+            Field(
+                stmt.targets[0].id,
+                kind,
+                Location(entry_rel, stmt.lineno),
+                unique,
+                kind in DJANGO_AUTO,
+            )
+        )
     if not has_pk:
         fields.insert(0, Field("id", "BigAutoField", Location(entry_rel, cls.lineno), True, True))
     path = PurePosixPath(entry_rel)
@@ -133,11 +140,16 @@ def _sqlalchemy(index: RepoIndex) -> list[DataModel]:
                 pk = pyast.constant(pyast.kwarg(value, "primary_key")) is True
                 unique = pk or pyast.constant(pyast.kwarg(value, "unique")) is True
                 auto = (pk and col_type in ("Integer", "BigInteger")) or (
-                    pyast.constant(pyast.kwarg(value, "autoincrement")) is True)
-                fields.append(Field(target.id, col_type, Location(entry.rel, stmt.lineno),
-                                    unique, auto))
-            models.append(DataModel(cls.name, table, "sqlalchemy",
-                                    Location(entry.rel, cls.lineno), tuple(fields)))
+                    pyast.constant(pyast.kwarg(value, "autoincrement")) is True
+                )
+                fields.append(
+                    Field(target.id, col_type, Location(entry.rel, stmt.lineno), unique, auto)
+                )
+            models.append(
+                DataModel(
+                    cls.name, table, "sqlalchemy", Location(entry.rel, cls.lineno), tuple(fields)
+                )
+            )
     return models
 
 
@@ -175,11 +187,26 @@ def _drizzle(index: RepoIndex) -> list[DataModel]:
                     chain = re.sub(r"\s+", "", jsts.node_text(value))
                     unique = ".unique(" in chain or ".primaryKey(" in chain
                     auto = col_type in ("serial", "bigserial", "smallserial") or any(
-                        word in chain for word in (".autoincrement(", "AsIdentity("))
-                    fields.append(Field(column or key, col_type,
-                                        Location(entry.rel, jsts.line(tree, value)), unique, auto))
-                models.append(DataModel(table, table, "drizzle",
-                                        Location(entry.rel, jsts.line(tree, call)), tuple(fields)))
+                        word in chain for word in (".autoincrement(", "AsIdentity(")
+                    )
+                    fields.append(
+                        Field(
+                            column or key,
+                            col_type,
+                            Location(entry.rel, jsts.line(tree, value)),
+                            unique,
+                            auto,
+                        )
+                    )
+                models.append(
+                    DataModel(
+                        table,
+                        table,
+                        "drizzle",
+                        Location(entry.rel, jsts.line(tree, call)),
+                        tuple(fields),
+                    )
+                )
     return models
 
 

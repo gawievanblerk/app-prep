@@ -13,18 +13,22 @@ from dpr.walk import RepoIndex, line_of
 
 JS_IMPORT = re.compile(
     r"""(?:\bfrom\s+|\brequire\(\s*|\bimport\s*\(\s*|^\s*import\s+)['"]([^'"./][^'"]*)['"]""",
-    re.MULTILINE)
+    re.MULTILINE,
+)
 PY_IMPORT = re.compile(r"^\s*(?:from\s+([A-Za-z_]\w*)|import\s+([A-Za-z_]\w*))", re.MULTILINE)
 JS_ENV = re.compile(
     r"(?:process\.env|import\.meta\.env)\.([A-Z][A-Z0-9_]*)"
-    r"|process\.env\[\s*['\"]([A-Z][A-Z0-9_]*)['\"]\s*\]")
+    r"|process\.env\[\s*['\"]([A-Z][A-Z0-9_]*)['\"]\s*\]"
+)
 PY_ENV = re.compile(
     r"os\.environ\[\s*['\"]([A-Z][A-Z0-9_]*)['\"]\s*\]"
     r"|os\.environ\.get\(\s*['\"]([A-Z][A-Z0-9_]*)['\"]"
     r"|os\.getenv\(\s*['\"]([A-Z][A-Z0-9_]*)['\"]"
-    r"|\benv(?:\.\w+)?\(\s*['\"]([A-Z][A-Z0-9_]*)['\"]")
+    r"|\benv(?:\.\w+)?\(\s*['\"]([A-Z][A-Z0-9_]*)['\"]"
+)
 SVELTE_ENV = re.compile(
-    r"import\s*\{([^}]*)\}\s*from\s*['\"]\$env/(?:static|dynamic)/(?:public|private)['\"]")
+    r"import\s*\{([^}]*)\}\s*from\s*['\"]\$env/(?:static|dynamic)/(?:public|private)['\"]"
+)
 
 
 def normalise(name: str) -> str:
@@ -84,8 +88,11 @@ def collect_packages(index: RepoIndex) -> tuple[set[str], dict[str, list[Locatio
         for match in PY_IMPORT.finditer(text):
             name = normalise(match.group(1) or match.group(2))
             packages.add(name)
-            sites[name].append(Location(entry.rel, line_of(text, match.start(1) if match.group(1)
-                                                           else match.start(2))))
+            sites[name].append(
+                Location(
+                    entry.rel, line_of(text, match.start(1) if match.group(1) else match.start(2))
+                )
+            )
     return packages, dict(sites)
 
 
@@ -98,7 +105,8 @@ def collect_env_vars(index: RepoIndex) -> list[EnvVar]:
         text = index.text(entry.rel)
         for match in JS_ENV.finditer(text):
             sites[match.group(1) or match.group(2)].append(
-                Location(entry.rel, line_of(text, match.start())))
+                Location(entry.rel, line_of(text, match.start()))
+            )
         for match in SVELTE_ENV.finditer(text):
             for name in re.findall(r"[A-Z][A-Z0-9_]*", match.group(1)):
                 sites[name].append(Location(entry.rel, line_of(text, match.start())))

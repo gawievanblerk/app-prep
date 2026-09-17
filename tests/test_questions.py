@@ -27,9 +27,15 @@ def test_catalogue_shape():
 
 def test_questions_for():
     assert [q.id for q in questions_for(["rls"])] == [
-        "frontend_key_type", "rls_via_dashboard", "tables_not_in_migrations", "buckets_public",
+        "frontend_key_type",
+        "rls_via_dashboard",
+        "tables_not_in_migrations",
+        "buckets_public",
     ]
-    assert [q.id for q in questions_for(["leaks"])] == ["hosting_env_not_in_repo", "log_tool_access_retention"]
+    assert [q.id for q in questions_for(["leaks"])] == [
+        "hosting_env_not_in_repo",
+        "log_tool_access_retention",
+    ]
 
 
 def test_options_from_detection():
@@ -39,15 +45,25 @@ def test_options_from_detection():
 
 def test_resolve_from_dict():
     qs = questions_for(["rls"])
-    results, warnings = resolve(qs, Detection(), {
-        "frontend_key_type": "Anon or publishable key only",
-        "rls_via_dashboard": "Not sure",
-        "nonsense": 1,
-    })
+    results, warnings = resolve(
+        qs,
+        Detection(),
+        {
+            "frontend_key_type": "Anon or publishable key only",
+            "rls_via_dashboard": "Not sure",
+            "nonsense": 1,
+        },
+    )
     by_id = {r.question.id: r for r in results}
     assert [r.question.id for r in results] == [q.id for q in qs]
-    assert (by_id["frontend_key_type"].open, by_id["frontend_key_type"].source) == (False, "answers")
-    assert (by_id["rls_via_dashboard"].open, by_id["rls_via_dashboard"].answer) == (True, "Not sure")
+    assert (by_id["frontend_key_type"].open, by_id["frontend_key_type"].source) == (
+        False,
+        "answers",
+    )
+    assert (by_id["rls_via_dashboard"].open, by_id["rls_via_dashboard"].answer) == (
+        True,
+        "Not sure",
+    )
     assert (by_id["buckets_public"].open, by_id["buckets_public"].source) == (True, "none")
     assert warnings == ["unknown answer key ignored: nonsense"]
 
@@ -83,8 +99,9 @@ def test_interactive_is_capped_at_eight():
 
 
 def test_answered_by_detection():
-    q = Question(id="x", reviews=("rls",), text="Host?", type="text", why="w", who="w",
-                 answered_by="hosting")
+    q = Question(
+        id="x", reviews=("rls",), text="Host?", type="text", why="w", who="w", answered_by="hosting"
+    )
     [result] = resolve([q], Detection(hosting=["vercel", "docker"]))[0]
     assert (result.answer, result.source, result.open) == ("vercel, docker", "detection", False)
 
@@ -101,5 +118,8 @@ def test_ask_on_terminal():
     printed = []
     assert ask_on_terminal(q, ["Yes", "No"], input_fn=lambda _: "2", output=printed.append) == "No"
     assert ask_on_terminal(q, ["Yes", "No"], input_fn=lambda _: "  ", output=printed.append) is None
-    assert ask_on_terminal(q, ["Yes"], input_fn=lambda _: "only avatars", output=printed.append) == "only avatars"
+    assert (
+        ask_on_terminal(q, ["Yes"], input_fn=lambda _: "only avatars", output=printed.append)
+        == "only avatars"
+    )
     assert q.text in printed

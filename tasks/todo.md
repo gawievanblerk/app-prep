@@ -29,7 +29,7 @@
 
 ## Roadmap
 
-- [ ] **Milestone 1: core, leaks, RLS** (this plan, Tasks 1 to 29)
+- [x] **Milestone 1: core, leaks, RLS** (this plan, Tasks 1 to 29)
 - [ ] **Milestone 2: baseline, abuse, own OWASP rules, SARIF, Django and FastAPI fixtures** (separate plan, written after Milestone 1 is merged into `develop`)
 - [ ] **Milestone 3: Semgrep and audit adapters, inventory, auth test plan, Semgrep CI job, CI example, smoke runs, project contributor notes** (separate plan)
 
@@ -576,13 +576,32 @@ from dpr.model import Finding, Location
 from dpr.rank import dedupe, order_for_section, rank, score
 
 
-def f(rule_id="R", sev="high", expl="high", tag="CONFIRMED", effort=10, file="a.ts", line=1,
-      owasp=None, source="dpr", review="leaks"):
+def f(
+    rule_id="R",
+    sev="high",
+    expl="high",
+    tag="CONFIRMED",
+    effort=10,
+    file="a.ts",
+    line=1,
+    owasp=None,
+    source="dpr",
+    review="leaks",
+):
     return Finding(
-        rule_id=rule_id, review=review, title=rule_id, tag=tag, severity=sev,
-        exploitability=expl, effort_minutes=effort, locations=(Location(file, line),),
-        detail="d", fix="x", proof_needed="p" if tag == "INFERRED" else None,
-        owasp=owasp, source=source,
+        rule_id=rule_id,
+        review=review,
+        title=rule_id,
+        tag=tag,
+        severity=sev,
+        exploitability=expl,
+        effort_minutes=effort,
+        locations=(Location(file, line),),
+        detail="d",
+        fix="x",
+        proof_needed="p" if tag == "INFERRED" else None,
+        owasp=owasp,
+        source=source,
     )
 
 
@@ -847,6 +866,7 @@ def test_severity_override(registry):
 def test_duplicate_rule_id_from_other_function_raises(registry):
     registry.rule("T-ONE", review="leaks", severity="low", exploitability="low")(lambda c: [])
     with pytest.raises(ValueError, match="duplicate"):
+
         @registry.rule("T-ONE", review="leaks", severity="low", exploitability="low")
         def other(c):
             return []
@@ -933,8 +953,9 @@ CHECKS: dict[str, list[tuple[str, CheckFn]]] = {}
 _OWNERS: dict[str, str] = {}
 
 
-def rule(rule_id: str, *, review: str, severity: str, exploitability: str,
-         owasp: str | None = None) -> Callable[[CheckFn], CheckFn]:
+def rule(
+    rule_id: str, *, review: str, severity: str, exploitability: str, owasp: str | None = None
+) -> Callable[[CheckFn], CheckFn]:
     def wrap(fn: CheckFn) -> CheckFn:
         owner = f"{getattr(fn, '__module__', '')}.{getattr(fn, '__qualname__', '')}"
         if rule_id in _OWNERS:
@@ -987,12 +1008,23 @@ def _fill(value: str | None, fmt: dict[str, object]) -> str | None:
     return Template(value).safe_substitute({k: str(v) for k, v in fmt.items()})
 
 
-def make_finding(rule_id: str, *, tag: Tag | str, locations: Iterable, detail: str | None = None,
-                 snippet: str | None = None, severity: str | None = None,
-                 exploitability: str | None = None, fix: str | None = None,
-                 proof_needed: str | None = None, attack: str | None = None,
-                 blast: str | None = None, verify: str | None = None,
-                 refs: Iterable[str] = (), **fmt: object) -> Finding:
+def make_finding(
+    rule_id: str,
+    *,
+    tag: Tag | str,
+    locations: Iterable,
+    detail: str | None = None,
+    snippet: str | None = None,
+    severity: str | None = None,
+    exploitability: str | None = None,
+    fix: str | None = None,
+    proof_needed: str | None = None,
+    attack: str | None = None,
+    blast: str | None = None,
+    verify: str | None = None,
+    refs: Iterable[str] = (),
+    **fmt: object,
+) -> Finding:
     spec = SPECS[rule_id]
     text = rule_text(rule_id)
     tag = Tag(tag)
@@ -1194,17 +1226,42 @@ from pathlib import Path
 
 from dpr.model import ScanError
 
-SKIP_DIRS = frozenset({
-    "node_modules", ".git", ".next", "dist", "build", "out", "vendor", ".venv", "venv",
-    "__pycache__", ".turbo", "coverage", ".pytest_cache", ".mypy_cache",
-    "data-protection-review",
-})
+SKIP_DIRS = frozenset(
+    {
+        "node_modules",
+        ".git",
+        ".next",
+        "dist",
+        "build",
+        "out",
+        "vendor",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".turbo",
+        "coverage",
+        ".pytest_cache",
+        ".mypy_cache",
+        "data-protection-review",
+    }
+)
 BUILD_DIR_NAMES = frozenset({"dist", "build", "out"})
 SOURCE_MAX_BYTES = 1_000_000
 BUILD_MAX_BYTES = 10_000_000
-JS_EXTS = frozenset({
-    ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".svelte",
-})
+JS_EXTS = frozenset(
+    {
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs",
+        ".mts",
+        ".cts",
+        ".vue",
+        ".svelte",
+    }
+)
 PY_EXTS = frozenset({".py"})
 ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
 
@@ -1722,7 +1779,7 @@ def test_has_directive():
 def test_vue_script_blocks_keep_file_line_numbers(tmp_path):
     (tmp_path / "C.vue").write_text(
         "<template>\n  <div/>\n</template>\n"
-        "<script setup lang=\"ts\">\nconst a = fetchIt()\n</script>\n"
+        '<script setup lang="ts">\nconst a = fetchIt()\n</script>\n'
     )
     index = RepoIndex(tmp_path)
     [t] = jsts.parse_file(index, "C.vue")
@@ -1758,14 +1815,26 @@ from tree_sitter import Language, Node, Parser
 
 from dpr.walk import RepoIndex
 
-FUNCTION_TYPES = frozenset({
-    "function_declaration", "generator_function_declaration", "function_expression",
-    "function", "arrow_function", "method_definition",
-})
-WRAPPERS = frozenset({
-    "await_expression", "parenthesized_expression", "as_expression", "non_null_expression",
-    "satisfies_expression", "type_assertion",
-})
+FUNCTION_TYPES = frozenset(
+    {
+        "function_declaration",
+        "generator_function_declaration",
+        "function_expression",
+        "function",
+        "arrow_function",
+        "method_definition",
+    }
+)
+WRAPPERS = frozenset(
+    {
+        "await_expression",
+        "parenthesized_expression",
+        "as_expression",
+        "non_null_expression",
+        "satisfies_expression",
+        "type_assertion",
+    }
+)
 SCRIPT_BLOCK = re.compile(r"<script\b([^>]*)>(.*?)</script>", re.DOTALL | re.IGNORECASE)
 
 
@@ -1848,8 +1917,9 @@ def callee(call: Node) -> str:
     return re.sub(r"\s+", "", node_text(call.child_by_field_name("function")))
 
 
-def calls(tree: JsTree, pattern: str | re.Pattern[str],
-          within: Node | None = None) -> Iterator[Node]:
+def calls(
+    tree: JsTree, pattern: str | re.Pattern[str], within: Node | None = None
+) -> Iterator[Node]:
     regex = re.compile(pattern) if isinstance(pattern, str) else pattern
     for node in walk(within or tree.root, {"call_expression"}):
         if regex.fullmatch(callee(node)):
@@ -2039,7 +2109,7 @@ import ast
 from dpr.parsing import pyast
 from dpr.walk import RepoIndex
 
-CODE = '''
+CODE = """
 from django.db import models
 
 class Invoice(models.Model):
@@ -2053,7 +2123,7 @@ def view(request, pk):
     def inner():
         return requests.get(request.GET.get("url"))
     return cookies().set("sid", "v")
-'''
+"""
 
 
 def tree():
@@ -2064,7 +2134,11 @@ def test_dotted_and_calls():
     t = tree()
     names = [pyast.dotted(c.func) for c in pyast.calls(t, r".*")]
     assert names == [
-        "models.IntegerField", "requests.get", "request.GET.get", "cookies().set", "cookies",
+        "models.IntegerField",
+        "requests.get",
+        "request.GET.get",
+        "cookies().set",
+        "cookies",
     ]
     assert [c.lineno for c in pyast.calls(t, r"requests\.get")] == [13]
 
@@ -2163,8 +2237,9 @@ def dotted(node: ast.AST | None) -> str | None:
     return ".".join(reversed(parts))
 
 
-def calls(tree: ast.AST, pattern: str | re.Pattern[str],
-          within: ast.AST | None = None) -> Iterator[ast.Call]:
+def calls(
+    tree: ast.AST, pattern: str | re.Pattern[str], within: ast.AST | None = None
+) -> Iterator[ast.Call]:
     regex = re.compile(pattern) if isinstance(pattern, str) else pattern
     found = []
     for node in ast.walk(within or tree):
@@ -2291,7 +2366,7 @@ def test_semicolons_inside_quotes_comments_and_dollar_bodies():
     sql = (
         "-- leading comment; not a statement\n"
         "insert into t values ('a;b', 'it''s');\n"
-        "/* block /* nested; */ still; */ select \"Mixed;Case\" from t;\n"
+        '/* block /* nested; */ still; */ select "Mixed;Case" from t;\n'
         "create function f() returns int as $$ select 1; select 2; $$ language sql;\n"
         "create function g() returns int as $body$ SELECT 3; $body$ language sql;\n"
     )
@@ -2323,7 +2398,11 @@ def test_helpers():
     inner, end = balanced(s, s.index("("))
     assert inner == "a = (b)"
     assert s[end:].startswith(" with check")
-    assert split_top_level("a int, b numeric(10, 2), 'x,y'") == ["a int", "b numeric(10, 2)", "'x,y'"]
+    assert split_top_level("a int, b numeric(10, 2), 'x,y'") == [
+        "a int",
+        "b numeric(10, 2)",
+        "'x,y'",
+    ]
     assert qualify('"public"."Docs"') == "public.Docs"
     assert qualify("docs") == "public.docs"
     assert qualify("auth.users") == "auth.users"
@@ -2630,7 +2709,11 @@ def test_policies():
     policies = {p.name: p for p in s.policies_for("public.profiles")}
     assert sorted(policies) == ["profiles_update", "read_all"]
     update = policies["profiles_update"]
-    assert (update.command, update.roles, update.roles_explicit) == ("update", ("authenticated",), True)
+    assert (update.command, update.roles, update.roles_explicit) == (
+        "update",
+        ("authenticated",),
+        True,
+    )
     assert update.using == "(select auth.uid()) = user_id"
     assert update.with_check == "true"
     assert update.location.line == 10
@@ -2703,7 +2786,9 @@ def test_apply_dump_csv_replaces_table_policies():
 
 
 def test_apply_dump_reports_bad_rows():
-    problems = apply_dump(SchemaState(), " schemaname | tablename | rowsecurity\n public | x\n", "d")
+    problems = apply_dump(
+        SchemaState(), " schemaname | tablename | rowsecurity\n public | x\n", "d"
+    )
     assert problems == ["d:2: row skipped, unexpected column count"]
 ```
 
@@ -2810,25 +2895,33 @@ class Bucket:
 
 CREATE_TABLE = re.compile(
     rf"^create\s+(?:(?:global|local)\s+)?(?:temporary\s+|temp\s+|unlogged\s+)?table\s+"
-    rf"(?:if\s+not\s+exists\s+)?({QNAME})\s*(.*)$", re.S)
+    rf"(?:if\s+not\s+exists\s+)?({QNAME})\s*(.*)$",
+    re.S,
+)
 ALTER_TABLE = re.compile(
-    rf"^alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?({QNAME})\s+(.*)$", re.S)
+    rf"^alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?({QNAME})\s+(.*)$", re.S
+)
 RLS_ACTION = re.compile(r"^(enable|disable|force|no\s+force)\s+row\s+level\s+security")
 CREATE_POLICY = re.compile(rf"^create\s+policy\s+({IDENT})\s+on\s+({QNAME})\s*(.*)$", re.S)
 ALTER_POLICY = re.compile(rf"^alter\s+policy\s+({IDENT})\s+on\s+({QNAME})\s*(.*)$", re.S)
 DROP_POLICY = re.compile(rf"^drop\s+policy\s+(?:if\s+exists\s+)?({IDENT})\s+on\s+({QNAME})")
 CREATE_VIEW = re.compile(
     rf"^create\s+(?:or\s+replace\s+)?(?:(?:temp|temporary)\s+)?(?:recursive\s+)?view\s+"
-    rf"({QNAME})\s*(.*)$", re.S)
+    rf"({QNAME})\s*(.*)$",
+    re.S,
+)
 ALTER_VIEW = re.compile(rf"^alter\s+view\s+(?:if\s+exists\s+)?({QNAME})\s+set\s*(\(.*\))", re.S)
 CREATE_FUNCTION = re.compile(rf"^create\s+(?:or\s+replace\s+)?function\s+({QNAME})\s*(.*)$", re.S)
 INSERT_BUCKET = re.compile(
-    r"^insert\s+into\s+storage\s*\.\s*buckets\s*\(([^)]*)\)\s*values\s*(.*)$", re.S)
+    r"^insert\s+into\s+storage\s*\.\s*buckets\s*\(([^)]*)\)\s*values\s*(.*)$", re.S
+)
 DROP_OBJECT = re.compile(rf"^drop\s+(table|view|function)\s+(?:if\s+exists\s+)?({QNAME})")
 CONSTRAINT_START = re.compile(
-    r"^(constraint|primary\s+key|unique|foreign\s+key|check|exclude|like)\b")
+    r"^(constraint|primary\s+key|unique|foreign\s+key|check|exclude|like)\b"
+)
 TABLE_KEY_CONSTRAINT = re.compile(
-    rf"^(?:constraint\s+{IDENT}\s+)?(?:primary\s+key|unique)\s*\(([^)]*)\)")
+    rf"^(?:constraint\s+{IDENT}\s+)?(?:primary\s+key|unique)\s*\(([^)]*)\)"
+)
 SOURCE_TABLE = re.compile(rf"\b(?:from|join)\s+({QNAME})")
 BODY_TABLE = re.compile(rf"\b(?:from|join|into|update)\s+({QNAME})")
 
@@ -2847,27 +2940,34 @@ def _column(item: str) -> Column | None:
     col_type = rest.split(" ")[0]
     unique = bool(re.search(r"\b(unique|primary\s+key)\b", rest))
     autoinc = col_type in ("serial", "bigserial", "smallserial", "serial4", "serial8") or bool(
-        re.search(r"\bgenerated\b.*\bidentity\b", rest))
+        re.search(r"\bgenerated\b.*\bidentity\b", rest)
+    )
     return Column(_strip_quotes(match.group(1)), col_type, unique, autoinc)
 
 
 def _policy_clauses(rest: str) -> dict[str, object]:
-    out: dict[str, object] = {"permissive": True, "command": "all", "roles": ("public",),
-                              "roles_explicit": False, "using": None, "with_check": None}
+    out: dict[str, object] = {
+        "permissive": True,
+        "command": "all",
+        "roles": ("public",),
+        "roles_explicit": False,
+        "using": None,
+        "with_check": None,
+    }
     match = re.match(r"^as\s+(permissive|restrictive)\s*", rest)
     if match:
         out["permissive"] = match.group(1) == "permissive"
-        rest = rest[match.end():]
+        rest = rest[match.end() :]
     match = re.match(r"^for\s+(all|select|insert|update|delete)\s*", rest)
     if match:
         out["command"] = match.group(1)
-        rest = rest[match.end():]
+        rest = rest[match.end() :]
     match = re.match(r"^to\s+", rest)
     if match:
         starts = (find_top_level(rest, r"using\b"), find_top_level(rest, r"with\s+check\b"))
         ends = [i for i in starts if i != -1]
         end = min(ends) if ends else len(rest)
-        roles = [_strip_quotes(r.strip()) for r in split_top_level(rest[match.end():end])]
+        roles = [_strip_quotes(r.strip()) for r in split_top_level(rest[match.end() : end])]
         out["roles"] = tuple(r for r in roles if r)
         out["roles_explicit"] = True
         rest = rest[end:]
@@ -2900,10 +3000,18 @@ class SchemaState:
     def apply(self, stmt: Statement, file: str) -> None:
         loc = Location(file, stmt.line)
         s = stmt.norm
-        for handler in (self._create_table, self._alter_table, self._create_policy,
-                        self._alter_policy, self._drop_policy, self._create_view,
-                        self._alter_view, self._create_function, self._insert_bucket,
-                        self._drop_object):
+        for handler in (
+            self._create_table,
+            self._alter_table,
+            self._create_policy,
+            self._alter_policy,
+            self._drop_policy,
+            self._create_view,
+            self._alter_view,
+            self._create_function,
+            self._insert_bucket,
+            self._drop_object,
+        ):
             if handler(s, loc):
                 return
 
@@ -3046,8 +3154,9 @@ class SchemaState:
         rest = match.group(2).lstrip()
         while rest.startswith("("):
             inner, end = balanced(rest, 0)
-            row = dict(zip(columns, (v.strip().strip("'") for v in split_top_level(inner)),
-                           strict=False))
+            row = dict(
+                zip(columns, (v.strip().strip("'") for v in split_top_level(inner)), strict=False)
+            )
             if row.get("id"):
                 public = row.get("public", "false").lower() in TRUE_WORDS
                 self.buckets[row["id"]] = Bucket(row["id"], public, loc)
@@ -3130,8 +3239,11 @@ def apply_dump(state: SchemaState, text: str, file: str) -> list[str]:
         qual = re.sub(r"\s+", " ", row.get("qual", "")).strip().lower()
         check = re.sub(r"\s+", " ", row.get("with_check", "")).strip().lower()
         state.policies[(key, row["policyname"])] = Policy(
-            name=row["policyname"], table=key, command=row.get("cmd", "ALL").lower(),
-            roles=roles or ("public",), roles_explicit=bool(roles) and roles != ("public",),
+            name=row["policyname"],
+            table=key,
+            command=row.get("cmd", "ALL").lower(),
+            roles=roles or ("public",),
+            roles_explicit=bool(roles) and roles != ("public",),
             using=clean_predicate(qual) if qual else None,
             with_check=clean_predicate(check) if check else None,
             permissive=row.get("permissive", "PERMISSIVE").upper() == "PERMISSIVE",
@@ -3296,11 +3408,17 @@ def parse_prisma(text: str) -> list[PrismaModel]:
         if match:
             attributes = match.group(5)
             column = COLUMN_MAP.search(attributes)
-            fields.append(PrismaField(
-                name=match.group(1), type=match.group(2), optional=bool(match.group(4)),
-                is_list=bool(match.group(3)), attributes=attributes,
-                column=column.group(1) if column else match.group(1), line=number,
-            ))
+            fields.append(
+                PrismaField(
+                    name=match.group(1),
+                    type=match.group(2),
+                    optional=bool(match.group(4)),
+                    is_list=bool(match.group(3)),
+                    attributes=attributes,
+                    column=column.group(1) if column else match.group(1),
+                    line=number,
+                )
+            )
     return models
 ```
 
@@ -3347,17 +3465,31 @@ def write(root, rel, text):
 
 
 def build(tmp_path):
-    write(tmp_path, "prisma/schema.prisma", """
+    write(
+        tmp_path,
+        "prisma/schema.prisma",
+        """
 model User {
   id    Int    @id @default(autoincrement())
   email String @unique
   @@map("users")
 }
-""")
-    write(tmp_path, "prisma/migrations/1_init/migration.sql",
-          'create table "users" (id serial primary key, email text);')
-    write(tmp_path, "supabase/migrations/1.sql", "create table public.documents (id uuid, user_id uuid);")
-    write(tmp_path, "billing/models.py", """
+""",
+    )
+    write(
+        tmp_path,
+        "prisma/migrations/1_init/migration.sql",
+        'create table "users" (id serial primary key, email text);',
+    )
+    write(
+        tmp_path,
+        "supabase/migrations/1.sql",
+        "create table public.documents (id uuid, user_id uuid);",
+    )
+    write(
+        tmp_path,
+        "billing/models.py",
+        """
 from django.db import models
 
 class Invoice(models.Model):
@@ -3373,8 +3505,12 @@ class Note(models.Model):
     uid = models.UUIDField(primary_key=True)
     class Meta:
         db_table = "notes"
-""")
-    write(tmp_path, "svc/db.py", """
+""",
+    )
+    write(
+        tmp_path,
+        "svc/db.py",
+        """
 from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -3383,8 +3519,12 @@ class Account(Base):
     id = Column(Integer, primary_key=True)
     email = Column(String(255), unique=True)
     org_id: Mapped[int] = mapped_column(ForeignKey("orgs.id"))
-""")
-    write(tmp_path, "src/db/schema.ts", """
+""",
+    )
+    write(
+        tmp_path,
+        "src/db/schema.ts",
+        """
 import { pgTable, serial, text, uuid } from "drizzle-orm/pg-core"
 
 export const profiles = pgTable("profiles", {
@@ -3393,7 +3533,8 @@ export const profiles = pgTable("profiles", {
   email: text().unique(),
   orgId: uuid("org_id"),
 })
-""")
+""",
+    )
     index = RepoIndex(tmp_path)
     return extract_models(index, load_schema(index))
 
@@ -3414,7 +3555,8 @@ def test_fields(tmp_path):
     models = {m.name: m for m in build(tmp_path)}
     user = models["User"]
     assert [(f.name, f.unique, f.autoincrement) for f in user.fields] == [
-        ("id", True, True), ("email", True, False),
+        ("id", True, True),
+        ("email", True, False),
     ]
     invoice = models["Invoice"]
     assert invoice.field_names() == ["id", "amount", "number", "owner"]
@@ -3423,12 +3565,16 @@ def test_fields(tmp_path):
     assert models["Note"].field_names() == ["uid"]
     account = models["Account"]
     assert [(f.name, f.type, f.unique, f.autoincrement) for f in account.fields] == [
-        ("id", "Integer", True, True), ("email", "String", True, False), ("org_id", "Mapped[int]", False, False),
+        ("id", "Integer", True, True),
+        ("email", "String", True, False),
+        ("org_id", "Mapped[int]", False, False),
     ]
     profiles = models["profiles"]
     assert [(f.name, f.type, f.unique, f.autoincrement) for f in profiles.fields] == [
-        ("id", "serial", True, True), ("full_name", "text", False, False),
-        ("email", "text", True, False), ("org_id", "uuid", False, False),
+        ("id", "serial", True, True),
+        ("full_name", "text", False, False),
+        ("email", "text", True, False),
+        ("org_id", "uuid", False, False),
     ]
     assert profiles.fields[1].location.line == 6
 
@@ -3518,8 +3664,15 @@ def _django_model(entry_rel: str, cls: ast.ClassDef) -> DataModel | None:
         pk = pyast.constant(pyast.kwarg(stmt.value, "primary_key")) is True
         unique = pk or pyast.constant(pyast.kwarg(stmt.value, "unique")) is True
         has_pk = has_pk or pk
-        fields.append(Field(stmt.targets[0].id, kind, Location(entry_rel, stmt.lineno), unique,
-                            kind in DJANGO_AUTO))
+        fields.append(
+            Field(
+                stmt.targets[0].id,
+                kind,
+                Location(entry_rel, stmt.lineno),
+                unique,
+                kind in DJANGO_AUTO,
+            )
+        )
     if not has_pk:
         fields.insert(0, Field("id", "BigAutoField", Location(entry_rel, cls.lineno), True, True))
     path = PurePosixPath(entry_rel)
@@ -3586,11 +3739,16 @@ def _sqlalchemy(index: RepoIndex) -> list[DataModel]:
                 pk = pyast.constant(pyast.kwarg(value, "primary_key")) is True
                 unique = pk or pyast.constant(pyast.kwarg(value, "unique")) is True
                 auto = (pk and col_type in ("Integer", "BigInteger")) or (
-                    pyast.constant(pyast.kwarg(value, "autoincrement")) is True)
-                fields.append(Field(target.id, col_type, Location(entry.rel, stmt.lineno),
-                                    unique, auto))
-            models.append(DataModel(cls.name, table, "sqlalchemy",
-                                    Location(entry.rel, cls.lineno), tuple(fields)))
+                    pyast.constant(pyast.kwarg(value, "autoincrement")) is True
+                )
+                fields.append(
+                    Field(target.id, col_type, Location(entry.rel, stmt.lineno), unique, auto)
+                )
+            models.append(
+                DataModel(
+                    cls.name, table, "sqlalchemy", Location(entry.rel, cls.lineno), tuple(fields)
+                )
+            )
     return models
 
 
@@ -3628,11 +3786,26 @@ def _drizzle(index: RepoIndex) -> list[DataModel]:
                     chain = re.sub(r"\s+", "", jsts.node_text(value))
                     unique = ".unique(" in chain or ".primaryKey(" in chain
                     auto = col_type in ("serial", "bigserial", "smallserial") or any(
-                        word in chain for word in (".autoincrement(", "AsIdentity("))
-                    fields.append(Field(column or key, col_type,
-                                        Location(entry.rel, jsts.line(tree, value)), unique, auto))
-                models.append(DataModel(table, table, "drizzle",
-                                        Location(entry.rel, jsts.line(tree, call)), tuple(fields)))
+                        word in chain for word in (".autoincrement(", "AsIdentity(")
+                    )
+                    fields.append(
+                        Field(
+                            column or key,
+                            col_type,
+                            Location(entry.rel, jsts.line(tree, value)),
+                            unique,
+                            auto,
+                        )
+                    )
+                models.append(
+                    DataModel(
+                        table,
+                        table,
+                        "drizzle",
+                        Location(entry.rel, jsts.line(tree, call)),
+                        tuple(fields),
+                    )
+                )
     return models
 
 
@@ -3704,27 +3877,39 @@ def write(root, rel, text):
 
 
 def repo(tmp_path):
-    write(tmp_path, "app/api/users/[id]/route.ts",
-          "export async function GET() {}\nexport const DELETE = async () => {}\n"
-          "export function helper() {}\n")
+    write(
+        tmp_path,
+        "app/api/users/[id]/route.ts",
+        "export async function GET() {}\nexport const DELETE = async () => {}\n"
+        "export function helper() {}\n",
+    )
     write(tmp_path, "app/(marketing)/api/signup/route.ts", "export async function POST(req) {}\n")
     write(tmp_path, "src/app/route.ts", "export function GET() {}\n")
-    write(tmp_path, "pages/api/reset/index.js",
-          "export default async function handler(req, res) {\n"
-          "  if (req.method === 'POST') { return res.json({}) }\n}\n")
+    write(
+        tmp_path,
+        "pages/api/reset/index.js",
+        "export default async function handler(req, res) {\n"
+        "  if (req.method === 'POST') { return res.json({}) }\n}\n",
+    )
     write(tmp_path, "pages/api/ping.ts", "export default function ping(req, res) {}\n")
-    write(tmp_path, "app/actions.ts",
-          '"use server"\nexport async function createInvoice(data) {}\n'
-          "export default async function signupAction() {}\n")
+    write(
+        tmp_path,
+        "app/actions.ts",
+        '"use server"\nexport async function createInvoice(data) {}\n'
+        "export default async function signupAction() {}\n",
+    )
     write(tmp_path, "lib/not-actions.ts", "export async function nope() {}\n")
-    write(tmp_path, "server.js",
-          "const app = express()\n"
-          "app.get('/health', (req, res) => res.send('ok'))\n"
-          "function loginHandler(req, res) {}\n"
-          "router.post('/login', loginHandler)\n"
-          "axios.get('/x', cb)\n"
-          "client.get('/y', (r) => r)\n"
-          "app.all('/any', async (req, res) => {})\n")
+    write(
+        tmp_path,
+        "server.js",
+        "const app = express()\n"
+        "app.get('/health', (req, res) => res.send('ok'))\n"
+        "function loginHandler(req, res) {}\n"
+        "router.post('/login', loginHandler)\n"
+        "axios.get('/x', cb)\n"
+        "client.get('/y', (r) => r)\n"
+        "app.all('/any', async (req, res) => {})\n",
+    )
     return RepoIndex(tmp_path)
 
 
@@ -3749,7 +3934,10 @@ def test_next_app_routes(tmp_path):
 
 def test_next_pages_routes(tmp_path):
     routes = next_pages_routes(repo(tmp_path))
-    assert sorted((r.method, r.path) for r in routes) == [("ANY", "/api/ping"), ("POST", "/api/reset")]
+    assert sorted((r.method, r.path) for r in routes) == [
+        ("ANY", "/api/ping"),
+        ("POST", "/api/reset"),
+    ]
 
 
 def test_server_actions(tmp_path):
@@ -3795,7 +3983,8 @@ HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
 APP_ROUTE = re.compile(r"(?:^|/)app/((?:[^/]+/)*)route\.(?:[cm]?[jt]s)$")
 PAGES_API = re.compile(r"(?:^|/)pages/api/(.+)\.(?:[cm]?[jt]sx?)$")
 SERVER_CALL = re.compile(
-    r"(?:app|router|server|fastify|routes|\w+Router|\w+router)\.(get|post|put|patch|delete|all)")
+    r"(?:app|router|server|fastify|routes|\w+Router|\w+router)\.(get|post|put|patch|delete|all)"
+)
 SERVER_HINT = re.compile(r"\.(?:get|post|put|patch|delete|all)\(\s*['\"`]/")
 PAGES_METHOD = re.compile(r"""req\.method\s*[!=]==?\s*['"]([A-Z]+)['"]""")
 
@@ -3826,8 +4015,17 @@ def next_app_routes(index: RepoIndex) -> list[Route]:
         for tree in jsts.parse_file(index, entry.rel):
             for name, fn in jsts.exported_functions(tree).items():
                 if name in HTTP_METHODS:
-                    routes.append(Route(name, path, entry.rel, jsts.line(tree, fn), "next-app",
-                                        handler=fn, tree=tree))
+                    routes.append(
+                        Route(
+                            name,
+                            path,
+                            entry.rel,
+                            jsts.line(tree, fn),
+                            "next-app",
+                            handler=fn,
+                            tree=tree,
+                        )
+                    )
     return routes
 
 
@@ -3847,8 +4045,17 @@ def next_pages_routes(index: RepoIndex) -> list[Route]:
                 continue
             methods = sorted(set(PAGES_METHOD.findall(jsts.node_text(handler)))) or ["ANY"]
             for method in methods:
-                routes.append(Route(method, path, entry.rel, jsts.line(tree, handler),
-                                    "next-pages", handler=handler, tree=tree))
+                routes.append(
+                    Route(
+                        method,
+                        path,
+                        entry.rel,
+                        jsts.line(tree, handler),
+                        "next-pages",
+                        handler=handler,
+                        tree=tree,
+                    )
+                )
     return routes
 
 
@@ -3866,13 +4073,30 @@ def server_actions(index: RepoIndex) -> list[Route]:
                 if name == "default" or fn.start_byte in seen:
                     continue
                 seen.add(fn.start_byte)
-                routes.append(Route("ACTION", f"action:{name}", entry.rel, jsts.line(tree, fn),
-                                    "next-action", handler=fn, tree=tree))
+                routes.append(
+                    Route(
+                        "ACTION",
+                        f"action:{name}",
+                        entry.rel,
+                        jsts.line(tree, fn),
+                        "next-action",
+                        handler=fn,
+                        tree=tree,
+                    )
+                )
             default = exported.get("default")
             if default is not None and default.start_byte not in seen:
-                routes.append(Route("ACTION", "action:default", entry.rel,
-                                    jsts.line(tree, default), "next-action", handler=default,
-                                    tree=tree))
+                routes.append(
+                    Route(
+                        "ACTION",
+                        "action:default",
+                        entry.rel,
+                        jsts.line(tree, default),
+                        "next-action",
+                        handler=default,
+                        tree=tree,
+                    )
+                )
     return routes
 
 
@@ -3896,8 +4120,17 @@ def server_routes(index: RepoIndex) -> list[Route]:
                 if handler is None or handler.type not in allowed:
                     continue
                 method = jsts.callee(call).rsplit(".", 1)[1].upper()
-                routes.append(Route("ANY" if method == "ALL" else method, path, entry.rel,
-                                    jsts.line(tree, call), framework, handler=handler, tree=tree))
+                routes.append(
+                    Route(
+                        "ANY" if method == "ALL" else method,
+                        path,
+                        entry.rel,
+                        jsts.line(tree, call),
+                        framework,
+                        handler=handler,
+                        tree=tree,
+                    )
+                )
     return routes
 
 
@@ -3957,34 +4190,51 @@ def write(root, rel, text):
 
 
 def repo(tmp_path):
-    write(tmp_path, "api/main.py",
-          "from fastapi import APIRouter\nrouter = APIRouter()\n\n"
-          "@router.get(\"/items/{item_id}\")\nasync def read_item(item_id: int):\n    return {}\n\n"
-          "@router.api_route(\"/multi\", methods=[\"GET\", \"POST\"])\ndef multi():\n    pass\n")
-    write(tmp_path, "web/app.py",
-          "from flask import Flask\napp = Flask(__name__)\n\n"
-          "@app.route(\"/contact\", methods=[\"GET\", \"POST\"])\ndef contact():\n    pass\n\n"
-          "@app.route(\"/about\")\ndef about():\n    pass\n")
-    write(tmp_path, "shop/urls.py",
-          "from django.urls import path, include\nfrom . import views\n\n"
-          "urlpatterns = [\n"
-          "    path(\"invoices/<int:pk>/\", views.invoice_detail),\n"
-          "    path(\"orders/\", views.OrderView.as_view()),\n"
-          "    path(\"api/\", include(\"accounts.urls\")),\n"
-          "    path(\"register/\", views.missing_view),\n"
-          "]\n")
-    write(tmp_path, "shop/views.py",
-          "def invoice_detail(request, pk):\n    pass\n\n\nclass OrderView(View):\n    pass\n")
-    write(tmp_path, "accounts/urls.py",
-          "from rest_framework import routers\nfrom .views import AccountViewSet\n"
-          "router = routers.DefaultRouter()\nrouter.register(r\"accounts\", AccountViewSet)\n")
+    write(
+        tmp_path,
+        "api/main.py",
+        "from fastapi import APIRouter\nrouter = APIRouter()\n\n"
+        '@router.get("/items/{item_id}")\nasync def read_item(item_id: int):\n    return {}\n\n'
+        '@router.api_route("/multi", methods=["GET", "POST"])\ndef multi():\n    pass\n',
+    )
+    write(
+        tmp_path,
+        "web/app.py",
+        "from flask import Flask\napp = Flask(__name__)\n\n"
+        '@app.route("/contact", methods=["GET", "POST"])\ndef contact():\n    pass\n\n'
+        '@app.route("/about")\ndef about():\n    pass\n',
+    )
+    write(
+        tmp_path,
+        "shop/urls.py",
+        "from django.urls import path, include\nfrom . import views\n\n"
+        "urlpatterns = [\n"
+        '    path("invoices/<int:pk>/", views.invoice_detail),\n'
+        '    path("orders/", views.OrderView.as_view()),\n'
+        '    path("api/", include("accounts.urls")),\n'
+        '    path("register/", views.missing_view),\n'
+        "]\n",
+    )
+    write(
+        tmp_path,
+        "shop/views.py",
+        "def invoice_detail(request, pk):\n    pass\n\n\nclass OrderView(View):\n    pass\n",
+    )
+    write(
+        tmp_path,
+        "accounts/urls.py",
+        "from rest_framework import routers\nfrom .views import AccountViewSet\n"
+        'router = routers.DefaultRouter()\nrouter.register(r"accounts", AccountViewSet)\n',
+    )
     write(tmp_path, "accounts/views.py", "class AccountViewSet(ModelViewSet):\n    pass\n")
     write(tmp_path, "app/api/signup/route.ts", "export async function POST() {}\n")
     return RepoIndex(tmp_path)
 
 
 def test_decorator_routes(tmp_path):
-    got = sorted((r.method, r.path, r.file, r.line, r.framework) for r in decorator_routes(repo(tmp_path)))
+    got = sorted(
+        (r.method, r.path, r.file, r.line, r.framework) for r in decorator_routes(repo(tmp_path))
+    )
     assert got == [
         ("GET", "/about", "web/app.py", 9, "flask"),
         ("GET", "/contact", "web/app.py", 5, "flask"),
@@ -3996,8 +4246,10 @@ def test_decorator_routes(tmp_path):
 
 
 def test_django_routes_resolve_views(tmp_path):
-    got = sorted((r.path, r.file, r.line, r.framework, type(r.handler).__name__)
-                 for r in django_routes(repo(tmp_path)))
+    got = sorted(
+        (r.path, r.file, r.line, r.framework, type(r.handler).__name__)
+        for r in django_routes(repo(tmp_path))
+    )
     assert got == [
         ("/accounts", "accounts/views.py", 1, "drf", "ClassDef"),
         ("/invoices/<int:pk>", "shop/views.py", 1, "django", "FunctionDef"),
@@ -4009,7 +4261,12 @@ def test_django_routes_resolve_views(tmp_path):
 def test_extract_routes_sets_public_form_flag(tmp_path):
     routes = extract_routes(repo(tmp_path))
     public = sorted((r.method, r.path) for r in routes if r.is_public_form)
-    assert public == [("ANY", "/register"), ("GET", "/contact"), ("POST", "/api/signup"), ("POST", "/contact")]
+    assert public == [
+        ("ANY", "/register"),
+        ("GET", "/contact"),
+        ("POST", "/api/signup"),
+        ("POST", "/contact"),
+    ]
     assert routes == sorted(routes, key=lambda r: (r.file, r.line, r.method))
 ```
 
@@ -4076,8 +4333,9 @@ def decorator_routes(index: RepoIndex) -> list[Route]:
                 else:
                     continue
                 for method in methods:
-                    routes.append(Route(method, path, entry.rel, fn.lineno, framework,
-                                        handler=fn, tree=tree))
+                    routes.append(
+                        Route(method, path, entry.rel, fn.lineno, framework, handler=fn, tree=tree)
+                    )
     return routes
 
 
@@ -4130,17 +4388,33 @@ def django_routes(index: RepoIndex) -> list[Route]:
             if isinstance(view, ast.Call) and (pyast.dotted(view.func) or "").endswith("include"):
                 continue
             handler, rel, view_tree = _find_view(index, entry.rel, _view_name(view))
-            routes.append(Route("ANY", _url_path(route), rel or entry.rel,
-                                handler.lineno if handler else call.lineno, "django",
-                                handler=handler, tree=view_tree))
+            routes.append(
+                Route(
+                    "ANY",
+                    _url_path(route),
+                    rel or entry.rel,
+                    handler.lineno if handler else call.lineno,
+                    "django",
+                    handler=handler,
+                    tree=view_tree,
+                )
+            )
         for call in pyast.calls(tree, REGISTER_CALL):
             prefix = pyast.constant(call.args[0], None) if len(call.args) >= 2 else None
             if not isinstance(prefix, str):
                 continue
             handler, rel, view_tree = _find_view(index, entry.rel, _view_name(call.args[1]))
-            routes.append(Route("ANY", _url_path(prefix), rel or entry.rel,
-                                handler.lineno if handler else call.lineno, "drf",
-                                handler=handler, tree=view_tree))
+            routes.append(
+                Route(
+                    "ANY",
+                    _url_path(prefix),
+                    rel or entry.rel,
+                    handler.lineno if handler else call.lineno,
+                    "drf",
+                    handler=handler,
+                    tree=view_tree,
+                )
+            )
     return routes
 ```
 
@@ -4224,8 +4498,20 @@ from dpr.gitutil import git_info, run_git, tracked_files
 
 
 def git(root, *args):
-    subprocess.run(["git", "-C", str(root), "-c", "user.name=dpr", "-c", "user.email=dpr@example.invalid",
-                    *args], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=dpr",
+            "-c",
+            "user.email=dpr@example.invalid",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+    )
 
 
 def test_not_a_repo(tmp_path):
@@ -4269,20 +4555,46 @@ def write(root, rel, text):
 
 
 def test_collect_packages(tmp_path):
-    write(tmp_path, "package.json", '{"dependencies": {"next": "14"}, "devDependencies": {"vitest": "1"}}')
+    write(
+        tmp_path,
+        "package.json",
+        '{"dependencies": {"next": "14"}, "devDependencies": {"vitest": "1"}}',
+    )
     write(tmp_path, "web/broken/package.json", "{not json")
-    write(tmp_path, "pyproject.toml",
-          '[project]\ndependencies = ["Django>=5", "psycopg[binary]"]\n'
-          '[dependency-groups]\ndev = ["pytest"]\n'
-          '[tool.poetry.dependencies]\nsentry_sdk = "^2"\n')
-    write(tmp_path, "requirements-dev.txt", "# tools\nslowapi==0.1 ; python_version > '3'\n-r base.txt\n")
-    write(tmp_path, "src/a.ts",
-          "import { createClient } from '@supabase/supabase-js'\n"
-          "import './styles.css'\nconst x = require(\"stripe\")\nimport 'server-only'\n")
+    write(
+        tmp_path,
+        "pyproject.toml",
+        '[project]\ndependencies = ["Django>=5", "psycopg[binary]"]\n'
+        '[dependency-groups]\ndev = ["pytest"]\n'
+        '[tool.poetry.dependencies]\nsentry_sdk = "^2"\n',
+    )
+    write(
+        tmp_path,
+        "requirements-dev.txt",
+        "# tools\nslowapi==0.1 ; python_version > '3'\n-r base.txt\n",
+    )
+    write(
+        tmp_path,
+        "src/a.ts",
+        "import { createClient } from '@supabase/supabase-js'\n"
+        "import './styles.css'\nconst x = require(\"stripe\")\nimport 'server-only'\n",
+    )
     write(tmp_path, "svc/b.py", "import os\nfrom openai import OpenAI\n")
     packages, sites = collect_packages(RepoIndex(tmp_path))
-    for name in ["next", "vitest", "django", "psycopg", "pytest", "sentry-sdk", "slowapi",
-                 "@supabase/supabase-js", "stripe", "server-only", "openai", "os"]:
+    for name in [
+        "next",
+        "vitest",
+        "django",
+        "psycopg",
+        "pytest",
+        "sentry-sdk",
+        "slowapi",
+        "@supabase/supabase-js",
+        "stripe",
+        "server-only",
+        "openai",
+        "os",
+    ]:
         assert name in packages, name
     assert [str(loc) for loc in sites["stripe"]] == ["src/a.ts:3"]
     assert [str(loc) for loc in sites["openai"]] == ["svc/b.py:2"]
@@ -4290,19 +4602,44 @@ def test_collect_packages(tmp_path):
 
 
 def test_collect_env_vars_names_only(tmp_path):
-    write(tmp_path, ".env.local", "NEXT_PUBLIC_SUPABASE_URL=https://x\nSECRET_VALUE_HOLDER=do-not-read\n")
-    write(tmp_path, "lib/a.ts",
-          "const u = process.env.NEXT_PUBLIC_SUPABASE_URL\nconst k = process.env['STRIPE_SECRET_KEY']\n"
-          "const v = import.meta.env.VITE_API\n")
-    write(tmp_path, "src/routes/+page.svelte",
-          "<script>\nimport { PUBLIC_MAP_TOKEN } from '$env/static/public'\n</script>\n")
-    write(tmp_path, "svc/settings.py",
-          "import os\nA = os.environ['DATABASE_URL']\nB = os.environ.get('DEBUG')\n"
-          "C = os.getenv('REDIS_URL')\nD = env.bool('USE_TLS')\n")
+    write(
+        tmp_path,
+        ".env.local",
+        "NEXT_PUBLIC_SUPABASE_URL=https://x\nSECRET_VALUE_HOLDER=do-not-read\n",
+    )
+    write(
+        tmp_path,
+        "lib/a.ts",
+        "const u = process.env.NEXT_PUBLIC_SUPABASE_URL\nconst k = process.env['STRIPE_SECRET_KEY']\n"
+        "const v = import.meta.env.VITE_API\n",
+    )
+    write(
+        tmp_path,
+        "src/routes/+page.svelte",
+        "<script>\nimport { PUBLIC_MAP_TOKEN } from '$env/static/public'\n</script>\n",
+    )
+    write(
+        tmp_path,
+        "svc/settings.py",
+        "import os\nA = os.environ['DATABASE_URL']\nB = os.environ.get('DEBUG')\n"
+        "C = os.getenv('REDIS_URL')\nD = env.bool('USE_TLS')\n",
+    )
     env = {e.name: e for e in collect_env_vars(RepoIndex(tmp_path))}
-    assert sorted(env) == ["DATABASE_URL", "DEBUG", "NEXT_PUBLIC_SUPABASE_URL", "PUBLIC_MAP_TOKEN",
-                           "REDIS_URL", "SECRET_VALUE_HOLDER", "STRIPE_SECRET_KEY", "USE_TLS", "VITE_API"]
-    assert [str(loc) for loc in env["NEXT_PUBLIC_SUPABASE_URL"].locations] == [".env.local:1", "lib/a.ts:1"]
+    assert sorted(env) == [
+        "DATABASE_URL",
+        "DEBUG",
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "PUBLIC_MAP_TOKEN",
+        "REDIS_URL",
+        "SECRET_VALUE_HOLDER",
+        "STRIPE_SECRET_KEY",
+        "USE_TLS",
+        "VITE_API",
+    ]
+    assert [str(loc) for loc in env["NEXT_PUBLIC_SUPABASE_URL"].locations] == [
+        ".env.local:1",
+        "lib/a.ts:1",
+    ]
     assert env["NEXT_PUBLIC_SUPABASE_URL"].public and env["VITE_API"].public
     assert not env["STRIPE_SECRET_KEY"].public
     assert "do-not-read" not in repr(env)
@@ -4334,8 +4671,9 @@ def run_git(root: Path, *args: str, timeout: int = 30) -> str | None:
         return None
     command = ["git", "-c", "core.fsmonitor=false", "-C", str(root), *args]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout,
-                                check=False)
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=timeout, check=False
+        )
     except (OSError, subprocess.TimeoutExpired):
         return None
     return result.stdout if result.returncode == 0 else None
@@ -4380,18 +4718,22 @@ from dpr.walk import RepoIndex, line_of
 
 JS_IMPORT = re.compile(
     r"""(?:\bfrom\s+|\brequire\(\s*|\bimport\s*\(\s*|^\s*import\s+)['"]([^'"./][^'"]*)['"]""",
-    re.MULTILINE)
+    re.MULTILINE,
+)
 PY_IMPORT = re.compile(r"^\s*(?:from\s+([A-Za-z_]\w*)|import\s+([A-Za-z_]\w*))", re.MULTILINE)
 JS_ENV = re.compile(
     r"(?:process\.env|import\.meta\.env)\.([A-Z][A-Z0-9_]*)"
-    r"|process\.env\[\s*['\"]([A-Z][A-Z0-9_]*)['\"]\s*\]")
+    r"|process\.env\[\s*['\"]([A-Z][A-Z0-9_]*)['\"]\s*\]"
+)
 PY_ENV = re.compile(
     r"os\.environ\[\s*['\"]([A-Z][A-Z0-9_]*)['\"]\s*\]"
     r"|os\.environ\.get\(\s*['\"]([A-Z][A-Z0-9_]*)['\"]"
     r"|os\.getenv\(\s*['\"]([A-Z][A-Z0-9_]*)['\"]"
-    r"|\benv(?:\.\w+)?\(\s*['\"]([A-Z][A-Z0-9_]*)['\"]")
+    r"|\benv(?:\.\w+)?\(\s*['\"]([A-Z][A-Z0-9_]*)['\"]"
+)
 SVELTE_ENV = re.compile(
-    r"import\s*\{([^}]*)\}\s*from\s*['\"]\$env/(?:static|dynamic)/(?:public|private)['\"]")
+    r"import\s*\{([^}]*)\}\s*from\s*['\"]\$env/(?:static|dynamic)/(?:public|private)['\"]"
+)
 
 
 def normalise(name: str) -> str:
@@ -4451,8 +4793,11 @@ def collect_packages(index: RepoIndex) -> tuple[set[str], dict[str, list[Locatio
         for match in PY_IMPORT.finditer(text):
             name = normalise(match.group(1) or match.group(2))
             packages.add(name)
-            sites[name].append(Location(entry.rel, line_of(text, match.start(1) if match.group(1)
-                                                           else match.start(2))))
+            sites[name].append(
+                Location(
+                    entry.rel, line_of(text, match.start(1) if match.group(1) else match.start(2))
+                )
+            )
     return packages, dict(sites)
 
 
@@ -4465,7 +4810,8 @@ def collect_env_vars(index: RepoIndex) -> list[EnvVar]:
         text = index.text(entry.rel)
         for match in JS_ENV.finditer(text):
             sites[match.group(1) or match.group(2)].append(
-                Location(entry.rel, line_of(text, match.start())))
+                Location(entry.rel, line_of(text, match.start()))
+            )
         for match in SVELTE_ENV.finditer(text):
             for name in re.findall(r"[A-Z][A-Z0-9_]*", match.group(1)):
                 sites[name].append(Location(entry.rel, line_of(text, match.start())))
@@ -4522,13 +4868,19 @@ def write(root, rel, text):
 
 
 def test_detect_next_supabase_app(tmp_path):
-    write(tmp_path, "package.json",
-          '{"dependencies": {"next": "14", "@supabase/supabase-js": "2", "@prisma/client": "5",'
-          ' "@sentry/nextjs": "8", "openai": "4", "@upstash/ratelimit": "1"},'
-          ' "devDependencies": {"vitest": "1"}}')
-    write(tmp_path, "next.config.js",
-          "module.exports = { async headers() { return [{ source: '/(.*)', headers: "
-          "[{ key: 'X-Frame-Options', value: 'DENY' }] }] } }\n")
+    write(
+        tmp_path,
+        "package.json",
+        '{"dependencies": {"next": "14", "@supabase/supabase-js": "2", "@prisma/client": "5",'
+        ' "@sentry/nextjs": "8", "openai": "4", "@upstash/ratelimit": "1"},'
+        ' "devDependencies": {"vitest": "1"}}',
+    )
+    write(
+        tmp_path,
+        "next.config.js",
+        "module.exports = { async headers() { return [{ source: '/(.*)', headers: "
+        "[{ key: 'X-Frame-Options', value: 'DENY' }] }] } }\n",
+    )
     write(tmp_path, "vercel.json", "{}")
     write(tmp_path, ".github/workflows/ci.yml", "on: push")
     write(tmp_path, ".env.example", "NEXT_PUBLIC_SUPABASE_ANON_KEY=\n")
@@ -4566,7 +4918,11 @@ def test_detect_next_supabase_app(tmp_path):
 def test_detect_django_app(tmp_path):
     write(tmp_path, "requirements.txt", "Django==5.0\ndjangorestframework\nsentry-sdk\n")
     write(tmp_path, "manage.py", "import django\n")
-    write(tmp_path, "shop/settings.py", "SECURE_HSTS_SECONDS = 3600\nfrom django.contrib.auth import x\n")
+    write(
+        tmp_path,
+        "shop/settings.py",
+        "SECURE_HSTS_SECONDS = 3600\nfrom django.contrib.auth import x\n",
+    )
     write(tmp_path, "Dockerfile", "FROM python")
     d = detect(RepoIndex(tmp_path))
     assert d.frameworks == ["django", "djangorestframework"]
@@ -4740,9 +5096,11 @@ def _code_matches(index: RepoIndex, pattern: str) -> bool:
 def _match(signals: dict, index: RepoIndex, packages: set[str]) -> list[str]:
     found = []
     for name, spec in signals.items():
-        if (any(normalise(p) in packages for p in spec.get("packages", []))
-                or any(index.named(pattern) for pattern in spec.get("files", []))
-                or (spec.get("text") and _code_matches(index, spec["text"]))):
+        if (
+            any(normalise(p) in packages for p in spec.get("packages", []))
+            or any(index.named(pattern) for pattern in spec.get("files", []))
+            or (spec.get("text") and _code_matches(index, spec["text"]))
+        ):
             found.append(name)
     return found
 
@@ -4758,10 +5116,12 @@ def _sdks(packages: set[str], sites: dict[str, list[Location]]) -> list[SdkUse]:
         names = [normalise(p) for p in sdk["packages"]]
         if not any(n in packages for n in names):
             continue
-        locations = sorted({loc for n in names for loc in sites.get(n, [])},
-                           key=lambda loc: (loc.file, loc.line))[:20]
-        found.append(SdkUse(sdk["name"], sdk["category"], sdk["recipient"], sdk["paid"],
-                            tuple(locations)))
+        locations = sorted(
+            {loc for n in names for loc in sites.get(n, [])}, key=lambda loc: (loc.file, loc.line)
+        )[:20]
+        found.append(
+            SdkUse(sdk["name"], sdk["category"], sdk["recipient"], sdk["paid"], tuple(locations))
+        )
     return found
 
 
@@ -4860,9 +5220,15 @@ def test_catalogue_shape():
 
 def test_questions_for():
     assert [q.id for q in questions_for(["rls"])] == [
-        "frontend_key_type", "rls_via_dashboard", "tables_not_in_migrations", "buckets_public",
+        "frontend_key_type",
+        "rls_via_dashboard",
+        "tables_not_in_migrations",
+        "buckets_public",
     ]
-    assert [q.id for q in questions_for(["leaks"])] == ["hosting_env_not_in_repo", "log_tool_access_retention"]
+    assert [q.id for q in questions_for(["leaks"])] == [
+        "hosting_env_not_in_repo",
+        "log_tool_access_retention",
+    ]
 
 
 def test_options_from_detection():
@@ -4872,15 +5238,25 @@ def test_options_from_detection():
 
 def test_resolve_from_dict():
     qs = questions_for(["rls"])
-    results, warnings = resolve(qs, Detection(), {
-        "frontend_key_type": "Anon or publishable key only",
-        "rls_via_dashboard": "Not sure",
-        "nonsense": 1,
-    })
+    results, warnings = resolve(
+        qs,
+        Detection(),
+        {
+            "frontend_key_type": "Anon or publishable key only",
+            "rls_via_dashboard": "Not sure",
+            "nonsense": 1,
+        },
+    )
     by_id = {r.question.id: r for r in results}
     assert [r.question.id for r in results] == [q.id for q in qs]
-    assert (by_id["frontend_key_type"].open, by_id["frontend_key_type"].source) == (False, "answers")
-    assert (by_id["rls_via_dashboard"].open, by_id["rls_via_dashboard"].answer) == (True, "Not sure")
+    assert (by_id["frontend_key_type"].open, by_id["frontend_key_type"].source) == (
+        False,
+        "answers",
+    )
+    assert (by_id["rls_via_dashboard"].open, by_id["rls_via_dashboard"].answer) == (
+        True,
+        "Not sure",
+    )
     assert (by_id["buckets_public"].open, by_id["buckets_public"].source) == (True, "none")
     assert warnings == ["unknown answer key ignored: nonsense"]
 
@@ -4916,8 +5292,9 @@ def test_interactive_is_capped_at_eight():
 
 
 def test_answered_by_detection():
-    q = Question(id="x", reviews=("rls",), text="Host?", type="text", why="w", who="w",
-                 answered_by="hosting")
+    q = Question(
+        id="x", reviews=("rls",), text="Host?", type="text", why="w", who="w", answered_by="hosting"
+    )
     [result] = resolve([q], Detection(hosting=["vercel", "docker"]))[0]
     assert (result.answer, result.source, result.open) == ("vercel, docker", "detection", False)
 
@@ -4934,7 +5311,10 @@ def test_ask_on_terminal():
     printed = []
     assert ask_on_terminal(q, ["Yes", "No"], input_fn=lambda _: "2", output=printed.append) == "No"
     assert ask_on_terminal(q, ["Yes", "No"], input_fn=lambda _: "  ", output=printed.append) is None
-    assert ask_on_terminal(q, ["Yes"], input_fn=lambda _: "only avatars", output=printed.append) == "only avatars"
+    assert (
+        ask_on_terminal(q, ["Yes"], input_fn=lambda _: "only avatars", output=printed.append)
+        == "only avatars"
+    )
     assert q.text in printed
 ```
 
@@ -5128,11 +5508,17 @@ Ask = Callable[[Question, list[str]], str | None]
 def load_questions() -> list[Question]:
     return [
         Question(
-            id=q["id"], reviews=tuple(q["reviews"]), text=q["text"], type=q["type"],
-            why=q["why"], who=q["who"], options_from=q.get("options_from"),
+            id=q["id"],
+            reviews=tuple(q["reviews"]),
+            text=q["text"],
+            type=q["type"],
+            why=q["why"],
+            who=q["who"],
+            options_from=q.get("options_from"),
             static_options=tuple(q.get("static_options", [])),
             honest_out=tuple(q.get("honest_out", ["Not sure"])),
-            answered_by=q.get("answered_by"), lawyer=bool(q.get("lawyer", False)),
+            answered_by=q.get("answered_by"),
+            lawyer=bool(q.get("lawyer", False)),
         )
         for q in load("questions.yaml")["questions"]
     ]
@@ -5174,9 +5560,13 @@ def _as_text(value: object) -> str | None:
     return str(value).strip() or None
 
 
-def resolve(questions: list[Question], detection: Detection,
-            answers: str | Path | dict | None = None, interactive: bool = False,
-            ask: Ask | None = None) -> tuple[list[QuestionResult], list[str]]:
+def resolve(
+    questions: list[Question],
+    detection: Detection,
+    answers: str | Path | dict | None = None,
+    interactive: bool = False,
+    ask: Ask | None = None,
+) -> tuple[list[QuestionResult], list[str]]:
     data = _read_answers(answers)
     known = {q.id for q in load_questions()} | {q.id for q in questions}
     warnings = [f"unknown answer key ignored: {key}" for key in data if key not in known]
@@ -5204,7 +5594,7 @@ def resolve(questions: list[Question], detection: Detection,
 def answers_template(questions: list[Question], detection: Detection) -> str:
     lines = [
         "# dpr answers file. Fill in what you know and leave the rest empty.",
-        "# Honest answers such as \"Not sure\" are fine. They are listed as open questions.",
+        '# Honest answers such as "Not sure" are fine. They are listed as open questions.',
         "",
     ]
     for q in questions:
@@ -5228,9 +5618,12 @@ from collections.abc import Callable
 from dpr.model import Question
 
 
-def ask_on_terminal(question: Question, options: list[str],
-                    input_fn: Callable[[str], str] = input,
-                    output: Callable[[str], None] = print) -> str | None:
+def ask_on_terminal(
+    question: Question,
+    options: list[str],
+    input_fn: Callable[[str], str] = input,
+    output: Callable[[str], None] = print,
+) -> str | None:
     output("")
     output(question.text)
     for number, option in enumerate(options, start=1):
@@ -5341,8 +5734,13 @@ TITLES = {
     "abuse": "Abuse and bill guard",
 }
 LABELS = {
-    "inventory": "INV", "rls": "RLS", "auth": "CASE", "baseline": "FIX",
-    "owasp": "FINDING", "leaks": "LEAK", "abuse": "GUARD",
+    "inventory": "INV",
+    "rls": "RLS",
+    "auth": "CASE",
+    "baseline": "FIX",
+    "owasp": "FINDING",
+    "leaks": "LEAK",
+    "abuse": "GUARD",
 }
 RUN_ORDER = ("leaks", "rls", "baseline", "auth", "owasp", "abuse", "inventory")
 
@@ -5441,8 +5839,13 @@ from importlib.resources import files
 from dpr import reviews, rules
 from dpr.reviews.leaks import ROTATE
 
-KEY_RULES = ("LEAK-PUBLIC-SECRET", "LEAK-HARDCODED-KEY", "LEAK-KEY-IN-BUILD",
-             "LEAK-ENV-TRACKED", "LEAK-ENV-IN-HISTORY")
+KEY_RULES = (
+    "LEAK-PUBLIC-SECRET",
+    "LEAK-HARDCODED-KEY",
+    "LEAK-KEY-IN-BUILD",
+    "LEAK-ENV-TRACKED",
+    "LEAK-ENV-IN-HISTORY",
+)
 
 
 def test_rule_text_matches_registered_rules():
@@ -5462,8 +5865,13 @@ def test_rule_text_has_no_legal_verdicts_or_em_dashes():
     for item in folder.iterdir():
         raw = item.read_text(encoding="utf-8")
         lowered = raw.lower()
-        for phrase in ("compliant with", "complies with", "satisfies article",
-                       "satisfies section", "lawful basis is"):
+        for phrase in (
+            "compliant with",
+            "complies with",
+            "satisfies article",
+            "satisfies section",
+            "lawful basis is",
+        ):
             assert phrase not in lowered, (item.name, phrase)
         assert "\u2014" not in raw, item.name
 ```
@@ -5480,8 +5888,11 @@ TEST = "sk_" + "test_" + "a1B2c3D4e5F6g7H8i9J0k1L2"
 
 
 def test_public_secret(tmp_path):
-    write(tmp_path, ".env.example",
-          "NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=\nNEXT_PUBLIC_SUPABASE_ANON_KEY=\nSUPABASE_SERVICE_ROLE_KEY=\n")
+    write(
+        tmp_path,
+        ".env.example",
+        "NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=\nNEXT_PUBLIC_SUPABASE_ANON_KEY=\nSUPABASE_SERVICE_ROLE_KEY=\n",
+    )
     write(tmp_path, "lib/a.ts", "const k = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY\n")
     [f] = findings_for(tmp_path, "leaks", "LEAK-PUBLIC-SECRET")
     assert [str(loc) for loc in f.locations] == [".env.example:1", "lib/a.ts:1"]
@@ -5492,7 +5903,11 @@ def test_public_secret(tmp_path):
 
 
 def test_hardcoded_key_live_and_test(tmp_path):
-    write(tmp_path, "lib/stripe.ts", f'import Stripe from "stripe"\nexport const s = new Stripe("{LIVE}")\n')
+    write(
+        tmp_path,
+        "lib/stripe.ts",
+        f'import Stripe from "stripe"\nexport const s = new Stripe("{LIVE}")\n',
+    )
     write(tmp_path, "scripts/seed.py", f'KEY = "{TEST}"\n')
     found = {f.locations[0].file: f for f in findings_for(tmp_path, "leaks", "LEAK-HARDCODED-KEY")}
     live = found["lib/stripe.ts"]
@@ -5511,28 +5926,47 @@ def test_key_in_build_output(tmp_path):
 
 
 def test_sourcemaps(tmp_path):
-    write(tmp_path, "next.config.js", "module.exports = {\n  productionBrowserSourceMaps: true,\n}\n")
+    write(
+        tmp_path, "next.config.js", "module.exports = {\n  productionBrowserSourceMaps: true,\n}\n"
+    )
     write(tmp_path, ".next/static/chunks/main.js.map", "{}")
     found = findings_for(tmp_path, "leaks", "LEAK-SOURCEMAP")
     assert sorted(str(f.locations[0]) for f in found) == [
-        ".next/static/chunks/main.js.map:1", "next.config.js:2",
+        ".next/static/chunks/main.js.map:1",
+        "next.config.js:2",
     ]
 
 
 def test_sentry_pii(tmp_path):
-    write(tmp_path, "sentry.client.config.ts",
-          'import * as Sentry from "@sentry/nextjs"\nSentry.init({\n  dsn: "x",\n  sendDefaultPii: true,\n})\n')
-    write(tmp_path, "sentry.server.config.ts",
-          'import * as Sentry from "@sentry/nextjs"\nSentry.init({ dsn: "x" })\n')
-    write(tmp_path, "sentry.edge.config.ts",
-          'import * as Sentry from "@sentry/nextjs"\n'
-          'Sentry.init({ dsn: "x", beforeSend(event) { return event } })\n')
-    write(tmp_path, "app/settings.py",
-          "import sentry_sdk\nsentry_sdk.init(\n    dsn='x',\n    send_default_pii=True,\n)\n")
-    found = sorted((f.locations[0].file, f.locations[0].line) for f in
-                   findings_for(tmp_path, "leaks", "LEAK-SENTRY-PII"))
+    write(
+        tmp_path,
+        "sentry.client.config.ts",
+        'import * as Sentry from "@sentry/nextjs"\nSentry.init({\n  dsn: "x",\n  sendDefaultPii: true,\n})\n',
+    )
+    write(
+        tmp_path,
+        "sentry.server.config.ts",
+        'import * as Sentry from "@sentry/nextjs"\nSentry.init({ dsn: "x" })\n',
+    )
+    write(
+        tmp_path,
+        "sentry.edge.config.ts",
+        'import * as Sentry from "@sentry/nextjs"\n'
+        'Sentry.init({ dsn: "x", beforeSend(event) { return event } })\n',
+    )
+    write(
+        tmp_path,
+        "app/settings.py",
+        "import sentry_sdk\nsentry_sdk.init(\n    dsn='x',\n    send_default_pii=True,\n)\n",
+    )
+    found = sorted(
+        (f.locations[0].file, f.locations[0].line)
+        for f in findings_for(tmp_path, "leaks", "LEAK-SENTRY-PII")
+    )
     assert found == [
-        ("app/settings.py", 4), ("sentry.client.config.ts", 4), ("sentry.server.config.ts", 2),
+        ("app/settings.py", 4),
+        ("sentry.client.config.ts", 4),
+        ("sentry.server.config.ts", 2),
     ]
 ```
 
@@ -5621,8 +6055,14 @@ def public_secret(ctx: Context) -> Iterator[Finding]:
     for env in ctx.detection.env_vars:
         prefix = public_prefix(env.name)
         if prefix and is_secret_name(env.name):
-            yield make_finding("LEAK-PUBLIC-SECRET", tag=Tag.CONFIRMED, locations=env.locations,
-                               name=env.name, prefix=prefix, renamed=env.name[len(prefix):])
+            yield make_finding(
+                "LEAK-PUBLIC-SECRET",
+                tag=Tag.CONFIRMED,
+                locations=env.locations,
+                name=env.name,
+                prefix=prefix,
+                renamed=env.name[len(prefix) :],
+            )
 
 
 @rule("LEAK-HARDCODED-KEY", review="leaks", severity="critical", exploitability="high")
@@ -5631,9 +6071,13 @@ def hardcoded_key(ctx: Context) -> Iterator[Finding]:
         text = ctx.index.text(entry.rel)
         for hit in find_keys(text):
             yield make_finding(
-                "LEAK-HARDCODED-KEY", tag=Tag.CONFIRMED, locations=[Location(entry.rel, hit.line)],
-                severity=None if hit.live else "high", snippet=snippet(text, hit.line),
-                kind=hit.kind)
+                "LEAK-HARDCODED-KEY",
+                tag=Tag.CONFIRMED,
+                locations=[Location(entry.rel, hit.line)],
+                severity=None if hit.live else "high",
+                snippet=snippet(text, hit.line),
+                kind=hit.kind,
+            )
 
 
 @rule("LEAK-KEY-IN-BUILD", review="leaks", severity="critical", exploitability="high")
@@ -5642,8 +6086,12 @@ def key_in_build(ctx: Context) -> Iterator[Finding]:
         text = entry.path.read_text(encoding="utf-8", errors="replace")
         for hit in find_keys(text):
             yield make_finding(
-                "LEAK-KEY-IN-BUILD", tag=Tag.CONFIRMED, locations=[Location(entry.rel, hit.line)],
-                severity=None if hit.live else "high", kind=hit.kind)
+                "LEAK-KEY-IN-BUILD",
+                tag=Tag.CONFIRMED,
+                locations=[Location(entry.rel, hit.line)],
+                severity=None if hit.live else "high",
+                kind=hit.kind,
+            )
 
 
 @rule("LEAK-SOURCEMAP", review="leaks", severity="medium", exploitability="medium")
@@ -5651,17 +6099,23 @@ def sourcemaps(ctx: Context) -> Iterator[Finding]:
     maps = [f for f in ctx.index.build_files if f.name.endswith(".map")]
     if maps:
         yield make_finding(
-            "LEAK-SOURCEMAP", tag=Tag.CONFIRMED, locations=[Location(f.rel, 1) for f in maps[:5]],
-            what=f"{len(maps)} source map file(s) are in the build output.")
+            "LEAK-SOURCEMAP",
+            tag=Tag.CONFIRMED,
+            locations=[Location(f.rel, 1) for f in maps[:5]],
+            what=f"{len(maps)} source map file(s) are in the build output.",
+        )
     for entry in ctx.index.named("next.config.*", "vite.config.*"):
         text = ctx.index.text(entry.rel)
         pattern = NEXT_SOURCEMAPS if entry.name.startswith("next.") else VITE_SOURCEMAPS
         for match in pattern.finditer(text):
             line = line_of(text, match.start())
             yield make_finding(
-                "LEAK-SOURCEMAP", tag=Tag.CONFIRMED, locations=[Location(entry.rel, line)],
+                "LEAK-SOURCEMAP",
+                tag=Tag.CONFIRMED,
+                locations=[Location(entry.rel, line)],
                 snippet=snippet(text, line),
-                what=f"{entry.name} turns on source maps for the production build.")
+                what=f"{entry.name} turns on source maps for the production build.",
+            )
 
 
 def _sentry_detail(sends_pii: bool, scrubs: bool) -> str:
@@ -5690,10 +6144,13 @@ def _js_sentry(ctx: Context) -> Iterator[Finding]:
                 if not sends_pii and scrubs:
                     continue
                 line = jsts.line(tree, pii if sends_pii else call)
-                yield make_finding("LEAK-SENTRY-PII", tag=Tag.CONFIRMED,
-                                   locations=[Location(entry.rel, line)],
-                                   snippet=snippet(text, line),
-                                   what=_sentry_detail(sends_pii, scrubs))
+                yield make_finding(
+                    "LEAK-SENTRY-PII",
+                    tag=Tag.CONFIRMED,
+                    locations=[Location(entry.rel, line)],
+                    snippet=snippet(text, line),
+                    what=_sentry_detail(sends_pii, scrubs),
+                )
 
 
 def _py_sentry(ctx: Context) -> Iterator[Finding]:
@@ -5712,9 +6169,13 @@ def _py_sentry(ctx: Context) -> Iterator[Finding]:
             if not sends_pii and scrubs:
                 continue
             line = pii.lineno if sends_pii else call.lineno
-            yield make_finding("LEAK-SENTRY-PII", tag=Tag.CONFIRMED,
-                               locations=[Location(entry.rel, line)],
-                               snippet=snippet(text, line), what=_sentry_detail(sends_pii, scrubs))
+            yield make_finding(
+                "LEAK-SENTRY-PII",
+                tag=Tag.CONFIRMED,
+                locations=[Location(entry.rel, line)],
+                snippet=snippet(text, line),
+                what=_sentry_detail(sends_pii, scrubs),
+            )
 
 
 @rule("LEAK-SENTRY-PII", review="leaks", severity="medium", exploitability="low")
@@ -5724,10 +6185,14 @@ def sentry_pii(ctx: Context) -> Iterator[Finding]:
 
 
 def run(ctx: Context) -> ReviewSection:
-    note = ("No secret value is printed in this report. Findings name the variable or key type "
-            "and where it is. A key that reached a browser or git history must be rotated.")
-    return ReviewSection("leaks", [Part("text", "What this review never prints", body=note),
-                                   Part("findings", "Leaks")])
+    note = (
+        "No secret value is printed in this report. Findings name the variable or key type "
+        "and where it is. A key that reached a browser or git history must be rotated."
+    )
+    return ReviewSection(
+        "leaks",
+        [Part("text", "What this review never prints", body=note), Part("findings", "Leaks")],
+    )
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -5769,8 +6234,20 @@ from tests.reviews.helpers import findings_for, write
 
 
 def git(root, *args):
-    subprocess.run(["git", "-C", str(root), "-c", "user.name=dpr", "-c", "user.email=dpr@example.invalid",
-                    *args], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=dpr",
+            "-c",
+            "user.email=dpr@example.invalid",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+    )
 
 
 def locs(found):
@@ -5804,7 +6281,9 @@ def test_history_paths_are_relative_to_scanned_subfolder(tmp_path):
     write(tmp_path, "web/a.py", "x = 1\n")
     git(tmp_path, "add", "-A")
     git(tmp_path, "commit", "-q", "-m", "two")
-    assert locs(findings_for(tmp_path / "web", "leaks", "LEAK-ENV-IN-HISTORY")) == [".env.staging:1"]
+    assert locs(findings_for(tmp_path / "web", "leaks", "LEAK-ENV-IN-HISTORY")) == [
+        ".env.staging:1"
+    ]
 
 
 def test_git_checks_skipped_outside_repo(tmp_path):
@@ -5825,27 +6304,44 @@ SCHEMA = "model User {\n  id Int @id\n  email String\n  passwordHash String\n}\n
 
 def test_broad_response_js(tmp_path):
     write(tmp_path, "prisma/schema.prisma", SCHEMA)
-    write(tmp_path, "app/api/users/[id]/route.ts",
-          "export async function GET(req, { params }) {\n"
-          "  const user = await prisma.user.findUnique({ where: { id: params.id } })\n"
-          "  return NextResponse.json(user)\n}\n")
-    write(tmp_path, "app/api/invoices/[id]/route.ts",
-          "export async function GET(req, { params }) {\n"
-          "  return NextResponse.json(await prisma.invoice.findFirst({ where: { id: params.id } }))\n}\n")
-    write(tmp_path, "app/api/safe/route.ts",
-          "export async function GET() {\n"
-          "  const user = await prisma.user.findUnique({ where: { id: 1 }, select: { id: true } })\n"
-          "  return NextResponse.json(user)\n}\n")
-    write(tmp_path, "app/api/profile/route.ts",
-          "export async function GET() {\n"
-          "  const { data } = await supabase.from('profiles').select('*').single()\n"
-          "  return Response.json(data)\n}\n")
-    write(tmp_path, "app/actions.ts",
-          '"use server"\nexport async function me() {\n  return prisma.user.findFirst({ where: { id: 1 } })\n}\n')
+    write(
+        tmp_path,
+        "app/api/users/[id]/route.ts",
+        "export async function GET(req, { params }) {\n"
+        "  const user = await prisma.user.findUnique({ where: { id: params.id } })\n"
+        "  return NextResponse.json(user)\n}\n",
+    )
+    write(
+        tmp_path,
+        "app/api/invoices/[id]/route.ts",
+        "export async function GET(req, { params }) {\n"
+        "  return NextResponse.json(await prisma.invoice.findFirst({ where: { id: params.id } }))\n}\n",
+    )
+    write(
+        tmp_path,
+        "app/api/safe/route.ts",
+        "export async function GET() {\n"
+        "  const user = await prisma.user.findUnique({ where: { id: 1 }, select: { id: true } })\n"
+        "  return NextResponse.json(user)\n}\n",
+    )
+    write(
+        tmp_path,
+        "app/api/profile/route.ts",
+        "export async function GET() {\n"
+        "  const { data } = await supabase.from('profiles').select('*').single()\n"
+        "  return Response.json(data)\n}\n",
+    )
+    write(
+        tmp_path,
+        "app/actions.ts",
+        '"use server"\nexport async function me() {\n  return prisma.user.findFirst({ where: { id: 1 } })\n}\n',
+    )
     found = {str(f.locations[0]): f for f in findings_for(tmp_path, "leaks", "LEAK-BROAD-RESPONSE")}
     assert sorted(found) == [
-        "app/actions.ts:3", "app/api/invoices/[id]/route.ts:2",
-        "app/api/profile/route.ts:3", "app/api/users/[id]/route.ts:3",
+        "app/actions.ts:3",
+        "app/api/invoices/[id]/route.ts:2",
+        "app/api/profile/route.ts:3",
+        "app/api/users/[id]/route.ts:3",
     ]
     assert found["app/api/users/[id]/route.ts:3"].severity.value == "high"
     assert found["app/api/invoices/[id]/route.ts:2"].severity.value == "medium"
@@ -5853,52 +6349,76 @@ def test_broad_response_js(tmp_path):
 
 
 def test_broad_response_python(tmp_path):
-    write(tmp_path, "shop/serializers.py",
-          "from rest_framework import serializers\n\n"
-          "class UserSerializer(serializers.ModelSerializer):\n"
-          "    class Meta:\n        model = User\n        fields = \"__all__\"\n")
-    write(tmp_path, "shop/urls.py", "from django.urls import path\nfrom . import views\n"
-          "urlpatterns = [path('me/', views.me)]\n")
-    write(tmp_path, "shop/views.py",
-          "from django.forms.models import model_to_dict\n\n"
-          "def me(request):\n    return JsonResponse(model_to_dict(request.user))\n")
+    write(
+        tmp_path,
+        "shop/serializers.py",
+        "from rest_framework import serializers\n\n"
+        "class UserSerializer(serializers.ModelSerializer):\n"
+        '    class Meta:\n        model = User\n        fields = "__all__"\n',
+    )
+    write(
+        tmp_path,
+        "shop/urls.py",
+        "from django.urls import path\nfrom . import views\n"
+        "urlpatterns = [path('me/', views.me)]\n",
+    )
+    write(
+        tmp_path,
+        "shop/views.py",
+        "from django.forms.models import model_to_dict\n\n"
+        "def me(request):\n    return JsonResponse(model_to_dict(request.user))\n",
+    )
     assert locs(findings_for(tmp_path, "leaks", "LEAK-BROAD-RESPONSE")) == [
-        "shop/serializers.py:6", "shop/views.py:4",
+        "shop/serializers.py:6",
+        "shop/views.py:4",
     ]
 
 
 def test_ssr_props(tmp_path):
-    write(tmp_path, "pages/account.tsx",
-          "export async function getServerSideProps() {\n"
-          "  const user = await prisma.user.findUnique({ where: { id: 1 } })\n"
-          "  return { props: { user } }\n}\n"
-          "export default function Page() { return null }\n")
+    write(
+        tmp_path,
+        "pages/account.tsx",
+        "export async function getServerSideProps() {\n"
+        "  const user = await prisma.user.findUnique({ where: { id: 1 } })\n"
+        "  return { props: { user } }\n}\n"
+        "export default function Page() { return null }\n",
+    )
     assert locs(findings_for(tmp_path, "leaks", "LEAK-SSR-PROPS")) == ["pages/account.tsx:3"]
 
 
 def test_logged_pii(tmp_path):
-    write(tmp_path, "app/api/signup/route.ts",
-          "export async function POST(req) {\n"
-          "  const body = await req.json()\n"
-          "  try {\n    await prisma.user.create({ data: body })\n"
-          "  } catch (err) {\n"
-          "    console.error('signup failed', body)\n"
-          "    console.error(err)\n"
-          "    console.error('signup failed', { requestId })\n"
-          "  }\n"
-          "  try { parse() } catch (e) { console.log(e) }\n"
-          "  logger.info(JSON.stringify(req.headers))\n"
-          "}\n")
-    write(tmp_path, "svc/views.py",
-          "import logging, traceback\nlogger = logging.getLogger(__name__)\n\n"
-          "def create(request):\n"
-          "    logger.error(f'bad input {request.data}')\n"
-          "    try:\n        Invoice.objects.create(**request.data)\n"
-          "    except Exception as e:\n        print(e)\n        traceback.print_exc()\n"
-          "    try:\n        parse()\n    except ValueError as e:\n        print(e)\n")
+    write(
+        tmp_path,
+        "app/api/signup/route.ts",
+        "export async function POST(req) {\n"
+        "  const body = await req.json()\n"
+        "  try {\n    await prisma.user.create({ data: body })\n"
+        "  } catch (err) {\n"
+        "    console.error('signup failed', body)\n"
+        "    console.error(err)\n"
+        "    console.error('signup failed', { requestId })\n"
+        "  }\n"
+        "  try { parse() } catch (e) { console.log(e) }\n"
+        "  logger.info(JSON.stringify(req.headers))\n"
+        "}\n",
+    )
+    write(
+        tmp_path,
+        "svc/views.py",
+        "import logging, traceback\nlogger = logging.getLogger(__name__)\n\n"
+        "def create(request):\n"
+        "    logger.error(f'bad input {request.data}')\n"
+        "    try:\n        Invoice.objects.create(**request.data)\n"
+        "    except Exception as e:\n        print(e)\n        traceback.print_exc()\n"
+        "    try:\n        parse()\n    except ValueError as e:\n        print(e)\n",
+    )
     assert locs(findings_for(tmp_path, "leaks", "LEAK-LOGGED-PII")) == [
-        "app/api/signup/route.ts:11", "app/api/signup/route.ts:6", "app/api/signup/route.ts:7",
-        "svc/views.py:10", "svc/views.py:5", "svc/views.py:9",
+        "app/api/signup/route.ts:11",
+        "app/api/signup/route.ts:6",
+        "app/api/signup/route.ts:7",
+        "svc/views.py:10",
+        "svc/views.py:5",
+        "svc/views.py:9",
     ]
 ```
 
@@ -5988,19 +6508,23 @@ ENV_NAME = re.compile(r"^\.env(\..+)?$")
 ENV_EXAMPLE = re.compile(r"\.(example|sample|template)$")
 RESPONSE_CALL = re.compile(r"(?:NextResponse|Response)\.json|res\.(?:json|send)|reply\.send|json")
 ORM_READ = re.compile(
-    r"(?:prisma|db|tx)\.(\w+)\.(findUnique|findUniqueOrThrow|findFirst|findFirstOrThrow|findMany)")
+    r"(?:prisma|db|tx)\.(\w+)\.(findUnique|findUniqueOrThrow|findFirst|findFirstOrThrow|findMany)"
+)
 SUPABASE_ALL = re.compile(r"\.select\(\s*(?:['\"`]\*['\"`])?\s*\)")
 SUPABASE_TABLE = re.compile(r"\.from\(\s*['\"`](\w+)['\"`]\s*\)")
 SELECT_STAR = re.compile(r"select\s+\*", re.IGNORECASE)
 JS_ROUTE_FRAMEWORKS = ("next-app", "next-pages", "next-action", "express", "fastify")
 PY_ROUTE_FRAMEWORKS = ("django", "drf", "fastapi", "flask")
 LOG_CALL = re.compile(
-    r"console\.(?:log|error|warn|info|debug)|(?:logger|log)\.(?:info|error|warn|debug|log|fatal)")
+    r"console\.(?:log|error|warn|info|debug)|(?:logger|log)\.(?:info|error|warn|debug|log|fatal)"
+)
 PY_LOG_CALL = re.compile(
     r"print|logging\.(?:debug|info|warning|error|exception|critical)"
-    r"|(?:logger|log|LOGGER)\.(?:debug|info|warning|error|exception|critical)")
-SENSITIVE_ROOTS = frozenset({"req", "request", "body", "user", "token", "payload", "headers",
-                             "session", "password"})
+    r"|(?:logger|log|LOGGER)\.(?:debug|info|warning|error|exception|critical)"
+)
+SENSITIVE_ROOTS = frozenset(
+    {"req", "request", "body", "user", "token", "payload", "headers", "session", "password"}
+)
 ERROR_NAMES = frozenset({"err", "error", "e", "exc"})
 OBJECT_LOGGED = "A request, user, token or database error object is written to the log."
 TRACEBACK_LOGGED = "A full traceback, with local values in the message, is printed to the log."
@@ -6021,15 +6545,25 @@ def env_tracked(ctx: Context) -> Iterator[Finding]:
         return
     for path in tracked:
         if _is_real_env(path):
-            yield make_finding("LEAK-ENV-TRACKED", tag=Tag.CONFIRMED,
-                               locations=[Location(path, 1)], path=path)
+            yield make_finding(
+                "LEAK-ENV-TRACKED", tag=Tag.CONFIRMED, locations=[Location(path, 1)], path=path
+            )
 
 
 @rule("LEAK-ENV-IN-HISTORY", review="leaks", severity="high", exploitability="medium")
 def env_in_history(ctx: Context) -> Iterator[Finding]:
     root = ctx.index.root
-    output = run_git(root, "log", "--all", "--diff-filter=A", "--name-only", "--format=commit %h",
-                     "--", ":(glob)**/.env", ":(glob)**/.env.*")
+    output = run_git(
+        root,
+        "log",
+        "--all",
+        "--diff-filter=A",
+        "--name-only",
+        "--format=commit %h",
+        "--",
+        ":(glob)**/.env",
+        ":(glob)**/.env.*",
+    )
     if output is None:
         return
     prefix = (run_git(root, "rev-parse", "--show-prefix") or "").strip()
@@ -6043,12 +6577,17 @@ def env_in_history(ctx: Context) -> Iterator[Finding]:
         path = line.strip()
         if not path.startswith(prefix):
             continue
-        path = path[len(prefix):]
+        path = path[len(prefix) :]
         if path and _is_real_env(path) and path not in tracked:
             first_seen.setdefault(path, commit)
     for path, sha in first_seen.items():
-        yield make_finding("LEAK-ENV-IN-HISTORY", tag=Tag.CONFIRMED,
-                           locations=[Location(path, 1)], path=path, commit=sha)
+        yield make_finding(
+            "LEAK-ENV-IN-HISTORY",
+            tag=Tag.CONFIRMED,
+            locations=[Location(path, 1)],
+            path=path,
+            commit=sha,
+        )
 
 
 def _snake(name: str) -> str:
@@ -6105,13 +6644,27 @@ def _record_source(node) -> tuple[str | None, str | None]:
     return None, None
 
 
-def _broad(ctx: Context, rel: str, line: int, source: str, name: str | None,
-           rule_id: str = "LEAK-BROAD-RESPONSE") -> Finding:
-    what = (f"This response sends every field of the {name or 'queried'} record, "
-            "not only the ones the client needs.")
-    return make_finding(rule_id, tag=Tag.INFERRED, locations=[Location(rel, line)],
-                        severity=_severity(ctx, name), snippet=snippet(ctx.index.text(rel), line),
-                        source=source, what=what)
+def _broad(
+    ctx: Context,
+    rel: str,
+    line: int,
+    source: str,
+    name: str | None,
+    rule_id: str = "LEAK-BROAD-RESPONSE",
+) -> Finding:
+    what = (
+        f"This response sends every field of the {name or 'queried'} record, "
+        "not only the ones the client needs."
+    )
+    return make_finding(
+        rule_id,
+        tag=Tag.INFERRED,
+        locations=[Location(rel, line)],
+        severity=_severity(ctx, name),
+        snippet=snippet(ctx.index.text(rel), line),
+        source=source,
+        what=what,
+    )
 
 
 def _js_responses(ctx: Context) -> Iterator[Finding]:
@@ -6121,11 +6674,17 @@ def _js_responses(ctx: Context) -> Iterator[Finding]:
             continue
         if handler.type not in jsts.FUNCTION_TYPES:
             continue
-        candidates = [jsts.arguments(c)[0] for c in jsts.calls(route.tree, RESPONSE_CALL, handler)
-                      if jsts.arguments(c)]
+        candidates = [
+            jsts.arguments(c)[0]
+            for c in jsts.calls(route.tree, RESPONSE_CALL, handler)
+            if jsts.arguments(c)
+        ]
         if route.framework == "next-action":
-            candidates += [r.named_children[0] for r in jsts.walk(handler, {"return_statement"})
-                           if r.named_children]
+            candidates += [
+                r.named_children[0]
+                for r in jsts.walk(handler, {"return_statement"})
+                if r.named_children
+            ]
         for node in candidates:
             source, name = _record_source(node)
             if source:
@@ -6151,7 +6710,9 @@ def _py_responses(ctx: Context) -> Iterator[Finding]:
             continue
         for node in ast.walk(route.handler):
             dumps_all = isinstance(node, ast.Call) and pyast.dotted(node.func) in (
-                "model_to_dict", "vars")
+                "model_to_dict",
+                "vars",
+            )
             whole = dumps_all or (isinstance(node, ast.Attribute) and node.attr == "__dict__")
             if whole:
                 yield _broad(ctx, route.file, node.lineno, "Django", None)
@@ -6190,8 +6751,14 @@ def ssr_props(ctx: Context) -> Iterator[Finding]:
                     for item in values:
                         source, model = _record_source(item)
                         if source:
-                            yield _broad(ctx, entry.rel, jsts.line(tree, ret), source, model,
-                                         rule_id="LEAK-SSR-PROPS")
+                            yield _broad(
+                                ctx,
+                                entry.rel,
+                                jsts.line(tree, ret),
+                                source,
+                                model,
+                                rule_id="LEAK-SSR-PROPS",
+                            )
 
 
 def _catch_has_db(ident) -> bool:
@@ -6218,8 +6785,11 @@ def _js_sensitive(arg) -> bool:
     if arg.type == "object":
         return any(_js_sensitive(v) for v in jsts.object_pairs(arg).values())
     if arg.type == "template_string":
-        return any(_js_sensitive(s.named_children[0]) for s in arg.named_children
-                   if s.type == "template_substitution" and s.named_children)
+        return any(
+            _js_sensitive(s.named_children[0])
+            for s in arg.named_children
+            if s.type == "template_substitution" and s.named_children
+        )
     root = jsts.member_root(arg)
     if root in SENSITIVE_ROOTS:
         return True
@@ -6233,8 +6803,11 @@ def _js_sensitive(arg) -> bool:
 
 def _py_sensitive(node: ast.AST, tree: ast.Module, line: int) -> bool:
     if isinstance(node, ast.JoinedStr):
-        return any(_py_sensitive(v.value, tree, line) for v in node.values
-                   if isinstance(v, ast.FormattedValue))
+        return any(
+            _py_sensitive(v.value, tree, line)
+            for v in node.values
+            if isinstance(v, ast.FormattedValue)
+        )
     if isinstance(node, ast.Call) and pyast.dotted(node.func) in ("json.dumps", "str", "repr"):
         return any(_py_sensitive(a, tree, line) for a in node.args)
     root = pyast.name_root(node)
@@ -6253,8 +6826,13 @@ def _py_sensitive(node: ast.AST, tree: ast.Module, line: int) -> bool:
 
 def _logged(ctx: Context, rel: str, line: int, what: str) -> Finding:
     ctx.facts.setdefault("logged_pii", []).append(Location(rel, line))
-    return make_finding("LEAK-LOGGED-PII", tag=Tag.INFERRED, locations=[Location(rel, line)],
-                        snippet=snippet(ctx.index.text(rel), line), what=what)
+    return make_finding(
+        "LEAK-LOGGED-PII",
+        tag=Tag.INFERRED,
+        locations=[Location(rel, line)],
+        snippet=snippet(ctx.index.text(rel), line),
+        what=what,
+    )
 
 
 @rule("LEAK-LOGGED-PII", review="leaks", severity="medium", exploitability="low")
@@ -6340,9 +6918,12 @@ def app(tmp_path, public_key=True):
     write(tmp_path, "supabase/migrations/001_init.sql", MIG)
     if public_key:
         write(tmp_path, ".env.example", "NEXT_PUBLIC_SUPABASE_ANON_KEY=\n")
-    write(tmp_path, "lib/q.ts",
-          "export const q = () => supabase.from('invoices').select('id')\n"
-          "export const b = () => supabase.storage.createBucket('uploads', { public: true })\n")
+    write(
+        tmp_path,
+        "lib/q.ts",
+        "export const q = () => supabase.from('invoices').select('id')\n"
+        "export const b = () => supabase.storage.createBucket('uploads', { public: true })\n",
+    )
     return tmp_path
 
 
@@ -6353,7 +6934,10 @@ def lines(found):
 def test_table_off(tmp_path):
     [f] = findings_for(app(tmp_path), "rls", "RLS-TABLE-OFF")
     assert (str(f.locations[0]), f.severity.value, f.tag.value) == (
-        "supabase/migrations/001_init.sql:1", "critical", "CONFIRMED")
+        "supabase/migrations/001_init.sql:1",
+        "critical",
+        "CONFIRMED",
+    )
     assert "alter table public.invoices enable row level security;" in f.fix
     assert "for select using (auth.uid() = user_id);" in f.fix
     assert "rest/v1/invoices" in f.verify
@@ -6387,7 +6971,8 @@ def test_not_applicable(tmp_path):
     ctx = rules.Context(index=index, detection=detect(index))
     assert reviews.available()["rls"].run(ctx) is None
     assert ctx.not_covered == [
-        "Review 2 (rls): not applicable, no SQL tables, Supabase client or database dump found"]
+        "Review 2 (rls): not applicable, no SQL tables, Supabase client or database dump found"
+    ]
 
 
 def test_section_parts_and_breakage_note(tmp_path):
@@ -6395,11 +6980,19 @@ def test_section_parts_and_breakage_note(tmp_path):
     ctx = rules.Context(index=index, detection=detect(index))
     section = reviews.available()["rls"].run(ctx)
     assert [p.title for p in section.parts] == [
-        "Table protection status", "Policy defects", "Missing policies (runnable SQL)",
-        "How to confirm from outside the app", "Confirm in the database",
+        "Table protection status",
+        "Policy defects",
+        "Missing policies (runnable SQL)",
+        "How to confirm from outside the app",
+        "Confirm in the database",
     ]
     table = section.parts[0]
-    assert [r[0] for r in table.rows] == ["public.documents", "public.invoices", "public.lookup", "public.members"]
+    assert [r[0] for r in table.rows] == [
+        "public.documents",
+        "public.invoices",
+        "public.lookup",
+        "public.members",
+    ]
     invoices = next(r for r in table.rows if r[0] == "public.invoices")
     assert invoices[1:5] == ("no", "0", "yes, every row", "exposed")
     missing = section.parts[2].body
@@ -6410,10 +7003,13 @@ def test_section_parts_and_breakage_note(tmp_path):
 
 def test_db_dump_is_source_of_truth(tmp_path):
     root = app(tmp_path)
-    dump = write(tmp_path, "dump.csv",
-                 "schemaname,tablename,rowsecurity\npublic,invoices,t\n\n"
-                 "schemaname,tablename,policyname,permissive,roles,cmd,qual,with_check\n"
-                 "public,invoices,inv_own,PERMISSIVE,{authenticated},SELECT,(auth.uid() = user_id),\n")
+    dump = write(
+        tmp_path,
+        "dump.csv",
+        "schemaname,tablename,rowsecurity\npublic,invoices,t\n\n"
+        "schemaname,tablename,policyname,permissive,roles,cmd,qual,with_check\n"
+        "public,invoices,inv_own,PERMISSIVE,{authenticated},SELECT,(auth.uid() = user_id),\n",
+    )
     assert findings_for(root, "rls", "RLS-TABLE-OFF", db_dump=str(dump)) == []
 ```
 
@@ -6536,8 +7132,9 @@ def predicate_text(policy: Policy) -> str:
 
 
 def qualified(key: str) -> str:
-    return ".".join(p if re.fullmatch(r"[a-z_][a-z0-9_]*", p) else f'"{p}"'
-                    for p in key.split(".", 1))
+    return ".".join(
+        p if re.fullmatch(r"[a-z_][a-z0-9_]*", p) else f'"{p}"' for p in key.split(".", 1)
+    )
 
 
 def sql_block(sql: str) -> str:
@@ -6553,14 +7150,20 @@ def policies_sql(state: SchemaState, table: TableDef) -> str:
     pred = predicate(state, table)
     if pred is None:
         return "\n".join([*lines, NO_PREDICATE])
-    return "\n".join([
-        *lines, "",
-        f'create policy "{name}_select_own" on {target}\n  for select using ({pred});', "",
-        f'create policy "{name}_insert_own" on {target}\n  for insert with check ({pred});', "",
-        f'create policy "{name}_update_own" on {target}\n'
-        f"  for update using ({pred}) with check ({pred});", "",
-        f'create policy "{name}_delete_own" on {target}\n  for delete using ({pred});',
-    ])
+    return "\n".join(
+        [
+            *lines,
+            "",
+            f'create policy "{name}_select_own" on {target}\n  for select using ({pred});',
+            "",
+            f'create policy "{name}_insert_own" on {target}\n  for insert with check ({pred});',
+            "",
+            f'create policy "{name}_update_own" on {target}\n'
+            f"  for update using ({pred}) with check ({pred});",
+            "",
+            f'create policy "{name}_delete_own" on {target}\n  for delete using ({pred});',
+        ]
+    )
 
 
 def replacement_sql(state: SchemaState, policy: Policy) -> str:
@@ -6668,15 +7271,23 @@ def _rls_tables(ctx: Context) -> set[str]:
 def table_off(ctx: Context) -> Iterator[Finding]:
     state = state_for(ctx)
     exposed = ctx.detection.public_supabase_key
-    reach = ("A public Supabase key is configured, so anyone holding it can read the table."
-             if exposed else "No public key was found, which reduces how reachable it is.")
+    reach = (
+        "A public Supabase key is configured, so anyone holding it can read the table."
+        if exposed
+        else "No public key was found, which reduces how reachable it is."
+    )
     for table in public_tables(ctx):
         if not table.rls:
             yield make_finding(
-                "RLS-TABLE-OFF", tag=Tag.CONFIRMED, locations=[table_location(table)],
+                "RLS-TABLE-OFF",
+                tag=Tag.CONFIRMED,
+                locations=[table_location(table)],
                 severity="critical" if exposed else "high",
-                fix=sql_block(policies_sql(state, table)), verify=confirm_commands(table.name),
-                table=table.key, reach=reach)
+                fix=sql_block(policies_sql(state, table)),
+                verify=confirm_commands(table.name),
+                table=table.key,
+                reach=reach,
+            )
 
 
 @rule("RLS-NO-POLICIES", review="rls", severity="low", exploitability="low")
@@ -6684,9 +7295,13 @@ def no_policies(ctx: Context) -> Iterator[Finding]:
     state = state_for(ctx)
     for table in public_tables(ctx):
         if table.rls and not state.policies_for(table.key):
-            yield make_finding("RLS-NO-POLICIES", tag=Tag.CONFIRMED,
-                               locations=[table_location(table)],
-                               fix=sql_block(policies_sql(state, table)), table=table.key)
+            yield make_finding(
+                "RLS-NO-POLICIES",
+                tag=Tag.CONFIRMED,
+                locations=[table_location(table)],
+                fix=sql_block(policies_sql(state, table)),
+                table=table.key,
+            )
 
 
 @rule("RLS-SELECT-ONLY", review="rls", severity="low", exploitability="low")
@@ -6695,8 +7310,12 @@ def select_only(ctx: Context) -> Iterator[Finding]:
     for table in public_tables(ctx):
         policies = state.policies_for(table.key)
         if table.rls and policies and all(p.command == "select" for p in policies):
-            yield make_finding("RLS-SELECT-ONLY", tag=Tag.CONFIRMED,
-                               locations=[policies[0].location], table=table.key)
+            yield make_finding(
+                "RLS-SELECT-ONLY",
+                tag=Tag.CONFIRMED,
+                locations=[policies[0].location],
+                table=table.key,
+            )
 
 
 @rule("RLS-VIEW-BYPASS", review="rls", severity="high", exploitability="high")
@@ -6708,8 +7327,14 @@ def view_bypass(ctx: Context) -> Iterator[Finding]:
         protected = [s for s in view.sources if s in protected_tables]
         if key.startswith("public.") and not view.security_invoker and protected:
             fix = sql_block(f"alter view {qualified(key)} set (security_invoker = true);")
-            yield make_finding("RLS-VIEW-BYPASS", tag=Tag.CONFIRMED, locations=[view.location],
-                               fix=fix, view=key, tables=", ".join(protected))
+            yield make_finding(
+                "RLS-VIEW-BYPASS",
+                tag=Tag.CONFIRMED,
+                locations=[view.location],
+                fix=fix,
+                view=key,
+                tables=", ".join(protected),
+            )
 
 
 @rule("RLS-DEFINER-FUNCTION", review="rls", severity="medium", exploitability="medium")
@@ -6726,16 +7351,26 @@ def definer_function(ctx: Context) -> Iterator[Finding]:
             what += f" It reads {', '.join(protected)}, which have row level security."
         if not fn.sets_search_path:
             what += " It does not set search_path."
-        yield make_finding("RLS-DEFINER-FUNCTION", tag=Tag.CONFIRMED, locations=[fn.location],
-                           severity="high" if protected else "medium", function=key, what=what)
+        yield make_finding(
+            "RLS-DEFINER-FUNCTION",
+            tag=Tag.CONFIRMED,
+            locations=[fn.location],
+            severity="high" if protected else "medium",
+            function=key,
+            what=what,
+        )
 
 
 @rule("RLS-PUBLIC-BUCKET", review="rls", severity="medium", exploitability="medium")
 def public_bucket(ctx: Context) -> Iterator[Finding]:
     for bucket in sorted(state_for(ctx).buckets.values(), key=lambda b: b.id):
         if bucket.public:
-            yield make_finding("RLS-PUBLIC-BUCKET", tag=Tag.CONFIRMED,
-                               locations=[bucket.location], bucket=bucket.id)
+            yield make_finding(
+                "RLS-PUBLIC-BUCKET",
+                tag=Tag.CONFIRMED,
+                locations=[bucket.location],
+                bucket=bucket.id,
+            )
     for entry in ctx.index.js_files:
         if "createBucket" not in ctx.index.text(entry.rel):
             continue
@@ -6745,9 +7380,11 @@ def public_bucket(ctx: Context) -> Iterator[Finding]:
                 public = jsts.object_pairs(args[1]).get("public") if len(args) > 1 else None
                 if public is not None and jsts.node_text(public) == "true":
                     yield make_finding(
-                        "RLS-PUBLIC-BUCKET", tag=Tag.CONFIRMED,
+                        "RLS-PUBLIC-BUCKET",
+                        tag=Tag.CONFIRMED,
                         locations=[Location(entry.rel, jsts.line(tree, call))],
-                        bucket=jsts.string_value(args[0]) or "(dynamic name)")
+                        bucket=jsts.string_value(args[0]) or "(dynamic name)",
+                    )
 
 
 def _breakage(ctx: Context, tables: list[TableDef]) -> list[Location]:
@@ -6764,31 +7401,50 @@ def _breakage(ctx: Context, tables: list[TableDef]) -> list[Location]:
 def _status_row(ctx: Context, table: TableDef) -> tuple[str, ...]:
     count = len(state_for(ctx).policies_for(table.key))
     if not table.rls:
-        reach = ("yes, every row" if ctx.detection.public_supabase_key
-                 else "yes, if a public key reaches the browser")
+        reach = (
+            "yes, every row"
+            if ctx.detection.public_supabase_key
+            else "yes, if a public key reaches the browser"
+        )
         verdict = "exposed"
     elif count == 0:
         reach, verdict = "no, all client access denied", "locked, probably read with a service key"
     else:
         reach, verdict = "only rows the policies allow", "check policy defects"
-    return (table.key, "yes" if table.rls else "no", str(count), reach, verdict,
-            str(table_location(table)))
+    return (
+        table.key,
+        "yes" if table.rls else "no",
+        str(count),
+        reach,
+        verdict,
+        str(table_location(table)),
+    )
 
 
 def run(ctx: Context) -> ReviewSection | None:
     state = state_for(ctx)
     if not state.tables and not client_facing(ctx):
         ctx.not_covered.append(
-            "Review 2 (rls): not applicable, no SQL tables, Supabase client or database dump found")
+            "Review 2 (rls): not applicable, no SQL tables, Supabase client or database dump found"
+        )
         return None
     if not client_facing(ctx):
         return ReviewSection("rls", [Part("text", "Relevance", body=SERVER_ONLY)])
     tables = public_tables(ctx)
     parts = [
-        Part("table", "Table protection status",
-             columns=("Table", "RLS enabled", "Policies", "Reachable by anon key", "Verdict",
-                      "Evidence"),
-             rows=tuple(_status_row(ctx, t) for t in tables)),
+        Part(
+            "table",
+            "Table protection status",
+            columns=(
+                "Table",
+                "RLS enabled",
+                "Policies",
+                "Reachable by anon key",
+                "Verdict",
+                "Evidence",
+            ),
+            rows=tuple(_status_row(ctx, t) for t in tables),
+        ),
         Part("findings", "Policy defects"),
     ]
     gaps = [t for t in tables if not t.rls or not state.policies_for(t.key)]
@@ -6796,8 +7452,10 @@ def run(ctx: Context) -> ReviewSection | None:
         body = "\n\n".join(sql_block(policies_sql(state, t)) for t in gaps)
         breakage = _breakage(ctx, gaps)
         if breakage:
-            body += ("\n\nAdding these policies can make these queries return nothing for rows "
-                     "the caller does not own:\n" + "\n".join(f"- `{loc}`" for loc in breakage))
+            body += (
+                "\n\nAdding these policies can make these queries return nothing for rows "
+                "the caller does not own:\n" + "\n".join(f"- `{loc}`" for loc in breakage)
+            )
         parts.append(Part("text", "Missing policies (runnable SQL)", body=body))
     example = gaps[0].name if gaps else (tables[0].name if tables else "<table>")
     confirm = confirm_commands(example)
@@ -6876,12 +7534,19 @@ def test_policy_true_and_authenticated_not_owner(tmp_path):
     root = app(tmp_path)
     assert sorted(by_line(root, "RLS-POLICY-TRUE")) == [8]
     assert sorted(by_line(root, "RLS-AUTHENTICATED-NOT-OWNER")) == [9]
-    assert 'drop policy "documents_read" on public.documents;' in by_line(root, "RLS-POLICY-TRUE")[8].fix
+    assert (
+        'drop policy "documents_read" on public.documents;'
+        in by_line(root, "RLS-POLICY-TRUE")[8].fix
+    )
 
 
 def test_weak_with_check_severity(tmp_path):
     found = by_line(app(tmp_path), "RLS-WEAK-WITH-CHECK")
-    assert {line: f.severity.value for line, f in found.items()} == {3: "low", 11: "high", 12: "high"}
+    assert {line: f.severity.value for line, f in found.items()} == {
+        3: "low",
+        11: "high",
+        12: "high",
+    }
 
 
 def test_wrong_role_client_owner_tenant_unbound(tmp_path):
@@ -6895,12 +7560,18 @@ def test_wrong_role_client_owner_tenant_unbound(tmp_path):
 
 def test_dump_only_table_is_checked(tmp_path):
     root = app(tmp_path)
-    dump = write(tmp_path, "pol.csv",
-                 "schemaname,tablename,policyname,permissive,roles,cmd,qual,with_check\n"
-                 "public,secrets,secrets_read,PERMISSIVE,{authenticated},SELECT,(auth.role() = 'authenticated'::text),\n")
+    dump = write(
+        tmp_path,
+        "pol.csv",
+        "schemaname,tablename,policyname,permissive,roles,cmd,qual,with_check\n"
+        "public,secrets,secrets_read,PERMISSIVE,{authenticated},SELECT,(auth.role() = 'authenticated'::text),\n",
+    )
     found = findings_for(root, "rls", "RLS-AUTHENTICATED-NOT-OWNER", db_dump=str(dump))
-    assert sorted((f.locations[0].file.endswith("pol.csv"), f.locations[0].line) for f in found) == [
-        (False, 9), (True, 2),
+    assert sorted(
+        (f.locations[0].file.endswith("pol.csv"), f.locations[0].line) for f in found
+    ) == [
+        (False, 9),
+        (True, 2),
     ]
 ```
 
@@ -6998,8 +7669,9 @@ def _policies(ctx: Context):
         return
     state = state_for(ctx)
     tables = {t.key: t for t in public_tables(ctx)}
-    ordered = sorted(state.policies.values(),
-                     key=lambda p: (p.location.file, p.location.line, p.name))
+    ordered = sorted(
+        state.policies.values(), key=lambda p: (p.location.file, p.location.line, p.name)
+    )
     for policy in ordered:
         if policy.table.startswith("public."):
             table = tables.get(policy.table) or TableDef(policy.table, [], policy.location)
@@ -7014,8 +7686,14 @@ def _fix(state, policy) -> str:
 def policy_true(ctx: Context) -> Iterator[Finding]:
     for state, table, policy in _policies(ctx):
         if policy.using == "true" and has_owner_or_unknown(table):
-            yield make_finding("RLS-POLICY-TRUE", tag=Tag.CONFIRMED, locations=[policy.location],
-                               fix=_fix(state, policy), policy=policy.name, table=table.key)
+            yield make_finding(
+                "RLS-POLICY-TRUE",
+                tag=Tag.CONFIRMED,
+                locations=[policy.location],
+                fix=_fix(state, policy),
+                policy=policy.name,
+                table=table.key,
+            )
 
 
 @rule("RLS-AUTHENTICATED-NOT-OWNER", review="rls", severity="high", exploitability="high")
@@ -7024,12 +7702,20 @@ def authenticated_not_owner(ctx: Context) -> Iterator[Finding]:
         text = predicate_text(policy)
         if not text or AUTH_REF.search(text) or not has_owner_or_unknown(table):
             continue
-        signed_in_only = (policy.roles_explicit and set(policy.roles) == {"authenticated"}
-                          and "true" not in (policy.using, policy.with_check))
+        signed_in_only = (
+            policy.roles_explicit
+            and set(policy.roles) == {"authenticated"}
+            and "true" not in (policy.using, policy.with_check)
+        )
         if AUTH_ROLE.search(text) or signed_in_only:
-            yield make_finding("RLS-AUTHENTICATED-NOT-OWNER", tag=Tag.CONFIRMED,
-                               locations=[policy.location], fix=_fix(state, policy),
-                               policy=policy.name, table=table.key)
+            yield make_finding(
+                "RLS-AUTHENTICATED-NOT-OWNER",
+                tag=Tag.CONFIRMED,
+                locations=[policy.location],
+                fix=_fix(state, policy),
+                policy=policy.name,
+                table=table.key,
+            )
 
 
 def _mentions(text: str | None, owner: str) -> bool:
@@ -7045,9 +7731,11 @@ def weak_with_check(ctx: Context) -> Iterator[Finding]:
             continue
         policies = state.policies_for(table.key)
         select_scoped = any(
-            p.command in ("select", "all") and p.using
+            p.command in ("select", "all")
+            and p.using
             and (UID_REF.search(p.using) or re.search(rf"\b{re.escape(owner)}\b", p.using))
-            for p in policies)
+            for p in policies
+        )
         for policy in policies:
             if policy.command not in ("insert", "update", "all") or policy.with_check is None:
                 continue
@@ -7058,14 +7746,26 @@ def weak_with_check(ctx: Context) -> Iterator[Finding]:
                 what = f"The insert policy {policy.name} lets a caller create rows for any {owner}."
             else:
                 severity = "low" if select_scoped else "high"
-                what = (f"The {policy.command} policy {policy.name} lets a caller change {owner} "
-                        "to another user. ")
-                what += ("A select policy scoped to the owner blocks this in practice."
-                         if select_scoped else "No select policy scoped to the owner blocks it.")
-            yield make_finding("RLS-WEAK-WITH-CHECK", tag=Tag.CONFIRMED,
-                               locations=[policy.location], severity=severity,
-                               fix=_fix(state, policy), policy=policy.name, table=table.key,
-                               owner=owner, what=what)
+                what = (
+                    f"The {policy.command} policy {policy.name} lets a caller change {owner} "
+                    "to another user. "
+                )
+                what += (
+                    "A select policy scoped to the owner blocks this in practice."
+                    if select_scoped
+                    else "No select policy scoped to the owner blocks it."
+                )
+            yield make_finding(
+                "RLS-WEAK-WITH-CHECK",
+                tag=Tag.CONFIRMED,
+                locations=[policy.location],
+                severity=severity,
+                fix=_fix(state, policy),
+                policy=policy.name,
+                table=table.key,
+                owner=owner,
+                what=what,
+            )
 
 
 @rule("RLS-WRONG-ROLE", review="rls", severity="high", exploitability="high")
@@ -7075,17 +7775,30 @@ def wrong_role(ctx: Context) -> Iterator[Finding]:
             continue
         open_roles = {"anon", "public"} & set(policy.roles)
         if policy.roles_explicit and open_roles and not AUTH_REF.search(predicate_text(policy)):
-            yield make_finding("RLS-WRONG-ROLE", tag=Tag.CONFIRMED, locations=[policy.location],
-                               fix=_fix(state, policy), policy=policy.name, table=table.key,
-                               roles=", ".join(sorted(open_roles)), command=policy.command)
+            yield make_finding(
+                "RLS-WRONG-ROLE",
+                tag=Tag.CONFIRMED,
+                locations=[policy.location],
+                fix=_fix(state, policy),
+                policy=policy.name,
+                table=table.key,
+                roles=", ".join(sorted(open_roles)),
+                command=policy.command,
+            )
 
 
 @rule("RLS-CLIENT-OWNER", review="rls", severity="high", exploitability="high")
 def client_owner(ctx: Context) -> Iterator[Finding]:
     for state, table, policy in _policies(ctx):
         if CLIENT_CLAIM.search(predicate_text(policy)):
-            yield make_finding("RLS-CLIENT-OWNER", tag=Tag.CONFIRMED, locations=[policy.location],
-                               fix=_fix(state, policy), policy=policy.name, table=table.key)
+            yield make_finding(
+                "RLS-CLIENT-OWNER",
+                tag=Tag.CONFIRMED,
+                locations=[policy.location],
+                fix=_fix(state, policy),
+                policy=policy.name,
+                table=table.key,
+            )
 
 
 @rule("RLS-TENANT-UNBOUND", review="rls", severity="high", exploitability="high")
@@ -7099,9 +7812,15 @@ def tenant_unbound(ctx: Context) -> Iterator[Finding]:
             continue
         if re.search(rf"\b{re.escape(tenant)}\b", text):
             continue
-        yield make_finding("RLS-TENANT-UNBOUND", tag=Tag.INFERRED, locations=[policy.location],
-                           fix=_fix(state, policy), policy=policy.name, table=table.key,
-                           tenant=tenant)
+        yield make_finding(
+            "RLS-TENANT-UNBOUND",
+            tag=Tag.INFERRED,
+            locations=[policy.location],
+            fix=_fix(state, policy),
+            policy=policy.name,
+            table=table.key,
+            tenant=tenant,
+        )
 ```
 
 Modify `src/dpr/reviews/rls.py`: insert this line between `from dpr.parsing.sqlschema import TableDef` and `from dpr.reviews.rls_common import (`, so loading the review registers the policy rules:
@@ -7156,9 +7875,17 @@ from tests.reviews.helpers import write
 
 
 def app(tmp_path):
-    write(tmp_path, "package.json", '{"dependencies": {"next": "14", "@supabase/supabase-js": "2"}}')
-    write(tmp_path, ".env.example", "NEXT_PUBLIC_SUPABASE_ANON_KEY=\nNEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=\n")
-    write(tmp_path, "supabase/migrations/1.sql", "create table public.notes (id int, user_id uuid);")
+    write(
+        tmp_path, "package.json", '{"dependencies": {"next": "14", "@supabase/supabase-js": "2"}}'
+    )
+    write(
+        tmp_path,
+        ".env.example",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY=\nNEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=\n",
+    )
+    write(
+        tmp_path, "supabase/migrations/1.sql", "create table public.notes (id int, user_id uuid);"
+    )
     write(tmp_path, "app/page.tsx", "export default function Page() { return null }\n")
     return tmp_path
 
@@ -7177,12 +7904,23 @@ def test_full_run(tmp_path):
     assert report.meta.date == "2026-09-16"
     assert report.meta.project == root.name
     assert dict(report.meta.applicability) == {
-        "inventory": "not available in this version", "rls": "runs", "auth": "not available in this version",
-        "baseline": "not available in this version", "owasp": "not available in this version",
-        "leaks": "runs", "abuse": "not available in this version",
+        "inventory": "not available in this version",
+        "rls": "runs",
+        "auth": "not available in this version",
+        "baseline": "not available in this version",
+        "owasp": "not available in this version",
+        "leaks": "runs",
+        "abuse": "not available in this version",
     }
     assert [s for s, _ in report.meta.applicability] == [
-        "inventory", "rls", "auth", "baseline", "owasp", "leaks", "abuse"]
+        "inventory",
+        "rls",
+        "auth",
+        "baseline",
+        "owasp",
+        "leaks",
+        "abuse",
+    ]
     rule_ids = {f.rule_id for f in report.findings}
     assert {"LEAK-PUBLIC-SECRET", "RLS-TABLE-OFF"} <= rule_ids
     scores = [score(f) for f in report.findings]
@@ -7196,7 +7934,10 @@ def test_selected_reviews_only(tmp_path):
     report = review(app(tmp_path), reviews=["leaks"])
     assert set(report.sections) == {"leaks"}
     assert dict(report.meta.applicability)["rls"] == "not selected"
-    assert {q.question.id for q in report.questions} == {"hosting_env_not_in_repo", "log_tool_access_retention"}
+    assert {q.question.id for q in report.questions} == {
+        "hosting_env_not_in_repo",
+        "log_tool_access_retention",
+    }
     assert not any(f.review == "rls" for f in report.findings)
 
 
@@ -7204,7 +7945,10 @@ def test_not_applicable_reason(tmp_path):
     write(tmp_path, "a.py", "x = 1\n")
     report = review(tmp_path, reviews=[2])
     assert report.sections == {}
-    assert dict(report.meta.applicability)["rls"] == "not applicable, no SQL tables, Supabase client or database dump found"
+    assert (
+        dict(report.meta.applicability)["rls"]
+        == "not applicable, no SQL tables, Supabase client or database dump found"
+    )
 
 
 def test_answers_and_warnings(tmp_path):
@@ -7280,10 +8024,18 @@ from dpr.rules import Context, Options, run_checks
 from dpr.walk import RepoIndex
 
 SKIPPED_OPTIONS = (
-    ("url", "baseline", "Live header read skipped: it belongs to review 4 (baseline), "
-                        "which is not available in this version"),
-    ("with_audit", "owasp", "Dependency audit skipped: it belongs to review 5 (owasp), "
-                            "which is not available in this version"),
+    (
+        "url",
+        "baseline",
+        "Live header read skipped: it belongs to review 4 (baseline), "
+        "which is not available in this version",
+    ),
+    (
+        "with_audit",
+        "owasp",
+        "Dependency audit skipped: it belongs to review 5 (owasp), "
+        "which is not available in this version",
+    ),
 )
 
 
@@ -7296,15 +8048,15 @@ def discover(path: str | os.PathLike[str]) -> tuple[RepoIndex, Detection]:
 def _validate(url: str | None, owns_host: bool, semgrep: str, db_dump: str | None) -> None:
     if url and not owns_host:
         raise ScanError(
-            "--url needs --i-own-this-host: dpr only reads headers from a host you control")
+            "--url needs --i-own-this-host: dpr only reads headers from a host you control"
+        )
     if semgrep not in ("auto", "off") and not Path(semgrep).is_dir():
         raise ScanError(f"semgrep rules folder not found: {semgrep}")
     if db_dump and not Path(db_dump).is_file():
         raise ScanError(f"database dump not found: {db_dump}")
 
 
-def _reason(slug: str, selected: list[str], modules: dict, sections: dict,
-            notes: list[str]) -> str:
+def _reason(slug: str, selected: list[str], modules: dict, sections: dict, notes: list[str]) -> str:
     if slug in sections:
         return "runs"
     if slug not in selected:
@@ -7312,23 +8064,41 @@ def _reason(slug: str, selected: list[str], modules: dict, sections: dict,
     if slug not in modules:
         return "not available in this version"
     prefix = f"Review {number(slug)} ({slug}): "
-    return next((n[len(prefix):] for n in notes if n.startswith(prefix)), "not applicable")
+    return next((n[len(prefix) :] for n in notes if n.startswith(prefix)), "not applicable")
 
 
-def review(path: str | os.PathLike[str] = ".", reviews: Iterable[str | int] = ("all",),
-           answers: str | Path | dict | None = None, interactive: bool = False,
-           url: str | None = None, owns_host: bool = False, login_path: str | None = None,
-           with_audit: bool = False, semgrep: str = "auto", db_dump: str | None = None,
-           today: datetime.date | None = None) -> Report:
+def review(
+    path: str | os.PathLike[str] = ".",
+    reviews: Iterable[str | int] = ("all",),
+    answers: str | Path | dict | None = None,
+    interactive: bool = False,
+    url: str | None = None,
+    owns_host: bool = False,
+    login_path: str | None = None,
+    with_audit: bool = False,
+    semgrep: str = "auto",
+    db_dump: str | None = None,
+    today: datetime.date | None = None,
+) -> Report:
     _validate(url, owns_host, semgrep, db_dump)
     selected = resolve_reviews(reviews)
     index, detection = discover(path)
-    options = Options(url=url, owns_host=owns_host, login_path=login_path,
-                      with_audit=with_audit, semgrep=semgrep, db_dump=db_dump)
+    options = Options(
+        url=url,
+        owns_host=owns_host,
+        login_path=login_path,
+        with_audit=with_audit,
+        semgrep=semgrep,
+        db_dump=db_dump,
+    )
     ask = ask_on_terminal if interactive and sys.stdin.isatty() else None
     results, warnings = resolve(questions_for(selected), detection, answers, interactive, ask)
-    ctx = Context(index=index, detection=detection, options=options,
-                  answers={r.question.id: r for r in results})
+    ctx = Context(
+        index=index,
+        detection=detection,
+        options=options,
+        answers={r.question.id: r for r in results},
+    )
     ctx.not_covered.extend(warnings)
 
     modules = available()
@@ -7351,7 +8121,8 @@ def review(path: str | os.PathLike[str] = ".", reviews: Iterable[str | int] = ("
             ctx.not_covered.append(note)
 
     applicability = tuple(
-        (slug, _reason(slug, selected, modules, sections, ctx.not_covered)) for slug in REVIEWS)
+        (slug, _reason(slug, selected, modules, sections, ctx.not_covered)) for slug in REVIEWS
+    )
     meta = ReportMeta(
         project=index.root.name,
         scope=str(path),
@@ -7362,8 +8133,14 @@ def review(path: str | os.PathLike[str] = ".", reviews: Iterable[str | int] = ("
         applicability=applicability,
     )
     not_covered = list(dict.fromkeys([*index.skipped, *ctx.not_covered]))
-    return Report(meta=meta, detection=detection, findings=rank(dedupe(findings)),
-                  sections=sections, questions=results, not_covered=not_covered)
+    return Report(
+        meta=meta,
+        detection=detection,
+        findings=rank(dedupe(findings)),
+        sections=sections,
+        questions=results,
+        not_covered=not_covered,
+    )
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -7414,50 +8191,107 @@ from dpr.report.markdown import BANNED_PHRASES, render_markdown
 
 
 def finding(rule_id, review, sev, title, **extra):
-    base = dict(rule_id=rule_id, review=review, title=title, tag="CONFIRMED", severity=sev,
-                exploitability="high", effort_minutes=5, locations=(Location("a.ts", 3),),
-                detail="Detail text.", fix="Fix text.")
+    base = dict(
+        rule_id=rule_id,
+        review=review,
+        title=title,
+        tag="CONFIRMED",
+        severity=sev,
+        exploitability="high",
+        effort_minutes=5,
+        locations=(Location("a.ts", 3),),
+        detail="Detail text.",
+        fix="Fix text.",
+    )
     base.update(extra)
     return Finding(**base)
 
 
 def report():
-    q_open = Question(id="q1", reviews=("rls",), text="Are buckets public?", type="choice",
-                      why="Dashboards.", who="Admin | owner")
-    q_done = Question(id="q2", reviews=("rls",), text="Which key ships?", type="choice",
-                      why="Env.", who="Ops")
+    q_open = Question(
+        id="q1",
+        reviews=("rls",),
+        text="Are buckets public?",
+        type="choice",
+        why="Dashboards.",
+        who="Admin | owner",
+    )
+    q_done = Question(
+        id="q2", reviews=("rls",), text="Which key ships?", type="choice", why="Env.", who="Ops"
+    )
     return Report(
-        meta=ReportMeta(project="shop", scope=".", revision="abc123", date="2026-09-16",
-                        reviews_run=("rls", "leaks"), method="Static analysis of the repository",
-                        applicability=(("inventory", "not available in this version"), ("rls", "runs"),
-                                       ("leaks", "runs"))),
-        detection=Detection(frameworks=["next"], databases=["supabase"], languages={"javascript/typescript": 4}),
+        meta=ReportMeta(
+            project="shop",
+            scope=".",
+            revision="abc123",
+            date="2026-09-16",
+            reviews_run=("rls", "leaks"),
+            method="Static analysis of the repository",
+            applicability=(
+                ("inventory", "not available in this version"),
+                ("rls", "runs"),
+                ("leaks", "runs"),
+            ),
+        ),
+        detection=Detection(
+            frameworks=["next"], databases=["supabase"], languages={"javascript/typescript": 4}
+        ),
         findings=[
-            finding("RLS-TABLE-OFF", "rls", "critical", "RLS off on public.notes",
-                    fix="```sql\nalter table public.notes enable row level security;\n```"),
-            finding("LEAK-LOGGED-PII", "leaks", "high", "Log call", tag="INFERRED", proof_needed="Check it.",
-                    snippet="console.error(body)"),
-            finding("LEAK-PUBLIC-SECRET", "leaks", "low", "Public secret", verify="Search the bundle."),
+            finding(
+                "RLS-TABLE-OFF",
+                "rls",
+                "critical",
+                "RLS off on public.notes",
+                fix="```sql\nalter table public.notes enable row level security;\n```",
+            ),
+            finding(
+                "LEAK-LOGGED-PII",
+                "leaks",
+                "high",
+                "Log call",
+                tag="INFERRED",
+                proof_needed="Check it.",
+                snippet="console.error(body)",
+            ),
+            finding(
+                "LEAK-PUBLIC-SECRET", "leaks", "low", "Public secret", verify="Search the bundle."
+            ),
         ],
         sections={
             "leaks": ReviewSection("leaks", [Part("findings", "Leaks")]),
-            "rls": ReviewSection("rls", [
-                Part("table", "Table protection status", columns=("Table", "Verdict"),
-                     rows=(("public.notes", "exposed | bad"),)),
-                Part("findings", "Policy defects"),
-                Part("text", "Confirm in the database", body="Run the queries."),
-            ]),
+            "rls": ReviewSection(
+                "rls",
+                [
+                    Part(
+                        "table",
+                        "Table protection status",
+                        columns=("Table", "Verdict"),
+                        rows=(("public.notes", "exposed | bad"),),
+                    ),
+                    Part("findings", "Policy defects"),
+                    Part("text", "Confirm in the database", body="Run the queries."),
+                ],
+            ),
         },
-        questions=[QuestionResult(q_open, None, "none", True), QuestionResult(q_done, "Anon only", "answers", False)],
+        questions=[
+            QuestionResult(q_open, None, "none", True),
+            QuestionResult(q_done, "Anon only", "answers", False),
+        ],
         not_covered=["big.js: larger than 1 MB"],
     )
 
 
 def test_header_summary_and_top_fixes():
     text = render_markdown(report())
-    assert text.startswith("# Data Protection Review: shop\n\nDate: 2026-09-16\nScope: . @ abc123\n")
+    assert text.startswith(
+        "# Data Protection Review: shop\n\nDate: 2026-09-16\nScope: . @ abc123\n"
+    )
     assert "Reviews run: rls, leaks" in text
-    assert "| Critical | 1 |" in text and "| High | 1 |" in text and "| Open questions (UNKNOWN) | 1 |" in text
+    assert (
+        "| Critical | 1 |" in text
+        and "| High | 1 |" in text
+        and "| Open questions (UNKNOWN) | 1 |" in text
+    )
     assert "1. RLS off on public.notes (`a.ts:3`, about 5 min)" in text
     assert "not legal advice" in text
 
@@ -7467,7 +8301,7 @@ def test_sections_in_number_order_with_tables_and_blocks():
     assert text.index("## 2. Database lock check") < text.index("## 6. Leak hunt")
     assert "| public.notes | exposed \\| bad |" in text
     assert "#### RLS 1: RLS off on public.notes" in text
-    leaks = text[text.index("## 6. Leak hunt"):]
+    leaks = text[text.index("## 6. Leak hunt") :]
     assert leaks.index("#### LEAK 1: Public secret") < leaks.index("#### LEAK 2: Log call")
     assert "Proof needed: Check it." in text
     assert "```text\nconsole.error(body)\n```" in text
@@ -7581,11 +8415,19 @@ DISCLAIMER = (
     "lawful basis are for a qualified data protection lawyer. Open questions for that "
     "conversation are listed near the end."
 )
-BANNED_PHRASES = ("compliant with", "complies with", "satisfies article", "satisfies section",
-                  "lawful basis is")
+BANNED_PHRASES = (
+    "compliant with",
+    "complies with",
+    "satisfies article",
+    "satisfies section",
+    "lawful basis is",
+)
 SEVERITIES = ("critical", "high", "medium", "low")
-SOURCE_LABELS = {"answers": "from the answers file", "interactive": "answered in the terminal",
-                 "detection": "detected in the repository"}
+SOURCE_LABELS = {
+    "answers": "from the answers file",
+    "interactive": "answered in the terminal",
+    "detection": "detected in the repository",
+}
 ALWAYS_NOT_COVERED = (
     "Systems outside this repository",
     "Production configuration that differs from the repository",
@@ -7618,8 +8460,11 @@ def _block(label: str, position: int, f: Finding) -> str:
     ]
     if f.snippet:
         lines += ["", "```text", f.snippet, "```"]
-    for heading, value in (("Proof needed", f.proof_needed), ("Attack", f.attack),
-                           ("Blast radius", f.blast)):
+    for heading, value in (
+        ("Proof needed", f.proof_needed),
+        ("Attack", f.attack),
+        ("Blast radius", f.blast),
+    ):
         if value:
             lines += ["", f"{heading}: {value}"]
     lines += ["", "Fix:", "", f.fix]
@@ -7665,15 +8510,19 @@ def _detection_table(report: Report) -> str:
 def _view(report: Report) -> dict:
     counts = {s: sum(f.severity.value == s for f in report.findings) for s in SEVERITIES}
     open_questions = [q for q in report.questions if q.open]
-    summary = _table(("Severity", "Count"), [
-        *[(s.capitalize(), str(counts[s])) for s in SEVERITIES],
-        ("Open questions (UNKNOWN)", str(len(open_questions))),
-    ])
+    summary = _table(
+        ("Severity", "Count"),
+        [
+            *[(s.capitalize(), str(counts[s])) for s in SEVERITIES],
+            ("Open questions (UNKNOWN)", str(len(open_questions))),
+        ],
+    )
     if report.findings:
         top = "Top three fixes by risk removed per minute spent:\n\n" + "\n".join(
             f"{i}. {f.title} (`{f.locations[0] if f.locations else 'no file'}`, "
             f"about {f.effort_minutes} min)"
-            for i, f in enumerate(report.findings[:3], start=1))
+            for i, f in enumerate(report.findings[:3], start=1)
+        )
     else:
         top = "No findings."
     sections = []
@@ -7690,25 +8539,37 @@ def _view(report: Report) -> dict:
         "summary_table": summary,
         "top_fixes": top,
         "detection_table": _detection_table(report),
-        "applicability": "Reviews:\n\n" + "\n".join(
+        "applicability": "Reviews:\n\n"
+        + "\n".join(
             f"- Review {number(slug)}, {TITLES[slug]}: {reason}"
-            for slug, reason in report.meta.applicability),
+            for slug, reason in report.meta.applicability
+        ),
         "sections": sections,
         "answered": "\n".join(
             f"- {q.question.text} {q.answer} ({SOURCE_LABELS.get(q.source, q.source)})"
-            for q in answered) or "None.",
+            for q in answered
+        )
+        or "None.",
         "still_open": _table(
             ("Question", "Why the repository cannot answer it", "Who can answer"),
-            [(q.question.text, q.question.why, q.question.who) for q in open_questions]
-        ) if open_questions else "None.",
-        "not_covered": "\n".join(f"- {item}" for item in [*ALWAYS_NOT_COVERED,
-                                                          *report.not_covered]),
+            [(q.question.text, q.question.why, q.question.who) for q in open_questions],
+        )
+        if open_questions
+        else "None.",
+        "not_covered": "\n".join(
+            f"- {item}" for item in [*ALWAYS_NOT_COVERED, *report.not_covered]
+        ),
     }
 
 
 def render_markdown(report: Report) -> str:
-    env = Environment(loader=PackageLoader("dpr", "report/templates"), autoescape=False,
-                      trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True)
+    env = Environment(
+        loader=PackageLoader("dpr", "report/templates"),
+        autoescape=False,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+    )
     text = env.get_template("report.md.j2").render(**_view(report))
     return re.sub(r"\n{3,}", "\n\n", text).rstrip("\n") + "\n"
 ```
@@ -7756,20 +8617,31 @@ from tests.reviews.helpers import write
 
 def test_render_json_shape(tmp_path):
     write(tmp_path, ".env.example", "NEXT_PUBLIC_SUPABASE_ANON_KEY=\nNEXT_PUBLIC_ADMIN_SECRET=\n")
-    write(tmp_path, "supabase/migrations/1.sql", "create table public.notes (id int, user_id uuid);")
+    write(
+        tmp_path, "supabase/migrations/1.sql", "create table public.notes (id int, user_id uuid);"
+    )
     write(tmp_path, "app/api/notes/route.ts", "export async function GET() {}\n")
     report = dpr.review(tmp_path)
     data = json.loads(dpr.render_json(report))
     assert list(data)[:2] == ["schema_version", "meta"]
     assert data["schema_version"] == 1
-    assert set(data) == {"schema_version", "meta", "detection", "findings", "sections", "questions",
-                         "not_covered"}
+    assert set(data) == {
+        "schema_version",
+        "meta",
+        "detection",
+        "findings",
+        "sections",
+        "questions",
+        "not_covered",
+    }
     assert "schema" not in data["detection"] and "packages" not in data["detection"]
     [route] = data["detection"]["routes"]
     assert set(route) == {"method", "path", "file", "line", "framework", "is_public_form"}
     first = data["findings"][0]
     assert first["tag"] in ("CONFIRMED", "INFERRED", "UNVERIFIED")
-    assert isinstance(first["locations"][0], dict) and {"file", "line"} <= set(first["locations"][0])
+    assert isinstance(first["locations"][0], dict) and {"file", "line"} <= set(
+        first["locations"][0]
+    )
     assert data["meta"]["applicability"][1] == ["rls", "runs"]
     assert data["questions"][0]["question"]["id"]
 
@@ -7888,15 +8760,31 @@ from tests.reviews.helpers import write
 
 def app(tmp_path):
     root = tmp_path / "app"
-    write(root, ".env.example", "NEXT_PUBLIC_SUPABASE_ANON_KEY=\nNEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=\n")
+    write(
+        root,
+        ".env.example",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY=\nNEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=\n",
+    )
     write(root, "supabase/migrations/1.sql", "create table public.notes (id int, user_id uuid);")
     write(root, "app/page.tsx", "export default function Page() { return null }\n")
     return root
 
 
 def git(root, *args):
-    subprocess.run(["git", "-C", str(root), "-c", "user.name=dpr", "-c", "user.email=dpr@example.invalid",
-                    *args], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=dpr",
+            "-c",
+            "user.email=dpr@example.invalid",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+    )
 
 
 def test_scan_writes_reports_and_summary(tmp_path, capsys):
@@ -7908,7 +8796,9 @@ def test_scan_writes_reports_and_summary(tmp_path, capsys):
     assert md.read_text().startswith("# Data Protection Review: app")
     assert json.loads(js.read_text())["schema_version"] == 1
     lines = capsys.readouterr().out.strip().splitlines()
-    assert lines[0].startswith("dpr: 2 findings (critical 2, high 0, medium 0, low 0), 22 open questions")
+    assert lines[0].startswith(
+        "dpr: 2 findings (critical 2, high 0, medium 0, low 0), 22 open questions"
+    )
     assert lines[1] == "Top fixes:"
     assert any(line.startswith("Wrote ") and line.endswith(".md") for line in lines)
     assert len(lines) <= 15
@@ -7918,7 +8808,9 @@ def test_fail_on(tmp_path):
     root = app(tmp_path)
     assert main(["scan", str(root), "--fail-on", "critical", "--format", "json"]) == 1
     assert main(["scan", str(root), "--fail-on", "none", "--format", "json"]) == 0
-    assert main(["scan", str(root), "--reviews", "leaks", "--fail-on", "high", "--format", "md"]) == 1
+    assert (
+        main(["scan", str(root), "--reviews", "leaks", "--fail-on", "high", "--format", "md"]) == 1
+    )
 
 
 def test_formats_reviews_and_out(tmp_path, capsys):
@@ -7997,8 +8889,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     scan = commands.add_parser("scan", help="review a repository and write the report")
     scan.add_argument("path", nargs="?", default=".")
-    scan.add_argument("--reviews", nargs="+", default=["all"], metavar="REVIEW",
-                      help="all, 1 to 7, or " + ", ".join(REVIEWS))
+    scan.add_argument(
+        "--reviews",
+        nargs="+",
+        default=["all"],
+        metavar="REVIEW",
+        help="all, 1 to 7, or " + ", ".join(REVIEWS),
+    )
     scan.add_argument("--answers", metavar="FILE")
     scan.add_argument("--interactive", action="store_true")
     scan.add_argument("--url")
@@ -8036,8 +8933,10 @@ def gitignore_tip(root: Path, written: Path) -> str | None:
         return None
     if run_git(root, "check-ignore", "-q", str(written.resolve())) is not None:
         return None
-    return (f'Tip: add "{rel_dir}/" to .gitignore. '
-            "The report maps where the data and the weaknesses are.")
+    return (
+        f'Tip: add "{rel_dir}/" to .gitignore. '
+        "The report maps where the data and the weaknesses are."
+    )
 
 
 def summary_lines(report: Report, written: list[Path], tip: str | None) -> list[str]:
@@ -8050,8 +8949,10 @@ def summary_lines(report: Report, written: list[Path], tip: str | None) -> list[
     ]
     if report.findings:
         lines.append("Top fixes:")
-        lines += [f"  {i}. {f.title} ({f.locations[0] if f.locations else 'no file'})"
-                  for i, f in enumerate(report.findings[:3], start=1)]
+        lines += [
+            f"  {i}. {f.title} ({f.locations[0] if f.locations else 'no file'})"
+            for i, f in enumerate(report.findings[:3], start=1)
+        ]
     lines += [f"Wrote {path}" for path in written]
     if tip:
         lines.append(tip)
@@ -8068,10 +8969,18 @@ def exit_code(report: Report, fail_on: str) -> int:
 def _scan(args: argparse.Namespace) -> int:
     formats = _formats(args.format)
     reviews = [part for token in args.reviews for part in token.split(",") if part]
-    report = review(args.path, reviews=reviews, answers=args.answers,
-                    interactive=args.interactive, url=args.url, owns_host=args.owns_host,
-                    login_path=args.login_path, with_audit=args.with_audit,
-                    semgrep=args.semgrep, db_dump=args.db_dump)
+    report = review(
+        args.path,
+        reviews=reviews,
+        answers=args.answers,
+        interactive=args.interactive,
+        url=args.url,
+        owns_host=args.owns_host,
+        login_path=args.login_path,
+        with_audit=args.with_audit,
+        semgrep=args.semgrep,
+        db_dump=args.db_dump,
+    )
     root = Path(args.path)
     out_dir = Path(args.out) if args.out else root / "data-protection-review"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -8499,14 +9408,27 @@ SECRETS = (LIVE_STRIPE, ENV_VALUE)
 
 def git(root: Path, *args: str) -> None:
     subprocess.run(
-        ["git", "-C", str(root), "-c", "user.name=dpr", "-c", "user.email=dpr@example.invalid",
-         "-c", "commit.gpgsign=false", *args],
-        check=True, capture_output=True)
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=dpr",
+            "-c",
+            "user.email=dpr@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+    )
 
 
 def _bad_extras(root: Path) -> None:
     (root / "lib/stripe.ts").write_text(
-        'import Stripe from "stripe"\n\nexport const stripe = new Stripe("' + LIVE_STRIPE + '")\n')
+        'import Stripe from "stripe"\n\nexport const stripe = new Stripe("' + LIVE_STRIPE + '")\n'
+    )
     chunks = root / ".next/static/chunks"
     chunks.mkdir(parents=True)
     (chunks / "main.js").write_text('var cfg={k:"' + LIVE_STRIPE + '"};')
@@ -8524,7 +9446,8 @@ def _bad_extras(root: Path) -> None:
 
 def _good_extras(root: Path) -> None:
     (root / "lib/stripe.ts").write_text(
-        'import Stripe from "stripe"\n\nexport const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)\n')
+        'import Stripe from "stripe"\n\nexport const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)\n'
+    )
     (root / ".env").write_text(f"STRIPE_SECRET_KEY={ENV_VALUE}\n")
     git(root, "init", "-q")
     git(root, "add", "-A")
@@ -8551,7 +9474,9 @@ from tests.fixture_builder import FIXTURES, build
 
 
 def found(report):
-    return {(f.rule_id, f.locations[0].file, f.locations[0].line, f.tag.value) for f in report.findings}
+    return {
+        (f.rule_id, f.locations[0].file, f.locations[0].line, f.tag.value) for f in report.findings
+    }
 
 
 def test_bad_fixture_reports_exactly_the_planted_defects(tmp_path):
@@ -8574,7 +9499,11 @@ def test_bad_fixture_severities(tmp_path):
 
 def test_good_fixture_reports_none_of_the_defects(tmp_path):
     report = review(build("next-supabase-good", tmp_path))
-    banned = set(yaml.safe_load((FIXTURES / "next-supabase-good" / "expected.yaml").read_text())["must_not_report"])
+    banned = set(
+        yaml.safe_load((FIXTURES / "next-supabase-good" / "expected.yaml").read_text())[
+            "must_not_report"
+        ]
+    )
     assert [f for f in report.findings if f.rule_id in banned] == []
     assert set(report.sections) == {"leaks", "rls"}
 ```
@@ -8664,14 +9593,27 @@ def test_report_has_no_legal_verdicts_or_em_dashes(bad):
 
 
 def test_review_does_not_change_the_repository(bad):
-    before = subprocess.run(["git", "-C", str(bad), "status", "--porcelain", "--ignored"],
-                            capture_output=True, text=True, check=True).stdout
-    listing = sorted(p.relative_to(bad).as_posix() for p in bad.rglob("*") if ".git/" not in p.as_posix())
+    before = subprocess.run(
+        ["git", "-C", str(bad), "status", "--porcelain", "--ignored"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    listing = sorted(
+        p.relative_to(bad).as_posix() for p in bad.rglob("*") if ".git/" not in p.as_posix()
+    )
     review(bad)
-    after = subprocess.run(["git", "-C", str(bad), "status", "--porcelain", "--ignored"],
-                           capture_output=True, text=True, check=True).stdout
+    after = subprocess.run(
+        ["git", "-C", str(bad), "status", "--porcelain", "--ignored"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
     assert after == before
-    assert sorted(p.relative_to(bad).as_posix() for p in bad.rglob("*") if ".git/" not in p.as_posix()) == listing
+    assert (
+        sorted(p.relative_to(bad).as_posix() for p in bad.rglob("*") if ".git/" not in p.as_posix())
+        == listing
+    )
 ```
 
 - [ ] **Step 2: Run tests to verify they pass**
@@ -8771,3 +9713,12 @@ git commit -m "Add CI workflow, apply formatting and record Milestone 1 test rep
 
 Do not push. Do not merge into `develop`. Tell the owner the branch is ready and wait for the instruction to push and open a pull request.
 
+
+## Milestone 1 review
+
+- Tests: 153 passed, 0 failed (`uv run pytest -m "not semgrep" --cov=dpr`)
+- Coverage: 96% of `src/dpr`
+- Lint and format: `ruff check` and `ruff format --check` clean
+- CLI smoke run on the bad fixture: 22 findings, exit code 1 with `--fail-on critical`
+- Task 30 (tree-sitter row crash fix) completed early as part of Milestone 1
+- Not done in this milestone: baseline, abuse, OWASP, inventory and auth reviews; SARIF; Semgrep and audit adapters; live header read; smoke runs on real repositories (Milestones 2 and 3)

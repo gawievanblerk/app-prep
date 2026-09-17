@@ -88,7 +88,7 @@ def test_has_directive():
 def test_vue_script_blocks_keep_file_line_numbers(tmp_path):
     (tmp_path / "C.vue").write_text(
         "<template>\n  <div/>\n</template>\n"
-        "<script setup lang=\"ts\">\nconst a = fetchIt()\n</script>\n"
+        '<script setup lang="ts">\nconst a = fetchIt()\n</script>\n'
     )
     index = RepoIndex(tmp_path)
     [t] = jsts.parse_file(index, "C.vue")
@@ -103,7 +103,7 @@ def test_unwrap_type_assertions():
 const b = baz as Foo
 const c = qux!
 const d = (await zap) satisfies Foo""",
-        rel="a.ts"
+        rel="a.ts",
     )
     values = []
     for stmt in t.root.named_children:
@@ -122,16 +122,13 @@ def test_resolve_identifier_respects_scope():
   helper()
   log(secret)
 }""",
-        rel="a.js"
+        rel="a.js",
     )
     [log_call] = list(jsts.calls(t, "log"))
     secret_ident = jsts.arguments(log_call)[0]
     assert jsts.resolve_identifier(secret_ident) is None
 
-    t2 = tree(
-        """function f() { const ok = "yes"; function g() {} ; log(ok) }""",
-        rel="a.js"
-    )
+    t2 = tree("""function f() { const ok = "yes"; function g() {} ; log(ok) }""", rel="a.js")
     [log_call2] = list(jsts.calls(t2, "log"))
     ok_ident = jsts.arguments(log_call2)[0]
     value = jsts.resolve_identifier(ok_ident)

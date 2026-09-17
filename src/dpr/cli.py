@@ -28,8 +28,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     scan = commands.add_parser("scan", help="review a repository and write the report")
     scan.add_argument("path", nargs="?", default=".")
-    scan.add_argument("--reviews", nargs="+", default=["all"], metavar="REVIEW",
-                      help="all, 1 to 7, or " + ", ".join(REVIEWS))
+    scan.add_argument(
+        "--reviews",
+        nargs="+",
+        default=["all"],
+        metavar="REVIEW",
+        help="all, 1 to 7, or " + ", ".join(REVIEWS),
+    )
     scan.add_argument("--answers", metavar="FILE")
     scan.add_argument("--interactive", action="store_true")
     scan.add_argument("--url")
@@ -67,8 +72,10 @@ def gitignore_tip(root: Path, written: Path) -> str | None:
         return None
     if run_git(root, "check-ignore", "-q", str(written.resolve())) is not None:
         return None
-    return (f'Tip: add "{rel_dir}/" to .gitignore. '
-            "The report maps where the data and the weaknesses are.")
+    return (
+        f'Tip: add "{rel_dir}/" to .gitignore. '
+        "The report maps where the data and the weaknesses are."
+    )
 
 
 def summary_lines(report: Report, written: list[Path], tip: str | None) -> list[str]:
@@ -81,8 +88,10 @@ def summary_lines(report: Report, written: list[Path], tip: str | None) -> list[
     ]
     if report.findings:
         lines.append("Top fixes:")
-        lines += [f"  {i}. {f.title} ({f.locations[0] if f.locations else 'no file'})"
-                  for i, f in enumerate(report.findings[:3], start=1)]
+        lines += [
+            f"  {i}. {f.title} ({f.locations[0] if f.locations else 'no file'})"
+            for i, f in enumerate(report.findings[:3], start=1)
+        ]
     lines += [f"Wrote {path}" for path in written]
     if tip:
         lines.append(tip)
@@ -99,10 +108,18 @@ def exit_code(report: Report, fail_on: str) -> int:
 def _scan(args: argparse.Namespace) -> int:
     formats = _formats(args.format)
     reviews = [part for token in args.reviews for part in token.split(",") if part]
-    report = review(args.path, reviews=reviews, answers=args.answers,
-                    interactive=args.interactive, url=args.url, owns_host=args.owns_host,
-                    login_path=args.login_path, with_audit=args.with_audit,
-                    semgrep=args.semgrep, db_dump=args.db_dump)
+    report = review(
+        args.path,
+        reviews=reviews,
+        answers=args.answers,
+        interactive=args.interactive,
+        url=args.url,
+        owns_host=args.owns_host,
+        login_path=args.login_path,
+        with_audit=args.with_audit,
+        semgrep=args.semgrep,
+        db_dump=args.db_dump,
+    )
     root = Path(args.path)
     out_dir = Path(args.out) if args.out else root / "data-protection-review"
     out_dir.mkdir(parents=True, exist_ok=True)

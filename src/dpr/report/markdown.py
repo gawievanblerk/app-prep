@@ -15,11 +15,19 @@ DISCLAIMER = (
     "lawful basis are for a qualified data protection lawyer. Open questions for that "
     "conversation are listed near the end."
 )
-BANNED_PHRASES = ("compliant with", "complies with", "satisfies article", "satisfies section",
-                  "lawful basis is")
+BANNED_PHRASES = (
+    "compliant with",
+    "complies with",
+    "satisfies article",
+    "satisfies section",
+    "lawful basis is",
+)
 SEVERITIES = ("critical", "high", "medium", "low")
-SOURCE_LABELS = {"answers": "from the answers file", "interactive": "answered in the terminal",
-                 "detection": "detected in the repository"}
+SOURCE_LABELS = {
+    "answers": "from the answers file",
+    "interactive": "answered in the terminal",
+    "detection": "detected in the repository",
+}
 ALWAYS_NOT_COVERED = (
     "Systems outside this repository",
     "Production configuration that differs from the repository",
@@ -52,8 +60,11 @@ def _block(label: str, position: int, f: Finding) -> str:
     ]
     if f.snippet:
         lines += ["", "```text", f.snippet, "```"]
-    for heading, value in (("Proof needed", f.proof_needed), ("Attack", f.attack),
-                           ("Blast radius", f.blast)):
+    for heading, value in (
+        ("Proof needed", f.proof_needed),
+        ("Attack", f.attack),
+        ("Blast radius", f.blast),
+    ):
         if value:
             lines += ["", f"{heading}: {value}"]
     lines += ["", "Fix:", "", f.fix]
@@ -99,15 +110,19 @@ def _detection_table(report: Report) -> str:
 def _view(report: Report) -> dict:
     counts = {s: sum(f.severity.value == s for f in report.findings) for s in SEVERITIES}
     open_questions = [q for q in report.questions if q.open]
-    summary = _table(("Severity", "Count"), [
-        *[(s.capitalize(), str(counts[s])) for s in SEVERITIES],
-        ("Open questions (UNKNOWN)", str(len(open_questions))),
-    ])
+    summary = _table(
+        ("Severity", "Count"),
+        [
+            *[(s.capitalize(), str(counts[s])) for s in SEVERITIES],
+            ("Open questions (UNKNOWN)", str(len(open_questions))),
+        ],
+    )
     if report.findings:
         top = "Top three fixes by risk removed per minute spent:\n\n" + "\n".join(
             f"{i}. {f.title} (`{f.locations[0] if f.locations else 'no file'}`, "
             f"about {f.effort_minutes} min)"
-            for i, f in enumerate(report.findings[:3], start=1))
+            for i, f in enumerate(report.findings[:3], start=1)
+        )
     else:
         top = "No findings."
     sections = []
@@ -124,24 +139,36 @@ def _view(report: Report) -> dict:
         "summary_table": summary,
         "top_fixes": top,
         "detection_table": _detection_table(report),
-        "applicability": "Reviews:\n\n" + "\n".join(
+        "applicability": "Reviews:\n\n"
+        + "\n".join(
             f"- Review {number(slug)}, {TITLES[slug]}: {reason}"
-            for slug, reason in report.meta.applicability),
+            for slug, reason in report.meta.applicability
+        ),
         "sections": sections,
         "answered": "\n".join(
             f"- {q.question.text} {q.answer} ({SOURCE_LABELS.get(q.source, q.source)})"
-            for q in answered) or "None.",
+            for q in answered
+        )
+        or "None.",
         "still_open": _table(
             ("Question", "Why the repository cannot answer it", "Who can answer"),
-            [(q.question.text, q.question.why, q.question.who) for q in open_questions]
-        ) if open_questions else "None.",
-        "not_covered": "\n".join(f"- {item}" for item in [*ALWAYS_NOT_COVERED,
-                                                          *report.not_covered]),
+            [(q.question.text, q.question.why, q.question.who) for q in open_questions],
+        )
+        if open_questions
+        else "None.",
+        "not_covered": "\n".join(
+            f"- {item}" for item in [*ALWAYS_NOT_COVERED, *report.not_covered]
+        ),
     }
 
 
 def render_markdown(report: Report) -> str:
-    env = Environment(loader=PackageLoader("dpr", "report/templates"), autoescape=False,
-                      trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True)
+    env = Environment(
+        loader=PackageLoader("dpr", "report/templates"),
+        autoescape=False,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+    )
     text = env.get_template("report.md.j2").render(**_view(report))
     return re.sub(r"\n{3,}", "\n\n", text).rstrip("\n") + "\n"

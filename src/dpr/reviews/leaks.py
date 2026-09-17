@@ -25,8 +25,14 @@ def public_secret(ctx: Context) -> Iterator[Finding]:
     for env in ctx.detection.env_vars:
         prefix = public_prefix(env.name)
         if prefix and is_secret_name(env.name):
-            yield make_finding("LEAK-PUBLIC-SECRET", tag=Tag.CONFIRMED, locations=env.locations,
-                               name=env.name, prefix=prefix, renamed=env.name[len(prefix):])
+            yield make_finding(
+                "LEAK-PUBLIC-SECRET",
+                tag=Tag.CONFIRMED,
+                locations=env.locations,
+                name=env.name,
+                prefix=prefix,
+                renamed=env.name[len(prefix) :],
+            )
 
 
 @rule("LEAK-HARDCODED-KEY", review="leaks", severity="critical", exploitability="high")
@@ -35,9 +41,13 @@ def hardcoded_key(ctx: Context) -> Iterator[Finding]:
         text = ctx.index.text(entry.rel)
         for hit in find_keys(text):
             yield make_finding(
-                "LEAK-HARDCODED-KEY", tag=Tag.CONFIRMED, locations=[Location(entry.rel, hit.line)],
-                severity=None if hit.live else "high", snippet=snippet(text, hit.line),
-                kind=hit.kind)
+                "LEAK-HARDCODED-KEY",
+                tag=Tag.CONFIRMED,
+                locations=[Location(entry.rel, hit.line)],
+                severity=None if hit.live else "high",
+                snippet=snippet(text, hit.line),
+                kind=hit.kind,
+            )
 
 
 @rule("LEAK-KEY-IN-BUILD", review="leaks", severity="critical", exploitability="high")
@@ -46,8 +56,12 @@ def key_in_build(ctx: Context) -> Iterator[Finding]:
         text = entry.path.read_text(encoding="utf-8", errors="replace")
         for hit in find_keys(text):
             yield make_finding(
-                "LEAK-KEY-IN-BUILD", tag=Tag.CONFIRMED, locations=[Location(entry.rel, hit.line)],
-                severity=None if hit.live else "high", kind=hit.kind)
+                "LEAK-KEY-IN-BUILD",
+                tag=Tag.CONFIRMED,
+                locations=[Location(entry.rel, hit.line)],
+                severity=None if hit.live else "high",
+                kind=hit.kind,
+            )
 
 
 @rule("LEAK-SOURCEMAP", review="leaks", severity="medium", exploitability="medium")
@@ -55,17 +69,23 @@ def sourcemaps(ctx: Context) -> Iterator[Finding]:
     maps = [f for f in ctx.index.build_files if f.name.endswith(".map")]
     if maps:
         yield make_finding(
-            "LEAK-SOURCEMAP", tag=Tag.CONFIRMED, locations=[Location(f.rel, 1) for f in maps[:5]],
-            what=f"{len(maps)} source map file(s) are in the build output.")
+            "LEAK-SOURCEMAP",
+            tag=Tag.CONFIRMED,
+            locations=[Location(f.rel, 1) for f in maps[:5]],
+            what=f"{len(maps)} source map file(s) are in the build output.",
+        )
     for entry in ctx.index.named("next.config.*", "vite.config.*"):
         text = ctx.index.text(entry.rel)
         pattern = NEXT_SOURCEMAPS if entry.name.startswith("next.") else VITE_SOURCEMAPS
         for match in pattern.finditer(text):
             line = line_of(text, match.start())
             yield make_finding(
-                "LEAK-SOURCEMAP", tag=Tag.CONFIRMED, locations=[Location(entry.rel, line)],
+                "LEAK-SOURCEMAP",
+                tag=Tag.CONFIRMED,
+                locations=[Location(entry.rel, line)],
                 snippet=snippet(text, line),
-                what=f"{entry.name} turns on source maps for the production build.")
+                what=f"{entry.name} turns on source maps for the production build.",
+            )
 
 
 def _sentry_detail(sends_pii: bool, scrubs: bool) -> str:
@@ -94,10 +114,13 @@ def _js_sentry(ctx: Context) -> Iterator[Finding]:
                 if not sends_pii and scrubs:
                     continue
                 line = jsts.line(tree, pii if sends_pii else call)
-                yield make_finding("LEAK-SENTRY-PII", tag=Tag.CONFIRMED,
-                                   locations=[Location(entry.rel, line)],
-                                   snippet=snippet(text, line),
-                                   what=_sentry_detail(sends_pii, scrubs))
+                yield make_finding(
+                    "LEAK-SENTRY-PII",
+                    tag=Tag.CONFIRMED,
+                    locations=[Location(entry.rel, line)],
+                    snippet=snippet(text, line),
+                    what=_sentry_detail(sends_pii, scrubs),
+                )
 
 
 def _py_sentry(ctx: Context) -> Iterator[Finding]:
@@ -116,9 +139,13 @@ def _py_sentry(ctx: Context) -> Iterator[Finding]:
             if not sends_pii and scrubs:
                 continue
             line = pii.lineno if sends_pii else call.lineno
-            yield make_finding("LEAK-SENTRY-PII", tag=Tag.CONFIRMED,
-                               locations=[Location(entry.rel, line)],
-                               snippet=snippet(text, line), what=_sentry_detail(sends_pii, scrubs))
+            yield make_finding(
+                "LEAK-SENTRY-PII",
+                tag=Tag.CONFIRMED,
+                locations=[Location(entry.rel, line)],
+                snippet=snippet(text, line),
+                what=_sentry_detail(sends_pii, scrubs),
+            )
 
 
 @rule("LEAK-SENTRY-PII", review="leaks", severity="medium", exploitability="low")
@@ -128,7 +155,11 @@ def sentry_pii(ctx: Context) -> Iterator[Finding]:
 
 
 def run(ctx: Context) -> ReviewSection:
-    note = ("No secret value is printed in this report. Findings name the variable or key type "
-            "and where it is. A key that reached a browser or git history must be rotated.")
-    return ReviewSection("leaks", [Part("text", "What this review never prints", body=note),
-                                   Part("findings", "Leaks")])
+    note = (
+        "No secret value is printed in this report. Findings name the variable or key type "
+        "and where it is. A key that reached a browser or git history must be rotated."
+    )
+    return ReviewSection(
+        "leaks",
+        [Part("text", "What this review never prints", body=note), Part("findings", "Leaks")],
+    )

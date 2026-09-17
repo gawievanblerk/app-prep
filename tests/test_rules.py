@@ -62,6 +62,7 @@ def test_severity_override(registry):
 def test_duplicate_rule_id_from_other_function_raises(registry):
     registry.rule("T-ONE", review="leaks", severity="low", exploitability="low")(lambda c: [])
     with pytest.raises(ValueError, match="duplicate"):
+
         @registry.rule("T-ONE", review="leaks", severity="low", exploitability="low")
         def other(c):
             return []

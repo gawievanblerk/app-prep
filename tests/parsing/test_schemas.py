@@ -10,17 +10,31 @@ def write(root, rel, text):
 
 
 def build(tmp_path):
-    write(tmp_path, "prisma/schema.prisma", """
+    write(
+        tmp_path,
+        "prisma/schema.prisma",
+        """
 model User {
   id    Int    @id @default(autoincrement())
   email String @unique
   @@map("users")
 }
-""")
-    write(tmp_path, "prisma/migrations/1_init/migration.sql",
-          'create table "users" (id serial primary key, email text);')
-    write(tmp_path, "supabase/migrations/1.sql", "create table public.documents (id uuid, user_id uuid);")
-    write(tmp_path, "billing/models.py", """
+""",
+    )
+    write(
+        tmp_path,
+        "prisma/migrations/1_init/migration.sql",
+        'create table "users" (id serial primary key, email text);',
+    )
+    write(
+        tmp_path,
+        "supabase/migrations/1.sql",
+        "create table public.documents (id uuid, user_id uuid);",
+    )
+    write(
+        tmp_path,
+        "billing/models.py",
+        """
 from django.db import models
 
 class Invoice(models.Model):
@@ -36,8 +50,12 @@ class Note(models.Model):
     uid = models.UUIDField(primary_key=True)
     class Meta:
         db_table = "notes"
-""")
-    write(tmp_path, "svc/db.py", """
+""",
+    )
+    write(
+        tmp_path,
+        "svc/db.py",
+        """
 from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,8 +64,12 @@ class Account(Base):
     id = Column(Integer, primary_key=True)
     email = Column(String(255), unique=True)
     org_id: Mapped[int] = mapped_column(ForeignKey("orgs.id"))
-""")
-    write(tmp_path, "src/db/schema.ts", """
+""",
+    )
+    write(
+        tmp_path,
+        "src/db/schema.ts",
+        """
 import { pgTable, serial, text, uuid } from "drizzle-orm/pg-core"
 
 export const profiles = pgTable("profiles", {
@@ -56,7 +78,8 @@ export const profiles = pgTable("profiles", {
   email: text().unique(),
   orgId: uuid("org_id"),
 })
-""")
+""",
+    )
     index = RepoIndex(tmp_path)
     return extract_models(index, load_schema(index))
 
@@ -77,7 +100,8 @@ def test_fields(tmp_path):
     models = {m.name: m for m in build(tmp_path)}
     user = models["User"]
     assert [(f.name, f.unique, f.autoincrement) for f in user.fields] == [
-        ("id", True, True), ("email", True, False),
+        ("id", True, True),
+        ("email", True, False),
     ]
     invoice = models["Invoice"]
     assert invoice.field_names() == ["id", "amount", "number", "owner"]
@@ -86,12 +110,16 @@ def test_fields(tmp_path):
     assert models["Note"].field_names() == ["uid"]
     account = models["Account"]
     assert [(f.name, f.type, f.unique, f.autoincrement) for f in account.fields] == [
-        ("id", "Integer", True, True), ("email", "String", True, False), ("org_id", "Mapped[int]", False, False),
+        ("id", "Integer", True, True),
+        ("email", "String", True, False),
+        ("org_id", "Mapped[int]", False, False),
     ]
     profiles = models["profiles"]
     assert [(f.name, f.type, f.unique, f.autoincrement) for f in profiles.fields] == [
-        ("id", "serial", True, True), ("full_name", "text", False, False),
-        ("email", "text", True, False), ("org_id", "uuid", False, False),
+        ("id", "serial", True, True),
+        ("full_name", "text", False, False),
+        ("email", "text", True, False),
+        ("org_id", "uuid", False, False),
     ]
     assert profiles.fields[1].location.line == 6
 

@@ -91,25 +91,33 @@ class Bucket:
 
 CREATE_TABLE = re.compile(
     rf"^create\s+(?:(?:global|local)\s+)?(?:temporary\s+|temp\s+|unlogged\s+)?table\s+"
-    rf"(?:if\s+not\s+exists\s+)?({QNAME})\s*(.*)$", re.S)
+    rf"(?:if\s+not\s+exists\s+)?({QNAME})\s*(.*)$",
+    re.S,
+)
 ALTER_TABLE = re.compile(
-    rf"^alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?({QNAME})\s+(.*)$", re.S)
+    rf"^alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?({QNAME})\s+(.*)$", re.S
+)
 RLS_ACTION = re.compile(r"^(enable|disable|force|no\s+force)\s+row\s+level\s+security")
 CREATE_POLICY = re.compile(rf"^create\s+policy\s+({IDENT})\s+on\s+({QNAME})\s*(.*)$", re.S)
 ALTER_POLICY = re.compile(rf"^alter\s+policy\s+({IDENT})\s+on\s+({QNAME})\s*(.*)$", re.S)
 DROP_POLICY = re.compile(rf"^drop\s+policy\s+(?:if\s+exists\s+)?({IDENT})\s+on\s+({QNAME})")
 CREATE_VIEW = re.compile(
     rf"^create\s+(?:or\s+replace\s+)?(?:(?:temp|temporary)\s+)?(?:recursive\s+)?view\s+"
-    rf"({QNAME})\s*(.*)$", re.S)
+    rf"({QNAME})\s*(.*)$",
+    re.S,
+)
 ALTER_VIEW = re.compile(rf"^alter\s+view\s+(?:if\s+exists\s+)?({QNAME})\s+set\s*(\(.*\))", re.S)
 CREATE_FUNCTION = re.compile(rf"^create\s+(?:or\s+replace\s+)?function\s+({QNAME})\s*(.*)$", re.S)
 INSERT_BUCKET = re.compile(
-    r"^insert\s+into\s+storage\s*\.\s*buckets\s*\(([^)]*)\)\s*values\s*(.*)$", re.S)
+    r"^insert\s+into\s+storage\s*\.\s*buckets\s*\(([^)]*)\)\s*values\s*(.*)$", re.S
+)
 DROP_OBJECT = re.compile(rf"^drop\s+(table|view|function)\s+(?:if\s+exists\s+)?({QNAME})")
 CONSTRAINT_START = re.compile(
-    r"^(constraint|primary\s+key|unique|foreign\s+key|check|exclude|like)\b")
+    r"^(constraint|primary\s+key|unique|foreign\s+key|check|exclude|like)\b"
+)
 TABLE_KEY_CONSTRAINT = re.compile(
-    rf"^(?:constraint\s+{IDENT}\s+)?(?:primary\s+key|unique)\s*\(([^)]*)\)")
+    rf"^(?:constraint\s+{IDENT}\s+)?(?:primary\s+key|unique)\s*\(([^)]*)\)"
+)
 SOURCE_TABLE = re.compile(rf"\b(?:from|join)\s+({QNAME})")
 BODY_TABLE = re.compile(rf"\b(?:from|join|into|update)\s+({QNAME})")
 
@@ -128,27 +136,34 @@ def _column(item: str) -> Column | None:
     col_type = rest.split(" ")[0]
     unique = bool(re.search(r"\b(unique|primary\s+key)\b", rest))
     autoinc = col_type in ("serial", "bigserial", "smallserial", "serial4", "serial8") or bool(
-        re.search(r"\bgenerated\b.*\bidentity\b", rest))
+        re.search(r"\bgenerated\b.*\bidentity\b", rest)
+    )
     return Column(_strip_quotes(match.group(1)), col_type, unique, autoinc)
 
 
 def _policy_clauses(rest: str) -> dict[str, object]:
-    out: dict[str, object] = {"permissive": True, "command": "all", "roles": ("public",),
-                              "roles_explicit": False, "using": None, "with_check": None}
+    out: dict[str, object] = {
+        "permissive": True,
+        "command": "all",
+        "roles": ("public",),
+        "roles_explicit": False,
+        "using": None,
+        "with_check": None,
+    }
     match = re.match(r"^as\s+(permissive|restrictive)\s*", rest)
     if match:
         out["permissive"] = match.group(1) == "permissive"
-        rest = rest[match.end():]
+        rest = rest[match.end() :]
     match = re.match(r"^for\s+(all|select|insert|update|delete)\s*", rest)
     if match:
         out["command"] = match.group(1)
-        rest = rest[match.end():]
+        rest = rest[match.end() :]
     match = re.match(r"^to\s+", rest)
     if match:
         starts = (find_top_level(rest, r"using\b"), find_top_level(rest, r"with\s+check\b"))
         ends = [i for i in starts if i != -1]
         end = min(ends) if ends else len(rest)
-        roles = [_strip_quotes(r.strip()) for r in split_top_level(rest[match.end():end])]
+        roles = [_strip_quotes(r.strip()) for r in split_top_level(rest[match.end() : end])]
         out["roles"] = tuple(r for r in roles if r)
         out["roles_explicit"] = True
         rest = rest[end:]
@@ -181,10 +196,18 @@ class SchemaState:
     def apply(self, stmt: Statement, file: str) -> None:
         loc = Location(file, stmt.line)
         s = stmt.norm
-        for handler in (self._create_table, self._alter_table, self._create_policy,
-                        self._alter_policy, self._drop_policy, self._create_view,
-                        self._alter_view, self._create_function, self._insert_bucket,
-                        self._drop_object):
+        for handler in (
+            self._create_table,
+            self._alter_table,
+            self._create_policy,
+            self._alter_policy,
+            self._drop_policy,
+            self._create_view,
+            self._alter_view,
+            self._create_function,
+            self._insert_bucket,
+            self._drop_object,
+        ):
             if handler(s, loc):
                 return
 
@@ -327,8 +350,9 @@ class SchemaState:
         rest = match.group(2).lstrip()
         while rest.startswith("("):
             inner, end = balanced(rest, 0)
-            row = dict(zip(columns, (v.strip().strip("'") for v in split_top_level(inner)),
-                           strict=False))
+            row = dict(
+                zip(columns, (v.strip().strip("'") for v in split_top_level(inner)), strict=False)
+            )
             if row.get("id"):
                 public = row.get("public", "false").lower() in TRUE_WORDS
                 self.buckets[row["id"]] = Bucket(row["id"], public, loc)
@@ -411,8 +435,11 @@ def apply_dump(state: SchemaState, text: str, file: str) -> list[str]:
         qual = re.sub(r"\s+", " ", row.get("qual", "")).strip().lower()
         check = re.sub(r"\s+", " ", row.get("with_check", "")).strip().lower()
         state.policies[(key, row["policyname"])] = Policy(
-            name=row["policyname"], table=key, command=row.get("cmd", "ALL").lower(),
-            roles=roles or ("public",), roles_explicit=bool(roles) and roles != ("public",),
+            name=row["policyname"],
+            table=key,
+            command=row.get("cmd", "ALL").lower(),
+            roles=roles or ("public",),
+            roles_explicit=bool(roles) and roles != ("public",),
             using=clean_predicate(qual) if qual else None,
             with_check=clean_predicate(check) if check else None,
             permissive=row.get("permissive", "PERMISSIVE").upper() == "PERMISSIVE",

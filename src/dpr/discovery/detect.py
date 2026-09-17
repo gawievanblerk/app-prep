@@ -22,17 +22,18 @@ def _code_matches(index: RepoIndex, pattern: str) -> bool:
 def _match(signals: dict, index: RepoIndex, packages: set[str]) -> list[str]:
     found = []
     for name, spec in signals.items():
-        if (any(normalise(p) in packages for p in spec.get("packages", []))
-                or any(index.named(pattern) for pattern in spec.get("files", []))
-                or (spec.get("text") and _code_matches(index, spec["text"]))):
+        if (
+            any(normalise(p) in packages for p in spec.get("packages", []))
+            or any(index.named(pattern) for pattern in spec.get("files", []))
+            or (spec.get("text") and _code_matches(index, spec["text"]))
+        ):
             found.append(name)
     return found
 
 
 def _header_config(index: RepoIndex, spec: dict) -> list[str]:
     regex = re.compile(spec["text"])
-    return sorted(f.rel for f in index.named(*spec["files"]) if regex.search(
-        index.text(f.rel)))
+    return sorted(f.rel for f in index.named(*spec["files"]) if regex.search(index.text(f.rel)))
 
 
 def _sdks(packages: set[str], sites: dict[str, list[Location]]) -> list[SdkUse]:
@@ -41,10 +42,12 @@ def _sdks(packages: set[str], sites: dict[str, list[Location]]) -> list[SdkUse]:
         names = [normalise(p) for p in sdk["packages"]]
         if not any(n in packages for n in names):
             continue
-        locations = sorted({loc for n in names for loc in sites.get(n, [])},
-                           key=lambda loc: (loc.file, loc.line))[:20]
-        found.append(SdkUse(sdk["name"], sdk["category"], sdk["recipient"], sdk["paid"],
-                            tuple(locations)))
+        locations = sorted(
+            {loc for n in names for loc in sites.get(n, [])}, key=lambda loc: (loc.file, loc.line)
+        )[:20]
+        found.append(
+            SdkUse(sdk["name"], sdk["category"], sdk["recipient"], sdk["paid"], tuple(locations))
+        )
     return found
 
 

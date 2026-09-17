@@ -43,8 +43,9 @@ def dotted(node: ast.AST | None) -> str | None:
     return ".".join(reversed(parts))
 
 
-def calls(tree: ast.AST, pattern: str | re.Pattern[str],
-          within: ast.AST | None = None) -> Iterator[ast.Call]:
+def calls(
+    tree: ast.AST, pattern: str | re.Pattern[str], within: ast.AST | None = None
+) -> Iterator[ast.Call]:
     regex = re.compile(pattern) if isinstance(pattern, str) else pattern
     found = []
     for node in ast.walk(within or tree):

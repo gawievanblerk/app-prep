@@ -3,7 +3,7 @@ import ast
 from dpr.parsing import pyast
 from dpr.walk import RepoIndex
 
-CODE = '''
+CODE = """
 from django.db import models
 
 class Invoice(models.Model):
@@ -17,7 +17,7 @@ def view(request, pk):
     def inner():
         return requests.get(request.GET.get("url"))
     return cookies().set("sid", "v")
-'''
+"""
 
 
 def tree():
@@ -28,7 +28,11 @@ def test_dotted_and_calls():
     t = tree()
     names = [pyast.dotted(c.func) for c in pyast.calls(t, r".*")]
     assert names == [
-        "models.IntegerField", "requests.get", "request.GET.get", "cookies().set", "cookies",
+        "models.IntegerField",
+        "requests.get",
+        "request.GET.get",
+        "cookies().set",
+        "cookies",
     ]
     assert [c.lineno for c in pyast.calls(t, r"requests\.get")] == [13]
 

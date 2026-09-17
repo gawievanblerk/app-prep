@@ -9,15 +9,31 @@ from tests.reviews.helpers import write
 
 def app(tmp_path):
     root = tmp_path / "app"
-    write(root, ".env.example", "NEXT_PUBLIC_SUPABASE_ANON_KEY=\nNEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=\n")
+    write(
+        root,
+        ".env.example",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY=\nNEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=\n",
+    )
     write(root, "supabase/migrations/1.sql", "create table public.notes (id int, user_id uuid);")
     write(root, "app/page.tsx", "export default function Page() { return null }\n")
     return root
 
 
 def git(root, *args):
-    subprocess.run(["git", "-C", str(root), "-c", "user.name=dpr", "-c", "user.email=dpr@example.invalid",
-                    *args], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=dpr",
+            "-c",
+            "user.email=dpr@example.invalid",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+    )
 
 
 def test_scan_writes_reports_and_summary(tmp_path, capsys):
@@ -29,7 +45,9 @@ def test_scan_writes_reports_and_summary(tmp_path, capsys):
     assert md.read_text().startswith("# Data Protection Review: app")
     assert json.loads(js.read_text())["schema_version"] == 1
     lines = capsys.readouterr().out.strip().splitlines()
-    assert lines[0].startswith("dpr: 2 findings (critical 2, high 0, medium 0, low 0), 22 open questions")
+    assert lines[0].startswith(
+        "dpr: 2 findings (critical 2, high 0, medium 0, low 0), 22 open questions"
+    )
     assert lines[1] == "Top fixes:"
     assert any(line.startswith("Wrote ") and line.endswith(".md") for line in lines)
     assert len(lines) <= 15
@@ -39,7 +57,9 @@ def test_fail_on(tmp_path):
     root = app(tmp_path)
     assert main(["scan", str(root), "--fail-on", "critical", "--format", "json"]) == 1
     assert main(["scan", str(root), "--fail-on", "none", "--format", "json"]) == 0
-    assert main(["scan", str(root), "--reviews", "leaks", "--fail-on", "high", "--format", "md"]) == 1
+    assert (
+        main(["scan", str(root), "--reviews", "leaks", "--fail-on", "high", "--format", "md"]) == 1
+    )
 
 
 def test_formats_reviews_and_out(tmp_path, capsys):

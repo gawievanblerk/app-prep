@@ -19,19 +19,23 @@ ENV_NAME = re.compile(r"^\.env(\..+)?$")
 ENV_EXAMPLE = re.compile(r"\.(example|sample|template)$")
 RESPONSE_CALL = re.compile(r"(?:NextResponse|Response)\.json|res\.(?:json|send)|reply\.send|json")
 ORM_READ = re.compile(
-    r"(?:prisma|db|tx)\.(\w+)\.(findUnique|findUniqueOrThrow|findFirst|findFirstOrThrow|findMany)")
+    r"(?:prisma|db|tx)\.(\w+)\.(findUnique|findUniqueOrThrow|findFirst|findFirstOrThrow|findMany)"
+)
 SUPABASE_ALL = re.compile(r"\.select\(\s*(?:['\"`]\*['\"`])?\s*\)")
 SUPABASE_TABLE = re.compile(r"\.from\(\s*['\"`](\w+)['\"`]\s*\)")
 SELECT_STAR = re.compile(r"select\s+\*", re.IGNORECASE)
 JS_ROUTE_FRAMEWORKS = ("next-app", "next-pages", "next-action", "express", "fastify")
 PY_ROUTE_FRAMEWORKS = ("django", "drf", "fastapi", "flask")
 LOG_CALL = re.compile(
-    r"console\.(?:log|error|warn|info|debug)|(?:logger|log)\.(?:info|error|warn|debug|log|fatal)")
+    r"console\.(?:log|error|warn|info|debug)|(?:logger|log)\.(?:info|error|warn|debug|log|fatal)"
+)
 PY_LOG_CALL = re.compile(
     r"print|logging\.(?:debug|info|warning|error|exception|critical)"
-    r"|(?:logger|log|LOGGER)\.(?:debug|info|warning|error|exception|critical)")
-SENSITIVE_ROOTS = frozenset({"req", "request", "body", "user", "token", "payload", "headers",
-                             "session", "password"})
+    r"|(?:logger|log|LOGGER)\.(?:debug|info|warning|error|exception|critical)"
+)
+SENSITIVE_ROOTS = frozenset(
+    {"req", "request", "body", "user", "token", "payload", "headers", "session", "password"}
+)
 ERROR_NAMES = frozenset({"err", "error", "e", "exc"})
 OBJECT_LOGGED = "A request, user, token or database error object is written to the log."
 TRACEBACK_LOGGED = "A full traceback, with local values in the message, is printed to the log."
@@ -52,15 +56,25 @@ def env_tracked(ctx: Context) -> Iterator[Finding]:
         return
     for path in tracked:
         if _is_real_env(path):
-            yield make_finding("LEAK-ENV-TRACKED", tag=Tag.CONFIRMED,
-                               locations=[Location(path, 1)], path=path)
+            yield make_finding(
+                "LEAK-ENV-TRACKED", tag=Tag.CONFIRMED, locations=[Location(path, 1)], path=path
+            )
 
 
 @rule("LEAK-ENV-IN-HISTORY", review="leaks", severity="high", exploitability="medium")
 def env_in_history(ctx: Context) -> Iterator[Finding]:
     root = ctx.index.root
-    output = run_git(root, "log", "--all", "--diff-filter=A", "--name-only", "--format=commit %h",
-                     "--", ":(glob)**/.env", ":(glob)**/.env.*")
+    output = run_git(
+        root,
+        "log",
+        "--all",
+        "--diff-filter=A",
+        "--name-only",
+        "--format=commit %h",
+        "--",
+        ":(glob)**/.env",
+        ":(glob)**/.env.*",
+    )
     if output is None:
         return
     prefix = (run_git(root, "rev-parse", "--show-prefix") or "").strip()
@@ -74,12 +88,17 @@ def env_in_history(ctx: Context) -> Iterator[Finding]:
         path = line.strip()
         if not path.startswith(prefix):
             continue
-        path = path[len(prefix):]
+        path = path[len(prefix) :]
         if path and _is_real_env(path) and path not in tracked:
             first_seen.setdefault(path, commit)
     for path, sha in first_seen.items():
-        yield make_finding("LEAK-ENV-IN-HISTORY", tag=Tag.CONFIRMED,
-                           locations=[Location(path, 1)], path=path, commit=sha)
+        yield make_finding(
+            "LEAK-ENV-IN-HISTORY",
+            tag=Tag.CONFIRMED,
+            locations=[Location(path, 1)],
+            path=path,
+            commit=sha,
+        )
 
 
 def _snake(name: str) -> str:
@@ -136,13 +155,27 @@ def _record_source(node) -> tuple[str | None, str | None]:
     return None, None
 
 
-def _broad(ctx: Context, rel: str, line: int, source: str, name: str | None,
-           rule_id: str = "LEAK-BROAD-RESPONSE") -> Finding:
-    what = (f"This response sends every field of the {name or 'queried'} record, "
-            "not only the ones the client needs.")
-    return make_finding(rule_id, tag=Tag.INFERRED, locations=[Location(rel, line)],
-                        severity=_severity(ctx, name), snippet=snippet(ctx.index.text(rel), line),
-                        source=source, what=what)
+def _broad(
+    ctx: Context,
+    rel: str,
+    line: int,
+    source: str,
+    name: str | None,
+    rule_id: str = "LEAK-BROAD-RESPONSE",
+) -> Finding:
+    what = (
+        f"This response sends every field of the {name or 'queried'} record, "
+        "not only the ones the client needs."
+    )
+    return make_finding(
+        rule_id,
+        tag=Tag.INFERRED,
+        locations=[Location(rel, line)],
+        severity=_severity(ctx, name),
+        snippet=snippet(ctx.index.text(rel), line),
+        source=source,
+        what=what,
+    )
 
 
 def _js_responses(ctx: Context) -> Iterator[Finding]:
@@ -152,11 +185,17 @@ def _js_responses(ctx: Context) -> Iterator[Finding]:
             continue
         if handler.type not in jsts.FUNCTION_TYPES:
             continue
-        candidates = [jsts.arguments(c)[0] for c in jsts.calls(route.tree, RESPONSE_CALL, handler)
-                      if jsts.arguments(c)]
+        candidates = [
+            jsts.arguments(c)[0]
+            for c in jsts.calls(route.tree, RESPONSE_CALL, handler)
+            if jsts.arguments(c)
+        ]
         if route.framework == "next-action":
-            candidates += [r.named_children[0] for r in jsts.walk(handler, {"return_statement"})
-                           if r.named_children]
+            candidates += [
+                r.named_children[0]
+                for r in jsts.walk(handler, {"return_statement"})
+                if r.named_children
+            ]
         for node in candidates:
             source, name = _record_source(node)
             if source:
@@ -182,7 +221,9 @@ def _py_responses(ctx: Context) -> Iterator[Finding]:
             continue
         for node in ast.walk(route.handler):
             dumps_all = isinstance(node, ast.Call) and pyast.dotted(node.func) in (
-                "model_to_dict", "vars")
+                "model_to_dict",
+                "vars",
+            )
             whole = dumps_all or (isinstance(node, ast.Attribute) and node.attr == "__dict__")
             if whole:
                 yield _broad(ctx, route.file, node.lineno, "Django", None)
@@ -221,8 +262,14 @@ def ssr_props(ctx: Context) -> Iterator[Finding]:
                     for item in values:
                         source, model = _record_source(item)
                         if source:
-                            yield _broad(ctx, entry.rel, jsts.line(tree, ret), source, model,
-                                         rule_id="LEAK-SSR-PROPS")
+                            yield _broad(
+                                ctx,
+                                entry.rel,
+                                jsts.line(tree, ret),
+                                source,
+                                model,
+                                rule_id="LEAK-SSR-PROPS",
+                            )
 
 
 def _catch_has_db(ident) -> bool:
@@ -249,8 +296,11 @@ def _js_sensitive(arg) -> bool:
     if arg.type == "object":
         return any(_js_sensitive(v) for v in jsts.object_pairs(arg).values())
     if arg.type == "template_string":
-        return any(_js_sensitive(s.named_children[0]) for s in arg.named_children
-                   if s.type == "template_substitution" and s.named_children)
+        return any(
+            _js_sensitive(s.named_children[0])
+            for s in arg.named_children
+            if s.type == "template_substitution" and s.named_children
+        )
     root = jsts.member_root(arg)
     if root in SENSITIVE_ROOTS:
         return True
@@ -264,8 +314,11 @@ def _js_sensitive(arg) -> bool:
 
 def _py_sensitive(node: ast.AST, tree: ast.Module, line: int) -> bool:
     if isinstance(node, ast.JoinedStr):
-        return any(_py_sensitive(v.value, tree, line) for v in node.values
-                   if isinstance(v, ast.FormattedValue))
+        return any(
+            _py_sensitive(v.value, tree, line)
+            for v in node.values
+            if isinstance(v, ast.FormattedValue)
+        )
     if isinstance(node, ast.Call) and pyast.dotted(node.func) in ("json.dumps", "str", "repr"):
         return any(_py_sensitive(a, tree, line) for a in node.args)
     root = pyast.name_root(node)
@@ -284,8 +337,13 @@ def _py_sensitive(node: ast.AST, tree: ast.Module, line: int) -> bool:
 
 def _logged(ctx: Context, rel: str, line: int, what: str) -> Finding:
     ctx.facts.setdefault("logged_pii", []).append(Location(rel, line))
-    return make_finding("LEAK-LOGGED-PII", tag=Tag.INFERRED, locations=[Location(rel, line)],
-                        snippet=snippet(ctx.index.text(rel), line), what=what)
+    return make_finding(
+        "LEAK-LOGGED-PII",
+        tag=Tag.INFERRED,
+        locations=[Location(rel, line)],
+        snippet=snippet(ctx.index.text(rel), line),
+        what=what,
+    )
 
 
 @rule("LEAK-LOGGED-PII", review="leaks", severity="medium", exploitability="low")

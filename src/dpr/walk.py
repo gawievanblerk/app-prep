@@ -10,17 +10,42 @@ from pathlib import Path
 
 from dpr.model import ScanError
 
-SKIP_DIRS = frozenset({
-    "node_modules", ".git", ".next", "dist", "build", "out", "vendor", ".venv", "venv",
-    "__pycache__", ".turbo", "coverage", ".pytest_cache", ".mypy_cache",
-    "data-protection-review",
-})
+SKIP_DIRS = frozenset(
+    {
+        "node_modules",
+        ".git",
+        ".next",
+        "dist",
+        "build",
+        "out",
+        "vendor",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".turbo",
+        "coverage",
+        ".pytest_cache",
+        ".mypy_cache",
+        "data-protection-review",
+    }
+)
 BUILD_DIR_NAMES = frozenset({"dist", "build", "out"})
 SOURCE_MAX_BYTES = 1_000_000
 BUILD_MAX_BYTES = 10_000_000
-JS_EXTS = frozenset({
-    ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts", ".vue", ".svelte",
-})
+JS_EXTS = frozenset(
+    {
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs",
+        ".mts",
+        ".cts",
+        ".vue",
+        ".svelte",
+    }
+)
 PY_EXTS = frozenset({".py"})
 ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
 

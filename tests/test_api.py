@@ -10,9 +10,17 @@ from tests.reviews.helpers import write
 
 
 def app(tmp_path):
-    write(tmp_path, "package.json", '{"dependencies": {"next": "14", "@supabase/supabase-js": "2"}}')
-    write(tmp_path, ".env.example", "NEXT_PUBLIC_SUPABASE_ANON_KEY=\nNEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=\n")
-    write(tmp_path, "supabase/migrations/1.sql", "create table public.notes (id int, user_id uuid);")
+    write(
+        tmp_path, "package.json", '{"dependencies": {"next": "14", "@supabase/supabase-js": "2"}}'
+    )
+    write(
+        tmp_path,
+        ".env.example",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY=\nNEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=\n",
+    )
+    write(
+        tmp_path, "supabase/migrations/1.sql", "create table public.notes (id int, user_id uuid);"
+    )
     write(tmp_path, "app/page.tsx", "export default function Page() { return null }\n")
     return tmp_path
 
@@ -31,12 +39,23 @@ def test_full_run(tmp_path):
     assert report.meta.date == "2026-09-16"
     assert report.meta.project == root.name
     assert dict(report.meta.applicability) == {
-        "inventory": "not available in this version", "rls": "runs", "auth": "not available in this version",
-        "baseline": "not available in this version", "owasp": "not available in this version",
-        "leaks": "runs", "abuse": "not available in this version",
+        "inventory": "not available in this version",
+        "rls": "runs",
+        "auth": "not available in this version",
+        "baseline": "not available in this version",
+        "owasp": "not available in this version",
+        "leaks": "runs",
+        "abuse": "not available in this version",
     }
     assert [s for s, _ in report.meta.applicability] == [
-        "inventory", "rls", "auth", "baseline", "owasp", "leaks", "abuse"]
+        "inventory",
+        "rls",
+        "auth",
+        "baseline",
+        "owasp",
+        "leaks",
+        "abuse",
+    ]
     rule_ids = {f.rule_id for f in report.findings}
     assert {"LEAK-PUBLIC-SECRET", "RLS-TABLE-OFF"} <= rule_ids
     scores = [score(f) for f in report.findings]
@@ -50,7 +69,10 @@ def test_selected_reviews_only(tmp_path):
     report = review(app(tmp_path), reviews=["leaks"])
     assert set(report.sections) == {"leaks"}
     assert dict(report.meta.applicability)["rls"] == "not selected"
-    assert {q.question.id for q in report.questions} == {"hosting_env_not_in_repo", "log_tool_access_retention"}
+    assert {q.question.id for q in report.questions} == {
+        "hosting_env_not_in_repo",
+        "log_tool_access_retention",
+    }
     assert not any(f.review == "rls" for f in report.findings)
 
 
@@ -58,7 +80,10 @@ def test_not_applicable_reason(tmp_path):
     write(tmp_path, "a.py", "x = 1\n")
     report = review(tmp_path, reviews=[2])
     assert report.sections == {}
-    assert dict(report.meta.applicability)["rls"] == "not applicable, no SQL tables, Supabase client or database dump found"
+    assert (
+        dict(report.meta.applicability)["rls"]
+        == "not applicable, no SQL tables, Supabase client or database dump found"
+    )
 
 
 def test_answers_and_warnings(tmp_path):

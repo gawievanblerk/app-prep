@@ -56,14 +56,27 @@ def test_report_has_no_legal_verdicts_or_em_dashes(bad):
 
 
 def test_review_does_not_change_the_repository(bad):
-    before = subprocess.run(["git", "-C", str(bad), "status", "--porcelain", "--ignored"],
-                            capture_output=True, text=True, check=True).stdout
-    listing = sorted(p.relative_to(bad).as_posix() for p in bad.rglob("*") if ".git/" not in p.as_posix())
+    before = subprocess.run(
+        ["git", "-C", str(bad), "status", "--porcelain", "--ignored"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    listing = sorted(
+        p.relative_to(bad).as_posix() for p in bad.rglob("*") if ".git/" not in p.as_posix()
+    )
     review(bad)
-    after = subprocess.run(["git", "-C", str(bad), "status", "--porcelain", "--ignored"],
-                           capture_output=True, text=True, check=True).stdout
+    after = subprocess.run(
+        ["git", "-C", str(bad), "status", "--porcelain", "--ignored"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
     assert after == before
-    assert sorted(p.relative_to(bad).as_posix() for p in bad.rglob("*") if ".git/" not in p.as_posix()) == listing
+    assert (
+        sorted(p.relative_to(bad).as_posix() for p in bad.rglob("*") if ".git/" not in p.as_posix())
+        == listing
+    )
 
 
 def test_no_em_dash_characters_in_source_or_tests():

@@ -65,8 +65,9 @@ def predicate_text(policy: Policy) -> str:
 
 
 def qualified(key: str) -> str:
-    return ".".join(p if re.fullmatch(r"[a-z_][a-z0-9_]*", p) else f'"{p}"'
-                    for p in key.split(".", 1))
+    return ".".join(
+        p if re.fullmatch(r"[a-z_][a-z0-9_]*", p) else f'"{p}"' for p in key.split(".", 1)
+    )
 
 
 def sql_block(sql: str) -> str:
@@ -82,14 +83,20 @@ def policies_sql(state: SchemaState, table: TableDef) -> str:
     pred = predicate(state, table)
     if pred is None:
         return "\n".join([*lines, NO_PREDICATE])
-    return "\n".join([
-        *lines, "",
-        f'create policy "{name}_select_own" on {target}\n  for select using ({pred});', "",
-        f'create policy "{name}_insert_own" on {target}\n  for insert with check ({pred});', "",
-        f'create policy "{name}_update_own" on {target}\n'
-        f"  for update using ({pred}) with check ({pred});", "",
-        f'create policy "{name}_delete_own" on {target}\n  for delete using ({pred});',
-    ])
+    return "\n".join(
+        [
+            *lines,
+            "",
+            f'create policy "{name}_select_own" on {target}\n  for select using ({pred});',
+            "",
+            f'create policy "{name}_insert_own" on {target}\n  for insert with check ({pred});',
+            "",
+            f'create policy "{name}_update_own" on {target}\n'
+            f"  for update using ({pred}) with check ({pred});",
+            "",
+            f'create policy "{name}_delete_own" on {target}\n  for delete using ({pred});',
+        ]
+    )
 
 
 def replacement_sql(state: SchemaState, policy: Policy) -> str:

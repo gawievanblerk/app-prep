@@ -17,11 +17,17 @@ Ask = Callable[[Question, list[str]], str | None]
 def load_questions() -> list[Question]:
     return [
         Question(
-            id=q["id"], reviews=tuple(q["reviews"]), text=q["text"], type=q["type"],
-            why=q["why"], who=q["who"], options_from=q.get("options_from"),
+            id=q["id"],
+            reviews=tuple(q["reviews"]),
+            text=q["text"],
+            type=q["type"],
+            why=q["why"],
+            who=q["who"],
+            options_from=q.get("options_from"),
             static_options=tuple(q.get("static_options", [])),
             honest_out=tuple(q.get("honest_out", ["Not sure"])),
-            answered_by=q.get("answered_by"), lawyer=bool(q.get("lawyer", False)),
+            answered_by=q.get("answered_by"),
+            lawyer=bool(q.get("lawyer", False)),
         )
         for q in load("questions.yaml")["questions"]
     ]
@@ -63,9 +69,13 @@ def _as_text(value: object) -> str | None:
     return str(value).strip() or None
 
 
-def resolve(questions: list[Question], detection: Detection,
-            answers: str | Path | dict | None = None, interactive: bool = False,
-            ask: Ask | None = None) -> tuple[list[QuestionResult], list[str]]:
+def resolve(
+    questions: list[Question],
+    detection: Detection,
+    answers: str | Path | dict | None = None,
+    interactive: bool = False,
+    ask: Ask | None = None,
+) -> tuple[list[QuestionResult], list[str]]:
     data = _read_answers(answers)
     known = {q.id for q in load_questions()} | {q.id for q in questions}
     warnings = [f"unknown answer key ignored: {key}" for key in data if key not in known]
@@ -93,7 +103,7 @@ def resolve(questions: list[Question], detection: Detection,
 def answers_template(questions: list[Question], detection: Detection) -> str:
     lines = [
         "# dpr answers file. Fill in what you know and leave the rest empty.",
-        "# Honest answers such as \"Not sure\" are fine. They are listed as open questions.",
+        '# Honest answers such as "Not sure" are fine. They are listed as open questions.',
         "",
     ]
     for q in questions:

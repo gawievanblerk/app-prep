@@ -51,8 +51,9 @@ def decorator_routes(index: RepoIndex) -> list[Route]:
                 else:
                     continue
                 for method in methods:
-                    routes.append(Route(method, path, entry.rel, fn.lineno, framework,
-                                        handler=fn, tree=tree))
+                    routes.append(
+                        Route(method, path, entry.rel, fn.lineno, framework, handler=fn, tree=tree)
+                    )
     return routes
 
 
@@ -105,15 +106,31 @@ def django_routes(index: RepoIndex) -> list[Route]:
             if isinstance(view, ast.Call) and (pyast.dotted(view.func) or "").endswith("include"):
                 continue
             handler, rel, view_tree = _find_view(index, entry.rel, _view_name(view))
-            routes.append(Route("ANY", _url_path(route), rel or entry.rel,
-                                handler.lineno if handler else call.lineno, "django",
-                                handler=handler, tree=view_tree))
+            routes.append(
+                Route(
+                    "ANY",
+                    _url_path(route),
+                    rel or entry.rel,
+                    handler.lineno if handler else call.lineno,
+                    "django",
+                    handler=handler,
+                    tree=view_tree,
+                )
+            )
         for call in pyast.calls(tree, REGISTER_CALL):
             prefix = pyast.constant(call.args[0], None) if len(call.args) >= 2 else None
             if not isinstance(prefix, str):
                 continue
             handler, rel, view_tree = _find_view(index, entry.rel, _view_name(call.args[1]))
-            routes.append(Route("ANY", _url_path(prefix), rel or entry.rel,
-                                handler.lineno if handler else call.lineno, "drf",
-                                handler=handler, tree=view_tree))
+            routes.append(
+                Route(
+                    "ANY",
+                    _url_path(prefix),
+                    rel or entry.rel,
+                    handler.lineno if handler else call.lineno,
+                    "drf",
+                    handler=handler,
+                    tree=view_tree,
+                )
+            )
     return routes

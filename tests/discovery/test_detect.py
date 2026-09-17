@@ -11,13 +11,19 @@ def write(root, rel, text):
 
 
 def test_detect_next_supabase_app(tmp_path):
-    write(tmp_path, "package.json",
-          '{"dependencies": {"next": "14", "@supabase/supabase-js": "2", "@prisma/client": "5",'
-          ' "@sentry/nextjs": "8", "openai": "4", "@upstash/ratelimit": "1"},'
-          ' "devDependencies": {"vitest": "1"}}')
-    write(tmp_path, "next.config.js",
-          "module.exports = { async headers() { return [{ source: '/(.*)', headers: "
-          "[{ key: 'X-Frame-Options', value: 'DENY' }] }] } }\n")
+    write(
+        tmp_path,
+        "package.json",
+        '{"dependencies": {"next": "14", "@supabase/supabase-js": "2", "@prisma/client": "5",'
+        ' "@sentry/nextjs": "8", "openai": "4", "@upstash/ratelimit": "1"},'
+        ' "devDependencies": {"vitest": "1"}}',
+    )
+    write(
+        tmp_path,
+        "next.config.js",
+        "module.exports = { async headers() { return [{ source: '/(.*)', headers: "
+        "[{ key: 'X-Frame-Options', value: 'DENY' }] }] } }\n",
+    )
     write(tmp_path, "vercel.json", "{}")
     write(tmp_path, ".github/workflows/ci.yml", "on: push")
     write(tmp_path, ".env.example", "NEXT_PUBLIC_SUPABASE_ANON_KEY=\n")
@@ -55,7 +61,11 @@ def test_detect_next_supabase_app(tmp_path):
 def test_detect_django_app(tmp_path):
     write(tmp_path, "requirements.txt", "Django==5.0\ndjangorestframework\nsentry-sdk\n")
     write(tmp_path, "manage.py", "import django\n")
-    write(tmp_path, "shop/settings.py", "SECURE_HSTS_SECONDS = 3600\nfrom django.contrib.auth import x\n")
+    write(
+        tmp_path,
+        "shop/settings.py",
+        "SECURE_HSTS_SECONDS = 3600\nfrom django.contrib.auth import x\n",
+    )
     write(tmp_path, "Dockerfile", "FROM python")
     d = detect(RepoIndex(tmp_path))
     assert d.frameworks == ["django", "djangorestframework"]

@@ -14,14 +14,27 @@ SECRETS = (LIVE_STRIPE, ENV_VALUE)
 
 def git(root: Path, *args: str) -> None:
     subprocess.run(
-        ["git", "-C", str(root), "-c", "user.name=dpr", "-c", "user.email=dpr@example.invalid",
-         "-c", "commit.gpgsign=false", *args],
-        check=True, capture_output=True)
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=dpr",
+            "-c",
+            "user.email=dpr@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+    )
 
 
 def _bad_extras(root: Path) -> None:
     (root / "lib/stripe.ts").write_text(
-        'import Stripe from "stripe"\n\nexport const stripe = new Stripe("' + LIVE_STRIPE + '")\n')
+        'import Stripe from "stripe"\n\nexport const stripe = new Stripe("' + LIVE_STRIPE + '")\n'
+    )
     chunks = root / ".next/static/chunks"
     chunks.mkdir(parents=True)
     (chunks / "main.js").write_text('var cfg={k:"' + LIVE_STRIPE + '"};')
@@ -39,7 +52,8 @@ def _bad_extras(root: Path) -> None:
 
 def _good_extras(root: Path) -> None:
     (root / "lib/stripe.ts").write_text(
-        'import Stripe from "stripe"\n\nexport const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)\n')
+        'import Stripe from "stripe"\n\nexport const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)\n'
+    )
     (root / ".env").write_text(f"STRIPE_SECRET_KEY={ENV_VALUE}\n")
     git(root, "init", "-q")
     git(root, "add", "-A")

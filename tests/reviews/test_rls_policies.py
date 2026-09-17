@@ -37,12 +37,19 @@ def test_policy_true_and_authenticated_not_owner(tmp_path):
     root = app(tmp_path)
     assert sorted(by_line(root, "RLS-POLICY-TRUE")) == [8]
     assert sorted(by_line(root, "RLS-AUTHENTICATED-NOT-OWNER")) == [9]
-    assert 'drop policy "documents_read" on public.documents;' in by_line(root, "RLS-POLICY-TRUE")[8].fix
+    assert (
+        'drop policy "documents_read" on public.documents;'
+        in by_line(root, "RLS-POLICY-TRUE")[8].fix
+    )
 
 
 def test_weak_with_check_severity(tmp_path):
     found = by_line(app(tmp_path), "RLS-WEAK-WITH-CHECK")
-    assert {line: f.severity.value for line, f in found.items()} == {3: "low", 11: "high", 12: "high"}
+    assert {line: f.severity.value for line, f in found.items()} == {
+        3: "low",
+        11: "high",
+        12: "high",
+    }
 
 
 def test_wrong_role_client_owner_tenant_unbound(tmp_path):
@@ -56,10 +63,16 @@ def test_wrong_role_client_owner_tenant_unbound(tmp_path):
 
 def test_dump_only_table_is_checked(tmp_path):
     root = app(tmp_path)
-    dump = write(tmp_path, "pol.csv",
-                 "schemaname,tablename,policyname,permissive,roles,cmd,qual,with_check\n"
-                 "public,secrets,secrets_read,PERMISSIVE,{authenticated},SELECT,(auth.role() = 'authenticated'::text),\n")
+    dump = write(
+        tmp_path,
+        "pol.csv",
+        "schemaname,tablename,policyname,permissive,roles,cmd,qual,with_check\n"
+        "public,secrets,secrets_read,PERMISSIVE,{authenticated},SELECT,(auth.role() = 'authenticated'::text),\n",
+    )
     found = findings_for(root, "rls", "RLS-AUTHENTICATED-NOT-OWNER", db_dump=str(dump))
-    assert sorted((f.locations[0].file.endswith("pol.csv"), f.locations[0].line) for f in found) == [
-        (False, 9), (True, 2),
+    assert sorted(
+        (f.locations[0].file.endswith("pol.csv"), f.locations[0].line) for f in found
+    ) == [
+        (False, 9),
+        (True, 2),
     ]

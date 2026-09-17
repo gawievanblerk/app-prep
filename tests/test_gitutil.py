@@ -4,8 +4,20 @@ from dpr.gitutil import git_info, run_git, tracked_files
 
 
 def git(root, *args):
-    subprocess.run(["git", "-C", str(root), "-c", "user.name=dpr", "-c", "user.email=dpr@example.invalid",
-                    *args], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=dpr",
+            "-c",
+            "user.email=dpr@example.invalid",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+    )
 
 
 def test_not_a_repo(tmp_path):

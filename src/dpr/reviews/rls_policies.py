@@ -34,8 +34,9 @@ def _policies(ctx: Context):
         return
     state = state_for(ctx)
     tables = {t.key: t for t in public_tables(ctx)}
-    ordered = sorted(state.policies.values(),
-                     key=lambda p: (p.location.file, p.location.line, p.name))
+    ordered = sorted(
+        state.policies.values(), key=lambda p: (p.location.file, p.location.line, p.name)
+    )
     for policy in ordered:
         if policy.table.startswith("public."):
             table = tables.get(policy.table) or TableDef(policy.table, [], policy.location)
@@ -50,8 +51,14 @@ def _fix(state, policy) -> str:
 def policy_true(ctx: Context) -> Iterator[Finding]:
     for state, table, policy in _policies(ctx):
         if policy.using == "true" and has_owner_or_unknown(table):
-            yield make_finding("RLS-POLICY-TRUE", tag=Tag.CONFIRMED, locations=[policy.location],
-                               fix=_fix(state, policy), policy=policy.name, table=table.key)
+            yield make_finding(
+                "RLS-POLICY-TRUE",
+                tag=Tag.CONFIRMED,
+                locations=[policy.location],
+                fix=_fix(state, policy),
+                policy=policy.name,
+                table=table.key,
+            )
 
 
 @rule("RLS-AUTHENTICATED-NOT-OWNER", review="rls", severity="high", exploitability="high")
@@ -60,12 +67,20 @@ def authenticated_not_owner(ctx: Context) -> Iterator[Finding]:
         text = predicate_text(policy)
         if not text or AUTH_REF.search(text) or not has_owner_or_unknown(table):
             continue
-        signed_in_only = (policy.roles_explicit and set(policy.roles) == {"authenticated"}
-                          and "true" not in (policy.using, policy.with_check))
+        signed_in_only = (
+            policy.roles_explicit
+            and set(policy.roles) == {"authenticated"}
+            and "true" not in (policy.using, policy.with_check)
+        )
         if AUTH_ROLE.search(text) or signed_in_only:
-            yield make_finding("RLS-AUTHENTICATED-NOT-OWNER", tag=Tag.CONFIRMED,
-                               locations=[policy.location], fix=_fix(state, policy),
-                               policy=policy.name, table=table.key)
+            yield make_finding(
+                "RLS-AUTHENTICATED-NOT-OWNER",
+                tag=Tag.CONFIRMED,
+                locations=[policy.location],
+                fix=_fix(state, policy),
+                policy=policy.name,
+                table=table.key,
+            )
 
 
 def _mentions(text: str | None, owner: str) -> bool:
@@ -81,9 +96,11 @@ def weak_with_check(ctx: Context) -> Iterator[Finding]:
             continue
         policies = state.policies_for(table.key)
         select_scoped = any(
-            p.command in ("select", "all") and p.using
+            p.command in ("select", "all")
+            and p.using
             and (UID_REF.search(p.using) or re.search(rf"\b{re.escape(owner)}\b", p.using))
-            for p in policies)
+            for p in policies
+        )
         for policy in policies:
             if policy.command not in ("insert", "update", "all") or policy.with_check is None:
                 continue
@@ -94,14 +111,26 @@ def weak_with_check(ctx: Context) -> Iterator[Finding]:
                 what = f"The insert policy {policy.name} lets a caller create rows for any {owner}."
             else:
                 severity = "low" if select_scoped else "high"
-                what = (f"The {policy.command} policy {policy.name} lets a caller change {owner} "
-                        "to another user. ")
-                what += ("A select policy scoped to the owner blocks this in practice."
-                         if select_scoped else "No select policy scoped to the owner blocks it.")
-            yield make_finding("RLS-WEAK-WITH-CHECK", tag=Tag.CONFIRMED,
-                               locations=[policy.location], severity=severity,
-                               fix=_fix(state, policy), policy=policy.name, table=table.key,
-                               owner=owner, what=what)
+                what = (
+                    f"The {policy.command} policy {policy.name} lets a caller change {owner} "
+                    "to another user. "
+                )
+                what += (
+                    "A select policy scoped to the owner blocks this in practice."
+                    if select_scoped
+                    else "No select policy scoped to the owner blocks it."
+                )
+            yield make_finding(
+                "RLS-WEAK-WITH-CHECK",
+                tag=Tag.CONFIRMED,
+                locations=[policy.location],
+                severity=severity,
+                fix=_fix(state, policy),
+                policy=policy.name,
+                table=table.key,
+                owner=owner,
+                what=what,
+            )
 
 
 @rule("RLS-WRONG-ROLE", review="rls", severity="high", exploitability="high")
@@ -111,17 +140,30 @@ def wrong_role(ctx: Context) -> Iterator[Finding]:
             continue
         open_roles = {"anon", "public"} & set(policy.roles)
         if policy.roles_explicit and open_roles and not AUTH_REF.search(predicate_text(policy)):
-            yield make_finding("RLS-WRONG-ROLE", tag=Tag.CONFIRMED, locations=[policy.location],
-                               fix=_fix(state, policy), policy=policy.name, table=table.key,
-                               roles=", ".join(sorted(open_roles)), command=policy.command)
+            yield make_finding(
+                "RLS-WRONG-ROLE",
+                tag=Tag.CONFIRMED,
+                locations=[policy.location],
+                fix=_fix(state, policy),
+                policy=policy.name,
+                table=table.key,
+                roles=", ".join(sorted(open_roles)),
+                command=policy.command,
+            )
 
 
 @rule("RLS-CLIENT-OWNER", review="rls", severity="high", exploitability="high")
 def client_owner(ctx: Context) -> Iterator[Finding]:
     for state, table, policy in _policies(ctx):
         if CLIENT_CLAIM.search(predicate_text(policy)):
-            yield make_finding("RLS-CLIENT-OWNER", tag=Tag.CONFIRMED, locations=[policy.location],
-                               fix=_fix(state, policy), policy=policy.name, table=table.key)
+            yield make_finding(
+                "RLS-CLIENT-OWNER",
+                tag=Tag.CONFIRMED,
+                locations=[policy.location],
+                fix=_fix(state, policy),
+                policy=policy.name,
+                table=table.key,
+            )
 
 
 @rule("RLS-TENANT-UNBOUND", review="rls", severity="high", exploitability="high")
@@ -135,6 +177,12 @@ def tenant_unbound(ctx: Context) -> Iterator[Finding]:
             continue
         if re.search(rf"\b{re.escape(tenant)}\b", text):
             continue
-        yield make_finding("RLS-TENANT-UNBOUND", tag=Tag.INFERRED, locations=[policy.location],
-                           fix=_fix(state, policy), policy=policy.name, table=table.key,
-                           tenant=tenant)
+        yield make_finding(
+            "RLS-TENANT-UNBOUND",
+            tag=Tag.INFERRED,
+            locations=[policy.location],
+            fix=_fix(state, policy),
+            policy=policy.name,
+            table=table.key,
+            tenant=tenant,
+        )

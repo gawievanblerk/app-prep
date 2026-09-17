@@ -19,8 +19,13 @@ TITLES = {
     "abuse": "Abuse and bill guard",
 }
 LABELS = {
-    "inventory": "INV", "rls": "RLS", "auth": "CASE", "baseline": "FIX",
-    "owasp": "FINDING", "leaks": "LEAK", "abuse": "GUARD",
+    "inventory": "INV",
+    "rls": "RLS",
+    "auth": "CASE",
+    "baseline": "FIX",
+    "owasp": "FINDING",
+    "leaks": "LEAK",
+    "abuse": "GUARD",
 }
 RUN_ORDER = ("leaks", "rls", "baseline", "auth", "owasp", "abuse", "inventory")
 

@@ -5,7 +5,9 @@ from tests.fixture_builder import FIXTURES, build
 
 
 def found(report):
-    return {(f.rule_id, f.locations[0].file, f.locations[0].line, f.tag.value) for f in report.findings}
+    return {
+        (f.rule_id, f.locations[0].file, f.locations[0].line, f.tag.value) for f in report.findings
+    }
 
 
 def test_bad_fixture_reports_exactly_the_planted_defects(tmp_path):
@@ -28,6 +30,10 @@ def test_bad_fixture_severities(tmp_path):
 
 def test_good_fixture_reports_none_of_the_defects(tmp_path):
     report = review(build("next-supabase-good", tmp_path))
-    banned = set(yaml.safe_load((FIXTURES / "next-supabase-good" / "expected.yaml").read_text())["must_not_report"])
+    banned = set(
+        yaml.safe_load((FIXTURES / "next-supabase-good" / "expected.yaml").read_text())[
+            "must_not_report"
+        ]
+    )
     assert [f for f in report.findings if f.rule_id in banned] == []
     assert set(report.sections) == {"leaks", "rls"}

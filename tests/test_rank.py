@@ -2,13 +2,32 @@ from dpr.model import Finding, Location
 from dpr.rank import dedupe, order_for_section, rank, score
 
 
-def f(rule_id="R", sev="high", expl="high", tag="CONFIRMED", effort=10, file="a.ts", line=1,
-      owasp=None, source="dpr", review="leaks"):
+def f(
+    rule_id="R",
+    sev="high",
+    expl="high",
+    tag="CONFIRMED",
+    effort=10,
+    file="a.ts",
+    line=1,
+    owasp=None,
+    source="dpr",
+    review="leaks",
+):
     return Finding(
-        rule_id=rule_id, review=review, title=rule_id, tag=tag, severity=sev,
-        exploitability=expl, effort_minutes=effort, locations=(Location(file, line),),
-        detail="d", fix="x", proof_needed="p" if tag == "INFERRED" else None,
-        owasp=owasp, source=source,
+        rule_id=rule_id,
+        review=review,
+        title=rule_id,
+        tag=tag,
+        severity=sev,
+        exploitability=expl,
+        effort_minutes=effort,
+        locations=(Location(file, line),),
+        detail="d",
+        fix="x",
+        proof_needed="p" if tag == "INFERRED" else None,
+        owasp=owasp,
+        source=source,
     )
 
 

@@ -13,14 +13,26 @@ from tree_sitter import Language, Node, Parser
 
 from dpr.walk import RepoIndex
 
-FUNCTION_TYPES = frozenset({
-    "function_declaration", "generator_function_declaration", "function_expression",
-    "function", "arrow_function", "method_definition",
-})
-WRAPPERS = frozenset({
-    "await_expression", "parenthesized_expression", "as_expression", "non_null_expression",
-    "satisfies_expression", "type_assertion",
-})
+FUNCTION_TYPES = frozenset(
+    {
+        "function_declaration",
+        "generator_function_declaration",
+        "function_expression",
+        "function",
+        "arrow_function",
+        "method_definition",
+    }
+)
+WRAPPERS = frozenset(
+    {
+        "await_expression",
+        "parenthesized_expression",
+        "as_expression",
+        "non_null_expression",
+        "satisfies_expression",
+        "type_assertion",
+    }
+)
 SCRIPT_BLOCK = re.compile(r"<script\b([^>]*)>(.*?)</script>", re.DOTALL | re.IGNORECASE)
 
 
@@ -62,8 +74,7 @@ def script_blocks(text: str) -> list[tuple[str, int, str]]:
     return blocks
 
 
-def parse_source(rel: str, code: str, grammar: str | None = None,
-                 line_offset: int = 0) -> JsTree:
+def parse_source(rel: str, code: str, grammar: str | None = None, line_offset: int = 0) -> JsTree:
     source = code.encode("utf-8")
     parsed = _parser(grammar or grammar_for(rel)).parse(source)
     return JsTree(rel, parsed.root_node, source, line_offset, parsed)
@@ -91,8 +102,7 @@ def line(tree: JsTree, node: Node) -> int:
     return node.start_point[0] + 1 + tree.line_offset
 
 
-def walk(node: Node, types: frozenset[str] | set[str] | None = None
-         ) -> Iterator[Node]:
+def walk(node: Node, types: frozenset[str] | set[str] | None = None) -> Iterator[Node]:
     stack = [node]
     while stack:
         current = stack.pop()
@@ -105,8 +115,9 @@ def callee(call: Node) -> str:
     return re.sub(r"\s+", "", node_text(call.child_by_field_name("function")))
 
 
-def calls(tree: JsTree, pattern: str | re.Pattern[str],
-          within: Node | None = None) -> Iterator[Node]:
+def calls(
+    tree: JsTree, pattern: str | re.Pattern[str], within: Node | None = None
+) -> Iterator[Node]:
     regex = re.compile(pattern) if isinstance(pattern, str) else pattern
     for node in walk(within or tree.root, {"call_expression"}):
         if regex.fullmatch(callee(node)):
@@ -135,8 +146,7 @@ def string_value(node: Node | None) -> str | None:
     if node is None:
         return None
     if node.type == "string":
-        parts = [c for c in node.named_children
-                 if c.type in ("string_fragment", "escape_sequence")]
+        parts = [c for c in node.named_children if c.type in ("string_fragment", "escape_sequence")]
         return "".join(node_text(c) for c in parts)
     if node.type == "template_string":
         if any(c.type == "template_substitution" for c in node.named_children):
@@ -164,8 +174,7 @@ def object_pairs(obj: Node | None) -> dict[str, Node]:
 
 def has_spread(obj: Node | None) -> bool:
     obj = unwrap(obj)
-    return obj is not None and any(c.type == "spread_element"
-                                   for c in obj.named_children)
+    return obj is not None and any(c.type == "spread_element" for c in obj.named_children)
 
 
 def enclosing_function(node: Node) -> Node | None:
@@ -185,8 +194,7 @@ def _top_level_function(root: Node, name: str) -> Node | None:
         if stmt.type in ("lexical_declaration", "variable_declaration"):
             for decl in stmt.named_children:
                 value = unwrap(decl.child_by_field_name("value"))
-                if node_text(decl.child_by_field_name("name")) == name and \
-                   value is not None:
+                if node_text(decl.child_by_field_name("name")) == name and value is not None:
                     if value.type in FUNCTION_TYPES:
                         return value
     return None
@@ -204,8 +212,7 @@ def exported_functions(tree: JsTree) -> dict[str, Node]:
             found[node_text(decl.child_by_field_name("name"))] = decl
             if is_default:
                 found["default"] = decl
-        elif decl is not None and decl.type in ("lexical_declaration",
-                                                 "variable_declaration"):
+        elif decl is not None and decl.type in ("lexical_declaration", "variable_declaration"):
             for item in decl.named_children:
                 value = unwrap(item.child_by_field_name("value"))
                 if item.type == "variable_declarator" and value is not None:
@@ -234,18 +241,19 @@ def resolve_identifier(ident: Node) -> Node | None:
     best = None
     for decl in walk(search_root, {"variable_declarator"}):
         target = decl.child_by_field_name("name")
-        if target is None or target.type != "identifier" or \
-           node_text(target) != name:
+        if target is None or target.type != "identifier" or node_text(target) != name:
             continue
         decl_scope = enclosing_function(decl)
         if ident_scope is None:
             if decl_scope is not None:
                 continue
         else:
-            if (decl_scope is None or
-                decl_scope.start_byte != ident_scope.start_byte or
-                decl_scope.end_byte != ident_scope.end_byte or
-                decl_scope.type != ident_scope.type):
+            if (
+                decl_scope is None
+                or decl_scope.start_byte != ident_scope.start_byte
+                or decl_scope.end_byte != ident_scope.end_byte
+                or decl_scope.type != ident_scope.type
+            ):
                 continue
         if decl.start_byte < ident.start_byte:
             best = decl.child_by_field_name("value")

@@ -69,9 +69,15 @@ def parse_prisma(text: str) -> list[PrismaModel]:
         if match:
             attributes = match.group(5)
             column = COLUMN_MAP.search(attributes)
-            fields.append(PrismaField(
-                name=match.group(1), type=match.group(2), optional=bool(match.group(4)),
-                is_list=bool(match.group(3)), attributes=attributes,
-                column=column.group(1) if column else match.group(1), line=number,
-            ))
+            fields.append(
+                PrismaField(
+                    name=match.group(1),
+                    type=match.group(2),
+                    optional=bool(match.group(4)),
+                    is_list=bool(match.group(3)),
+                    attributes=attributes,
+                    column=column.group(1) if column else match.group(1),
+                    line=number,
+                )
+            )
     return models

@@ -44,15 +44,23 @@ def _rls_tables(ctx: Context) -> set[str]:
 def table_off(ctx: Context) -> Iterator[Finding]:
     state = state_for(ctx)
     exposed = ctx.detection.public_supabase_key
-    reach = ("A public Supabase key is configured, so anyone holding it can read the table."
-             if exposed else "No public key was found, which reduces how reachable it is.")
+    reach = (
+        "A public Supabase key is configured, so anyone holding it can read the table."
+        if exposed
+        else "No public key was found, which reduces how reachable it is."
+    )
     for table in public_tables(ctx):
         if not table.rls:
             yield make_finding(
-                "RLS-TABLE-OFF", tag=Tag.CONFIRMED, locations=[table_location(table)],
+                "RLS-TABLE-OFF",
+                tag=Tag.CONFIRMED,
+                locations=[table_location(table)],
                 severity="critical" if exposed else "high",
-                fix=sql_block(policies_sql(state, table)), verify=confirm_commands(table.name),
-                table=table.key, reach=reach)
+                fix=sql_block(policies_sql(state, table)),
+                verify=confirm_commands(table.name),
+                table=table.key,
+                reach=reach,
+            )
 
 
 @rule("RLS-NO-POLICIES", review="rls", severity="low", exploitability="low")
@@ -60,9 +68,13 @@ def no_policies(ctx: Context) -> Iterator[Finding]:
     state = state_for(ctx)
     for table in public_tables(ctx):
         if table.rls and not state.policies_for(table.key):
-            yield make_finding("RLS-NO-POLICIES", tag=Tag.CONFIRMED,
-                               locations=[table_location(table)],
-                               fix=sql_block(policies_sql(state, table)), table=table.key)
+            yield make_finding(
+                "RLS-NO-POLICIES",
+                tag=Tag.CONFIRMED,
+                locations=[table_location(table)],
+                fix=sql_block(policies_sql(state, table)),
+                table=table.key,
+            )
 
 
 @rule("RLS-SELECT-ONLY", review="rls", severity="low", exploitability="low")
@@ -71,8 +83,12 @@ def select_only(ctx: Context) -> Iterator[Finding]:
     for table in public_tables(ctx):
         policies = state.policies_for(table.key)
         if table.rls and policies and all(p.command == "select" for p in policies):
-            yield make_finding("RLS-SELECT-ONLY", tag=Tag.CONFIRMED,
-                               locations=[policies[0].location], table=table.key)
+            yield make_finding(
+                "RLS-SELECT-ONLY",
+                tag=Tag.CONFIRMED,
+                locations=[policies[0].location],
+                table=table.key,
+            )
 
 
 @rule("RLS-VIEW-BYPASS", review="rls", severity="high", exploitability="high")
@@ -84,8 +100,14 @@ def view_bypass(ctx: Context) -> Iterator[Finding]:
         protected = [s for s in view.sources if s in protected_tables]
         if key.startswith("public.") and not view.security_invoker and protected:
             fix = sql_block(f"alter view {qualified(key)} set (security_invoker = true);")
-            yield make_finding("RLS-VIEW-BYPASS", tag=Tag.CONFIRMED, locations=[view.location],
-                               fix=fix, view=key, tables=", ".join(protected))
+            yield make_finding(
+                "RLS-VIEW-BYPASS",
+                tag=Tag.CONFIRMED,
+                locations=[view.location],
+                fix=fix,
+                view=key,
+                tables=", ".join(protected),
+            )
 
 
 @rule("RLS-DEFINER-FUNCTION", review="rls", severity="medium", exploitability="medium")
@@ -102,16 +124,26 @@ def definer_function(ctx: Context) -> Iterator[Finding]:
             what += f" It reads {', '.join(protected)}, which have row level security."
         if not fn.sets_search_path:
             what += " It does not set search_path."
-        yield make_finding("RLS-DEFINER-FUNCTION", tag=Tag.CONFIRMED, locations=[fn.location],
-                           severity="high" if protected else "medium", function=key, what=what)
+        yield make_finding(
+            "RLS-DEFINER-FUNCTION",
+            tag=Tag.CONFIRMED,
+            locations=[fn.location],
+            severity="high" if protected else "medium",
+            function=key,
+            what=what,
+        )
 
 
 @rule("RLS-PUBLIC-BUCKET", review="rls", severity="medium", exploitability="medium")
 def public_bucket(ctx: Context) -> Iterator[Finding]:
     for bucket in sorted(state_for(ctx).buckets.values(), key=lambda b: b.id):
         if bucket.public:
-            yield make_finding("RLS-PUBLIC-BUCKET", tag=Tag.CONFIRMED,
-                               locations=[bucket.location], bucket=bucket.id)
+            yield make_finding(
+                "RLS-PUBLIC-BUCKET",
+                tag=Tag.CONFIRMED,
+                locations=[bucket.location],
+                bucket=bucket.id,
+            )
     for entry in ctx.index.js_files:
         if "createBucket" not in ctx.index.text(entry.rel):
             continue
@@ -121,9 +153,11 @@ def public_bucket(ctx: Context) -> Iterator[Finding]:
                 public = jsts.object_pairs(args[1]).get("public") if len(args) > 1 else None
                 if public is not None and jsts.node_text(public) == "true":
                     yield make_finding(
-                        "RLS-PUBLIC-BUCKET", tag=Tag.CONFIRMED,
+                        "RLS-PUBLIC-BUCKET",
+                        tag=Tag.CONFIRMED,
                         locations=[Location(entry.rel, jsts.line(tree, call))],
-                        bucket=jsts.string_value(args[0]) or "(dynamic name)")
+                        bucket=jsts.string_value(args[0]) or "(dynamic name)",
+                    )
 
 
 def _breakage(ctx: Context, tables: list[TableDef]) -> list[Location]:
@@ -140,31 +174,50 @@ def _breakage(ctx: Context, tables: list[TableDef]) -> list[Location]:
 def _status_row(ctx: Context, table: TableDef) -> tuple[str, ...]:
     count = len(state_for(ctx).policies_for(table.key))
     if not table.rls:
-        reach = ("yes, every row" if ctx.detection.public_supabase_key
-                 else "yes, if a public key reaches the browser")
+        reach = (
+            "yes, every row"
+            if ctx.detection.public_supabase_key
+            else "yes, if a public key reaches the browser"
+        )
         verdict = "exposed"
     elif count == 0:
         reach, verdict = "no, all client access denied", "locked, probably read with a service key"
     else:
         reach, verdict = "only rows the policies allow", "check policy defects"
-    return (table.key, "yes" if table.rls else "no", str(count), reach, verdict,
-            str(table_location(table)))
+    return (
+        table.key,
+        "yes" if table.rls else "no",
+        str(count),
+        reach,
+        verdict,
+        str(table_location(table)),
+    )
 
 
 def run(ctx: Context) -> ReviewSection | None:
     state = state_for(ctx)
     if not state.tables and not client_facing(ctx):
         ctx.not_covered.append(
-            "Review 2 (rls): not applicable, no SQL tables, Supabase client or database dump found")
+            "Review 2 (rls): not applicable, no SQL tables, Supabase client or database dump found"
+        )
         return None
     if not client_facing(ctx):
         return ReviewSection("rls", [Part("text", "Relevance", body=SERVER_ONLY)])
     tables = public_tables(ctx)
     parts = [
-        Part("table", "Table protection status",
-             columns=("Table", "RLS enabled", "Policies", "Reachable by anon key", "Verdict",
-                      "Evidence"),
-             rows=tuple(_status_row(ctx, t) for t in tables)),
+        Part(
+            "table",
+            "Table protection status",
+            columns=(
+                "Table",
+                "RLS enabled",
+                "Policies",
+                "Reachable by anon key",
+                "Verdict",
+                "Evidence",
+            ),
+            rows=tuple(_status_row(ctx, t) for t in tables),
+        ),
         Part("findings", "Policy defects"),
     ]
     gaps = [t for t in tables if not t.rls or not state.policies_for(t.key)]
@@ -172,8 +225,10 @@ def run(ctx: Context) -> ReviewSection | None:
         body = "\n\n".join(sql_block(policies_sql(state, t)) for t in gaps)
         breakage = _breakage(ctx, gaps)
         if breakage:
-            body += ("\n\nAdding these policies can make these queries return nothing for rows "
-                     "the caller does not own:\n" + "\n".join(f"- `{loc}`" for loc in breakage))
+            body += (
+                "\n\nAdding these policies can make these queries return nothing for rows "
+                "the caller does not own:\n" + "\n".join(f"- `{loc}`" for loc in breakage)
+            )
         parts.append(Part("text", "Missing policies (runnable SQL)", body=body))
     example = gaps[0].name if gaps else (tables[0].name if tables else "<table>")
     confirm = confirm_commands(example)

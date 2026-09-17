@@ -12,7 +12,8 @@ HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
 APP_ROUTE = re.compile(r"(?:^|/)app/((?:[^/]+/)*)route\.(?:[cm]?[jt]s)$")
 PAGES_API = re.compile(r"(?:^|/)pages/api/(.+)\.(?:[cm]?[jt]sx?)$")
 SERVER_CALL = re.compile(
-    r"(?:app|router|server|fastify|routes|\w+Router|\w+router)\.(get|post|put|patch|delete|all)")
+    r"(?:app|router|server|fastify|routes|\w+Router|\w+router)\.(get|post|put|patch|delete|all)"
+)
 SERVER_HINT = re.compile(r"\.(?:get|post|put|patch|delete|all)\(\s*['\"`]/")
 PAGES_METHOD = re.compile(r"""req\.method\s*[!=]==?\s*['"]([A-Z]+)['"]""")
 
@@ -43,8 +44,17 @@ def next_app_routes(index: RepoIndex) -> list[Route]:
         for tree in jsts.parse_file(index, entry.rel):
             for name, fn in jsts.exported_functions(tree).items():
                 if name in HTTP_METHODS:
-                    routes.append(Route(name, path, entry.rel, jsts.line(tree, fn), "next-app",
-                                        handler=fn, tree=tree))
+                    routes.append(
+                        Route(
+                            name,
+                            path,
+                            entry.rel,
+                            jsts.line(tree, fn),
+                            "next-app",
+                            handler=fn,
+                            tree=tree,
+                        )
+                    )
     return routes
 
 
@@ -64,8 +74,17 @@ def next_pages_routes(index: RepoIndex) -> list[Route]:
                 continue
             methods = sorted(set(PAGES_METHOD.findall(jsts.node_text(handler)))) or ["ANY"]
             for method in methods:
-                routes.append(Route(method, path, entry.rel, jsts.line(tree, handler),
-                                    "next-pages", handler=handler, tree=tree))
+                routes.append(
+                    Route(
+                        method,
+                        path,
+                        entry.rel,
+                        jsts.line(tree, handler),
+                        "next-pages",
+                        handler=handler,
+                        tree=tree,
+                    )
+                )
     return routes
 
 
@@ -83,13 +102,30 @@ def server_actions(index: RepoIndex) -> list[Route]:
                 if name == "default" or fn.start_byte in seen:
                     continue
                 seen.add(fn.start_byte)
-                routes.append(Route("ACTION", f"action:{name}", entry.rel, jsts.line(tree, fn),
-                                    "next-action", handler=fn, tree=tree))
+                routes.append(
+                    Route(
+                        "ACTION",
+                        f"action:{name}",
+                        entry.rel,
+                        jsts.line(tree, fn),
+                        "next-action",
+                        handler=fn,
+                        tree=tree,
+                    )
+                )
             default = exported.get("default")
             if default is not None and default.start_byte not in seen:
-                routes.append(Route("ACTION", "action:default", entry.rel,
-                                    jsts.line(tree, default), "next-action", handler=default,
-                                    tree=tree))
+                routes.append(
+                    Route(
+                        "ACTION",
+                        "action:default",
+                        entry.rel,
+                        jsts.line(tree, default),
+                        "next-action",
+                        handler=default,
+                        tree=tree,
+                    )
+                )
     return routes
 
 
@@ -113,8 +149,17 @@ def server_routes(index: RepoIndex) -> list[Route]:
                 if handler is None or handler.type not in allowed:
                     continue
                 method = jsts.callee(call).rsplit(".", 1)[1].upper()
-                routes.append(Route("ANY" if method == "ALL" else method, path, entry.rel,
-                                    jsts.line(tree, call), framework, handler=handler, tree=tree))
+                routes.append(
+                    Route(
+                        "ANY" if method == "ALL" else method,
+                        path,
+                        entry.rel,
+                        jsts.line(tree, call),
+                        framework,
+                        handler=handler,
+                        tree=tree,
+                    )
+                )
     return routes
 
 
