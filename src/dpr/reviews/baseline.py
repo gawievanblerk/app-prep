@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dpr.reviews.baseline_accounts  # noqa: F401  (registers rules)
 import dpr.reviews.baseline_config  # noqa: F401  (registers rules)
 from dpr.model import Part, ReviewSection
 from dpr.reviews.baseline_headers import live_reads

@@ -1,0 +1,37 @@
+BASE-LITERAL-PASSWORD-HASH:
+  title: Account passwords are written in ${file}
+  effort_minutes: 10
+  detail: ${count} password hashing call(s) in ${file} hash text that is written in the repository, so every account created this way has a password anyone with repository access can read.${extra} The password itself is not printed here.
+  proof_needed: Check whether the environment variable is set in every deployed environment.
+  attack: Read the password from the repository or any clone, then sign in to each account the script created, one attempt per account so lockouts never trigger.
+  blast: Every account whose password was never changed after it was created, including admin accounts.
+  fix: |-
+    Treat the password as burned. Replace every stored hash that still matches it with an unusable value (for example a hash of a random value), invalidate existing sessions, and have owners set a password through reset.
+    Change the code to generate a random per-account password or create accounts in a pending state that requires a reset link. Remove the password from every file where it also appears.
+  verify: Sign in with the committed password against a copy of production data and confirm it is rejected for every account.
+BASE-SEED-ON-START:
+  title: Start command runs a seed script
+  effort_minutes: 10
+  detail: ${start} runs a seed step every time the app starts, so whatever the seed creates exists in every environment that uses this command, including production.${extra}
+  proof_needed: Check whether this start command is the one production uses, and what the seed creates when the data is missing.
+  attack: Use the demo or default accounts the seed creates, with the credentials written in the seed file or the README.
+  blast: Every account and record the seed creates, in every environment that runs this start command.
+  fix: Seed only reference data at start, or guard the seed so it refuses to create users outside local development. In production, change or disable any account the seed already created.
+  verify: Start the app with the production environment setting and confirm no user rows are created.
+BASE-SHORT-PASSWORD-MIN:
+  title: Passwords can be as short as ${minimum} characters
+  effort_minutes: 10
+  detail: A password check here accepts ${minimum} characters. Short passwords fall to guessing and credential stuffing.
+  attack: Try common short passwords against accounts created through this path.
+  blast: Accounts that chose a password at the minimum length.
+  fix: Require at least 12 characters (8 as an absolute floor), drop composition rules, and check new passwords against a breached-password list.
+  verify: Try to set a 7-character password through this path and confirm it is rejected.
+BASE-SAMESITE-NONE-NO-CSRF:
+  title: Cookies are sent cross-site with no CSRF defence found
+  effort_minutes: 30
+  detail: SameSite is set to None, so browsers attach the auth cookie to requests started by other sites, and no CSRF token, CSRF library or csrf check was found anywhere in the code.
+  proof_needed: Check whether state-changing routes accept cookie authentication without a custom header, token or Origin check.
+  attack: Host a page that submits a form or fetch to a state-changing route; a signed-in visitor's browser sends the cookie and the action runs as them.
+  blast: Every state-changing action reachable with cookie authentication.
+  fix: Use SameSite=Lax where the frontend and API share a site. If None is required, reject state-changing requests authenticated by cookie unless the Origin header is in the allowlist, or require a CSRF token or the Authorization header for them.
+  verify: From another origin, submit a form POST to a state-changing route with a valid session cookie and confirm a 403.
