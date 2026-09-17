@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import dpr.reviews.owasp_a01  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_assign  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_paths  # noqa: F401  (registers rules)
 from dpr.model import Part, ReviewSection
 from dpr.rules import Context
 
