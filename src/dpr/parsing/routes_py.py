@@ -81,7 +81,7 @@ def _view_name(node: ast.AST) -> str | None:
     return parts[-1] if parts else None
 
 
-def _top_level_defs(index: RepoIndex) -> dict[str, list[tuple[str, ast.stmt, ast.Module]]]:
+def top_level_defs(index: RepoIndex) -> dict[str, list[tuple[str, ast.stmt, ast.Module]]]:
     """Top-level function and class names mapped to (file, node, tree), built once per index."""
     if DEFS_KEY not in index.cache:
         defs: dict[str, list[tuple[str, ast.stmt, ast.Module]]] = {}
@@ -102,7 +102,7 @@ def _find_view(index: RepoIndex, urls_rel: str, name: str | None):
         return None, None, None
     folder = PurePosixPath(urls_rel).parent.as_posix()
     prefix = "" if folder == "." else folder + "/"
-    candidates = _top_level_defs(index).get(name, [])
+    candidates = top_level_defs(index).get(name, [])
     local = next((c for c in candidates if c[0].startswith(prefix)), None)
     rel, node, tree = local or (candidates[0] if candidates else (None, None, None))
     return node, rel, tree

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from dpr.model import Finding, Location, Route, Tag
 from dpr.parsing import jsts, pyast
+from dpr.parsing.routes_py import top_level_defs
 from dpr.redact import snippet
 from dpr.reviews.access import fastapi_aliases, path_params
 from dpr.reviews.lookups import helper_index
@@ -18,6 +19,7 @@ from dpr.rules import Context, make_finding, rule
 WRITE_MODE = re.compile(r"[wax+]")
 SANITIZERS = re.compile(r"(?:^|\.)(secure_filename|basename|uuid4|uuid1|token_hex|token_urlsafe)$")
 SAFE_ATTRIBUTES = {"name", "stem", "suffix", "hex"}
+SCALAR_TYPES = frozenset({"int", "float", "bool", "UUID", "Decimal", "date", "datetime"})
 NOT_REQUEST = re.compile(r"Depends|Security|Request|Session|BackgroundTasks|Response|WebSocket")
 REQUEST_DATA = re.compile(r"^request\.(?:files|form|args|values|data|json|FILES|POST|GET)\b")
 JS_WRITE = re.compile(
@@ -47,8 +49,9 @@ def _taint_of(node: ast.AST | None, taint: dict[str, set[str]]) -> set[str]:
     if isinstance(node, ast.Name):
         return set(taint.get(node.id, set()))
     text = ast.unparse(node)
-    if REQUEST_DATA.match(text):
-        return {"request"}
+    request_data = REQUEST_DATA.match(text)
+    if request_data:
+        return {request_data.group(0)}
     if isinstance(node, ast.Attribute):
         return set() if node.attr in SAFE_ATTRIBUTES else _taint_of(node.value, taint)
     if isinstance(node, ast.Call):
@@ -162,10 +165,39 @@ def _shared(a: str, b: str) -> int:
     return count
 
 
+def _is_enum(ctx: Context, name: str) -> bool:
+    return any(
+        isinstance(node, ast.ClassDef) and any(b.endswith("Enum") for b in pyast.base_names(node))
+        for _rel, node, _tree in top_level_defs(ctx.index).get(name, [])
+    )
+
+
+def scalar_annotation(ctx: Context, node: ast.AST | None) -> bool:
+    """int, float, bool, UUID, Decimal, date, datetime, an Enum or a Literal, also inside
+    Optional, Annotated or a union with None. The framework rejects any other value, so a
+    parameter annotated this way cannot carry a path."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        parts = [node.left, node.right]
+        return all(scalar_annotation(ctx, p) or pyast.constant(p, 0) is None for p in parts)
+    if isinstance(node, ast.Subscript):
+        base = (pyast.dotted(node.value) or "").split(".")[-1]
+        items = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+        if base == "Literal":
+            return True
+        if base == "Annotated":
+            return scalar_annotation(ctx, items[0])
+        if base in ("Optional", "Union"):
+            return all(scalar_annotation(ctx, i) or pyast.constant(i, 0) is None for i in items)
+        return False
+    name = (pyast.dotted(node) or "").split(".")[-1]
+    return name in SCALAR_TYPES or (bool(name) and _is_enum(ctx, name))
+
+
 def request_params(ctx: Context, route: Route) -> dict[str, set[str]]:
     fn = route.handler
     aliases = fastapi_aliases(ctx)
     seeds: dict[str, set[str]] = {"request": {"request"}} if route.framework != "fastapi" else {}
+    converted = set(re.findall(r"<(?:int|float|uuid):(\w+)>", route.path))
     params = [*fn.args.posonlyargs, *fn.args.args, *fn.args.kwonlyargs]
     defaults = [None] * (len(fn.args.posonlyargs) + len(fn.args.args) - len(fn.args.defaults))
     defaults += [*fn.args.defaults, *fn.args.kw_defaults]
@@ -175,6 +207,8 @@ def request_params(ctx: Context, route: Route) -> dict[str, set[str]]:
         if param.arg in ("self", "request") or NOT_REQUEST.search(text):
             continue
         if any(re.search(rf"\b{re.escape(alias)}\b", annotation) for alias in aliases):
+            continue
+        if param.arg in converted or scalar_annotation(ctx, param.annotation):
             continue
         if route.framework == "fastapi" or param.arg in path_params(route):
             seeds[param.arg] = {param.arg}

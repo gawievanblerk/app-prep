@@ -16,7 +16,7 @@ AZURE_DB_FIREWALL = re.compile(
 )
 DB_PORTS = {5432, 3306, 1433, 27017, 6379, 9200, 5984, 26257}
 PORT_NUMBER = re.compile(r"-?\d+")
-OPEN_CIDR = re.compile(r'"0\.0\.0\.0/0"')
+OPEN_CIDR = re.compile(r'"(0\.0\.0\.0/0|::/0)"')
 AZURE_WEB_APPS = re.compile(
     r"azurerm_(?:linux_web_app|windows_web_app|app_service|linux_function_app"
     r"|windows_function_app|function_app)"
@@ -52,20 +52,28 @@ def _port_list(ports: set[int]) -> str:
     return ", ".join(str(p) for p in sorted(ports))
 
 
-def _open_ingress_ports(block: hcl.Block) -> tuple[set[int], int]:
+def _open_cidr(body: str) -> re.Match[str] | None:
+    """The first open CIDR (0.0.0.0/0 or ::/0) outside comments, so a commented-out rule
+    never counts."""
+    return OPEN_CIDR.search(hcl._strip_comments(body))
+
+
+def _open_ingress_ports(block: hcl.Block) -> tuple[set[int], int, set[str]]:
     """Union of database ports this security group's own `ingress` blocks expose to an open
-    CIDR, and the line of the first exposing ingress. `egress` blocks never count."""
+    CIDR, the line of the first exposing ingress, and the open CIDRs. `egress` blocks never
+    count."""
     exposed: set[int] = set()
+    cidrs: set[str] = set()
     first_line = 0
     for nested in hcl.blocks(block.body):
-        if nested.kind != "ingress" or not OPEN_CIDR.search(nested.body):
-            continue
-        ports = _ports(nested)
+        match = _open_cidr(nested.body) if nested.kind == "ingress" else None
+        ports = _ports(nested) if match else set()
         if ports:
             if not exposed:
                 first_line = block.body_line + nested.line - 1
             exposed |= ports
-    return exposed, first_line
+            cidrs.add(match.group(1))
+    return exposed, first_line, cidrs
 
 
 def _open(rel: str, text: str, line: int, severity: str, what: str) -> Finding:
@@ -103,10 +111,10 @@ def db_network_open(ctx: Context) -> Iterator[Finding]:
                 what = f"Firewall rule {name} admits every IPv4 address on the internet."
                 yield _open(rel, text, block.line, "high", what)
         elif kind == "aws_security_group":
-            ports, line = _open_ingress_ports(block)
+            ports, line, cidrs = _open_ingress_ports(block)
             if ports:
                 what = (
-                    f"Security group {name} allows 0.0.0.0/0 to database "
+                    f"Security group {name} allows {' and '.join(sorted(cidrs))} to database "
                     f"port(s) {_port_list(ports)}."
                 )
                 yield _open(rel, text, line, "high", what)
@@ -114,22 +122,22 @@ def db_network_open(ctx: Context) -> Iterator[Finding]:
             is_ingress = kind == "aws_vpc_security_group_ingress_rule" or (
                 hcl.unquote(attrs.get("type", ("", 0))[0]) == "ingress"
             )
-            if is_ingress and OPEN_CIDR.search(block.body):
-                ports = _ports(block)
-                if ports:
-                    what = (
-                        f"Security group rule {name} allows 0.0.0.0/0 to database "
-                        f"port(s) {_port_list(ports)}."
-                    )
-                    yield _open(rel, text, block.line, "high", what)
+            match = _open_cidr(block.body) if is_ingress else None
+            ports = _ports(block) if match else set()
+            if ports:
+                what = (
+                    f"Security group rule {name} allows {match.group(1)} to database "
+                    f"port(s) {_port_list(ports)}."
+                )
+                yield _open(rel, text, block.line, "high", what)
         elif kind in ("aws_db_instance", "aws_rds_cluster_instance"):
             value, line = attrs.get("publicly_accessible", ("", 0))
             if value.strip() == "true":
                 what = f"Database instance {name} is publicly accessible."
                 yield _open(rel, text, line, "medium", what)
-        elif kind == "google_sql_database_instance" and OPEN_CIDR.search(block.body):
-            line = block.body_line + block.body[: OPEN_CIDR.search(block.body).start()].count("\n")
-            what = f"Cloud SQL instance {name} has 0.0.0.0/0 as an authorized network."
+        elif kind == "google_sql_database_instance" and (match := _open_cidr(block.body)):
+            line = block.body_line + block.body[: match.start()].count("\n")
+            what = f"Cloud SQL instance {name} has {match.group(1)} as an authorized network."
             yield _open(rel, text, line, "high", what)
 
 

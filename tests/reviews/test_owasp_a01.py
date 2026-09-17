@@ -232,3 +232,56 @@ def test_unguarded_method_is_inferred_when_app_middleware_cannot_be_read(tmp_pat
     )
     [f] = findings_for(tmp_path, "owasp", "OWASP-A01-UNGUARDED-METHOD")
     assert f.tag.value == "CONFIRMED"
+
+
+def test_unscoped_lookups_on_public_routes_are_inferred(tmp_path):
+    write(
+        tmp_path,
+        "prisma/schema.prisma",
+        "model Post {\n  id String @id @default(uuid())\n  authorId String\n  published Boolean\n}\n"
+        "model Invoice {\n  id String @id @default(uuid())\n  userId String\n}\n",
+    )
+    write(
+        tmp_path,
+        "app/api/posts/[id]/route.ts",
+        "export async function GET(req: Request, { params }: { params: { id: string } }) {\n"
+        "  const post = await prisma.post.findUnique({ where: { id: params.id, published: true } })\n"
+        "  return Response.json(post)\n}\n",
+    )
+    write(
+        tmp_path,
+        "app/api/invoices/[id]/route.ts",
+        "export async function GET(req: Request, { params }: { params: { id: string } }) {\n"
+        "  const invoice = await prisma.invoice.findUnique({ where: { id: params.id } })\n"
+        "  return Response.json(invoice)\n}\n"
+        "export async function PUT(req: Request, { params }: { params: { id: string } }) {\n"
+        "  const session = await auth()\n"
+        "  return prisma.invoice.update({ where: { id: params.id }, data: {} })\n}\n",
+    )
+    write(
+        tmp_path,
+        "api/posts.py",
+        "from fastapi import APIRouter\nrouter = APIRouter()\n"
+        "@router.get('/pages/{page_id}')\nasync def page(page_id: str, db=None):\n"
+        "    return await db.execute(select(Post).where(Post.id == page_id, Post.is_public == True))\n",
+    )
+    found = findings_for(tmp_path, "owasp", "OWASP-A01-UNSCOPED-QUERY")
+    assert summary(found) == [
+        ("app/api/invoices/[id]/route.ts:2", "INFERRED"),
+        ("app/api/invoices/[id]/route.ts:7", "CONFIRMED"),
+    ]
+    public = next(f for f in found if f.tag.value == "INFERRED")
+    assert public.proof_needed == "Confirm this record type is not meant to be public."
+    assert "Sign in" not in public.attack
+
+
+def test_positional_only_parameters_do_not_break_lookups(tmp_path):
+    write(
+        tmp_path,
+        "app/main.py",
+        "from fastapi import FastAPI\napp = FastAPI()\n"
+        "@app.get('/items/{item_id}')\ndef read(item_id: int = 1, /, q: str = ''):\n"
+        "    return db.get(Item, item_id)\n",
+    )
+    found = findings_for(tmp_path, "owasp", "OWASP-A01-UNSCOPED-QUERY")
+    assert summary(found) == [("app/main.py:5", "INFERRED")]

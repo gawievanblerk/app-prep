@@ -19,6 +19,11 @@ EMAIL_SUBJECT = re.compile(
     r"\b(?:current_user|user|me|caller|request\.user|session\.user)\.email\b"
 )
 MODEL_EMAIL = re.compile(r"\b([A-Z]\w*)\.email\b")
+PUBLIC_PROOF = "Confirm this record type is not meant to be public."
+PUBLIC_ATTACK = (
+    "1. Without signing in, request the route with one identifier. 2. Change the identifier. "
+    "3. Read or change a record that was not meant to be public."
+)
 
 
 def unscoped(ctx: Context) -> list[tuple[Route, list, str]]:
@@ -32,7 +37,7 @@ def unscoped(ctx: Context) -> list[tuple[Route, list, str]]:
             items = [
                 (lookup, check)
                 for lookup, check in route_lookups(ctx, route, level)
-                if check != "owner" and owned(ctx, lookup.model) is not False
+                if check != "owner" and not lookup.visible and owned(ctx, lookup.model) is not False
             ]
             if items:
                 checks = {check for _, check in items}
@@ -50,21 +55,27 @@ def unscoped_query(ctx: Context) -> Iterator[Finding]:
     for route, items, check in unscoped(ctx):
         lookup = items[0]
         known = owned(ctx, lookup.model) is not None
-        confirmed = check == "" and known
-        proof = None
+        level = access(ctx, route).level
+        proofs = []
         if check == "helper":
-            proof = "A later call receives the caller; confirm it rejects other owners' records."
+            proofs.append(
+                "A later call receives the caller; confirm it rejects other owners' records."
+            )
         elif not known:
-            proof = "The model was not found; confirm the record belongs to a user or tenant."
+            proofs.append(
+                "The model was not found; confirm the record belongs to a user or tenant."
+            )
+        if level == PUBLIC:
+            proofs.append(PUBLIC_PROOF)
         locations = [lookup.location, *([lookup.via] if lookup.via else [])]
         locations += [item.location for item in items[1:]]
-        level = access(ctx, route).level
         yield make_finding(
             "OWASP-A01-UNSCOPED-QUERY",
-            tag=Tag.CONFIRMED if confirmed else Tag.INFERRED,
+            tag=Tag.INFERRED if proofs else Tag.CONFIRMED,
             locations=locations,
             snippet=snippet(ctx.index.text(route.file), lookup.location.line),
-            proof_needed=proof,
+            proof_needed=" ".join(proofs) or None,
+            attack=PUBLIC_ATTACK if level == PUBLIC else None,
             method=route.method,
             path=route.path,
             key=", ".join(lookup.keys),

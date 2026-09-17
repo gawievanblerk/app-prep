@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
+from dpr.reviews.access_names import name_tokens
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
 
@@ -29,6 +30,8 @@ DJANGO_COOKIE_SETTINGS = {
 }
 WEAK_HASHES = re.compile(r"hashlib\.(md5|sha1|sha224|sha256)")
 PASSWORD_WORD = re.compile(r"(?i)password|passwd|pwd")
+TOKEN_WORDS = frozenset({"token", "tokens", "reset", "otp", "code", "codes", "nonce", "apikey"})
+RANDOM_SOURCE = re.compile(r"randomBytes|secrets\.token_\w+")
 WEAK_HASHERS = re.compile(r"MD5|SHA1", re.IGNORECASE)
 MIXED = re.compile(
     r"""\b(?:src|href)\s*=\s*["']http://(?!localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|www\.w3\.org)"""
@@ -247,6 +250,56 @@ def _password_context(call_text: str, fn: ast.AST | None) -> bool:
     return bool(PASSWORD_WORD.search(call_text) or PASSWORD_WORD.search(name))
 
 
+def _names_token(text: str) -> bool:
+    """The text names a token, reset link, one-time code, nonce or API key."""
+    words = name_tokens(text)
+    pairs = zip(words, words[1:], strict=False)
+    return bool(TOKEN_WORDS & set(words)) or any(a == "api" and b == "key" for a, b in pairs)
+
+
+def _hashes_random_or_token(hashed: str, context: str, sources: list[str]) -> bool:
+    """Skip a weak hash of a random token: the hashed value, its target or statement names a
+    token, or the value comes from randomBytes or secrets.token_*. A password argument is kept."""
+    if PASSWORD_WORD.search(hashed):
+        return False
+    return _names_token(hashed + " " + context) or any(RANDOM_SOURCE.search(s) for s in sources)
+
+
+def _py_statement(fn: ast.AST, line: int) -> str:
+    found = [
+        n
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Assign | ast.AnnAssign | ast.AugAssign | ast.Return | ast.Expr)
+        and n.lineno <= line <= (n.end_lineno or n.lineno)
+    ]
+    return ast.unparse(max(found, key=lambda n: n.lineno)) if found else ""
+
+
+def _py_sources(fn: ast.AST, hashed: ast.AST) -> list[str]:
+    names = pyast.names_in(hashed)
+    return [
+        ast.unparse(node.value)
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Assign)
+        and names & set().union(*(pyast.names_in(t) for t in node.targets))
+    ]
+
+
+def _js_hashed(call) -> list:
+    """The values passed to .update() along a createHash(...).update(...) chain."""
+    values = []
+    node = call
+    while node.parent is not None and node.parent.type == "member_expression":
+        member = node.parent
+        outer = member.parent
+        if outer is None or outer.type != "call_expression":
+            break
+        if jsts.node_text(member.child_by_field_name("property")) == "update":
+            values += [jsts.unwrap(a) for a in jsts.arguments(outer)]
+        node = outer
+    return values
+
+
 @rule(
     "BASE-WEAK-HASH", review="baseline", severity="critical", exploitability="medium", owasp="A02"
 )
@@ -260,7 +313,14 @@ def weak_hash(ctx: Context) -> Iterator[Finding]:
             continue
         for call in pyast.calls(tree, WEAK_HASHES):
             algorithm = (pyast.dotted(call.func) or "").split(".")[-1]
-            if _password_context(ast.unparse(call), pyast.function_at(tree, call.lineno)):
+            fn = pyast.function_at(tree, call.lineno)
+            hashed = ast.unparse(call.args[0]) if call.args else ""
+            scope = fn or tree
+            statement = _py_statement(scope, call.lineno)
+            sources = [hashed, *(_py_sources(scope, call.args[0]) if call.args else [])]
+            if _hashes_random_or_token(hashed, statement, sources):
+                continue
+            if _password_context(ast.unparse(call), fn):
                 yield make_finding(
                     "BASE-WEAK-HASH",
                     tag=Tag.INFERRED,
@@ -297,6 +357,15 @@ def weak_hash(ctx: Context) -> Iterator[Finding]:
                     statement = statement.parent
                 fn = jsts.enclosing_function(call)
                 fn_name = jsts.node_text(fn.child_by_field_name("name")) if fn else ""
+                hashed = _js_hashed(call)
+                sources = [jsts.node_text(v) for v in hashed if v is not None]
+                for value in hashed:
+                    if value is not None and value.type == "identifier":
+                        resolved = jsts.resolve_identifier(value)
+                        sources.append(jsts.node_text(resolved) if resolved is not None else "")
+                text = " ".join(jsts.node_text(v) for v in hashed if v is not None)
+                if _hashes_random_or_token(text, jsts.node_text(statement), sources):
+                    continue
                 if PASSWORD_WORD.search(jsts.node_text(statement) + " " + fn_name):
                     line = jsts.line(tree, call)
                     yield make_finding(

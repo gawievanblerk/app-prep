@@ -39,6 +39,9 @@ OWNER_COLUMNS = {
     "org_id", "organization_id", "tenant_id", "workspace_id", "team_id", "company_id",
 }  # fmt: skip
 USER_MODELS = {"user", "users", "profile", "profiles", "account", "accounts", "customer", "member"}
+VISIBILITY = re.compile(
+    r"(?i)\b(?:is_?)?(?:published|public|visible)\b\s*[:=]|\bvisibility\b|\bpublished_at\b"
+)
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,7 @@ class Lookup:
     by_primary_key: bool
     target: str | None
     via: Location | None = None
+    visible: bool = False
 
 
 def snake(name: str) -> str:
@@ -82,8 +86,8 @@ def request_keys(route: Route) -> set[str]:
     keys = set(path_params(route))
     fn = route.handler
     if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
-        params = [*fn.args.args, *fn.args.kwonlyargs]
-        defaults = [None] * (len(fn.args.args) - len(fn.args.defaults))
+        params = [*fn.args.posonlyargs, *fn.args.args, *fn.args.kwonlyargs]
+        defaults = [None] * (len(fn.args.posonlyargs) + len(fn.args.args) - len(fn.args.defaults))
         defaults += [*fn.args.defaults, *fn.args.kw_defaults]
         for arg, default in zip(params, defaults, strict=True):
             source = pyast.dotted(default.func) if isinstance(default, ast.Call) else None
@@ -211,6 +215,7 @@ def py_lookups(
                     _model_name(text, fn),
                     bool(PY_PK.search(text)),
                     _target(stmt),
+                    visible=bool(VISIBILITY.search(text)),
                 )
             )
             continue
@@ -241,6 +246,7 @@ def py_lookups(
                         item.by_primary_key,
                         _target(stmt),
                         via,
+                        item.visible,
                     )
                 )
             if inner:
@@ -311,7 +317,12 @@ def js_lookups(route: Route, subjects: tuple[str, ...]) -> list[Lookup]:
         pk = bool(re.search(r"\bid\s*:|findById", text))
         found.append(
             Lookup(
-                Location(route.file, jsts.line(tree, call)), tuple(sorted(used)), model, pk, target
+                Location(route.file, jsts.line(tree, call)),
+                tuple(sorted(used)),
+                model,
+                pk,
+                target,
+                visible=bool(VISIBILITY.search(text)),
             )
         )
     return found
