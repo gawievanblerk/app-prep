@@ -4,9 +4,10 @@ import yaml
 from dpr.api import review
 from tests.fixture_builder import FIXTURES, build
 
-BAD = ("next-supabase-bad", "django-bad")
+BAD = ("next-supabase-bad", "django-bad", "fastapi-bad")
 GOOD = {
     "next-supabase-good": {"leaks", "rls", "baseline", "owasp", "abuse"},
+    "fastapi-good": {"leaks", "baseline", "owasp", "abuse"},
 }
 
 
@@ -43,6 +44,13 @@ def test_django_bad_severities(tmp_path):
     assert django["BASE-WEAK-HASH"] == "critical"
     assert django["BASE-DEBUG-ON"] == "high"
     assert django["OWASP-A03-RAW-SQL"] == "high"
+
+
+def test_fastapi_bad_severities(tmp_path):
+    fastapi = {f.rule_id: f.severity.value for f in review(build("fastapi-bad", tmp_path)).findings}
+    assert fastapi["BASE-LITERAL-PASSWORD-HASH"] == "critical"
+    assert fastapi["BASE-SEED-ON-START"] == "critical"
+    assert fastapi["OWASP-A01-UNSCOPED-QUERY"] == "high"
 
 
 @pytest.mark.parametrize("name", sorted(GOOD))
