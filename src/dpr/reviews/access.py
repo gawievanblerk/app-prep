@@ -414,20 +414,19 @@ def _mount_guards(ctx: Context, rel: str, path: str, depth: int = 0) -> tuple[li
 
 def _express(ctx: Context, route: Route) -> Access:
     tree = route.tree
-    names = list(route.wrappers)
+    same_auth, unknown = _uses_before(ctx, route.file, tree, route.line, route.path)
+    names = [name.rsplit(" in ", 1)[0] for name in same_auth]
     for call in jsts.calls(tree, SERVER_VERB):
         if jsts.line(tree, call) == route.line:
             names += [jsts.node_text(a) for a in jsts.arguments(call)[1:-1] if a.type != "string"]
-    auth = [n for n in dict.fromkeys(names) if auth_name(n) or ADMIN_WORD.search(n)]
-    same_auth, unknown = _uses_before(ctx, route.file, tree, route.line, route.path)
     mount_auth, mount_unknown = _mount_guards(ctx, route.file, route.path)
-    auth = list(dict.fromkeys(auth + same_auth + mount_auth))
+    names += [*route.wrappers, *(name.rsplit(" in ", 1)[0] for name in mount_auth)]
+    auth = [n for n in dict.fromkeys(names) if auth_name(n) or ADMIN_WORD.search(n)]
     if not auth:
         unread = ", ".join(dict.fromkeys(unknown + mount_unknown))
         return public("no auth middleware", f"app-level middleware {unread}" if unread else "")
     admin = any(ADMIN_WORD.search(n) or "role" in n.lower() for n in auth)
-    evidence = ", ".join(n.split(" in ")[0] for n in auth[:3])
-    return Access(ADMIN if admin else AUTHENTICATED, EXPRESS_SUBJECTS, evidence)
+    return Access(ADMIN if admin else AUTHENTICATED, EXPRESS_SUBJECTS, ", ".join(auth[:3]))
 
 
 def _classify(ctx: Context, route: Route) -> Access:
