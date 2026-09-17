@@ -41,3 +41,70 @@ def test_top_level_attributes_only():
     assert unquote(attrs["name"][0]).startswith("${var.project}")
     rule = attributes(blocks(TF)[2])
     assert (unquote(rule["start_ip_address"][0]), rule["end_ip_address"][1]) == ("0.0.0.0", 20)
+
+
+BLOCK_COMMENT_TF = """
+/*
+resource "azurerm_mssql_firewall_rule" "x" {
+  start_ip_address = "0.0.0.0"
+}
+*/
+resource "azurerm_mssql_firewall_rule" "y" {
+  start_ip_address = "0.0.0.0"
+}
+"""
+
+
+def test_block_comment_is_not_a_block():
+    found = blocks(BLOCK_COMMENT_TF)
+    assert [b.labels for b in found] == [("azurerm_mssql_firewall_rule", "y")]
+
+
+BLOCK_COMMENT_BRACE_TF = """
+resource "azurerm_linux_web_app" "api" {
+  /* not enabled yet } */
+  https_only = true
+}
+"""
+
+
+def test_block_comment_brace_does_not_close_block():
+    [block] = blocks(BLOCK_COMMENT_BRACE_TF)
+    attrs = attributes(block)
+    assert attrs["https_only"][0] == "true"
+
+
+HEREDOC_TF = """
+resource "aws_instance" "web" {
+  user_data = <<-EOF
+    echo start {
+  EOF
+}
+
+resource "azurerm_linux_web_app" "api" {
+  https_only = true
+}
+"""
+
+
+def test_heredoc_does_not_swallow_next_resource():
+    found = blocks(HEREDOC_TF)
+    assert [b.labels for b in found] == [
+        ("aws_instance", "web"),
+        ("azurerm_linux_web_app", "api"),
+    ]
+
+
+COMMENT_AND_HASH_TF = """
+resource "azurerm_linux_web_app" "api" {
+  https_only = true // enabled for prod
+  name       = "Allow#Tag"
+}
+"""
+
+
+def test_attributes_strip_line_comment_and_keep_hash_in_string():
+    [block] = blocks(COMMENT_AND_HASH_TF)
+    attrs = attributes(block)
+    assert attrs["https_only"][0] == "true"
+    assert attrs["name"][0] == '"Allow#Tag"'

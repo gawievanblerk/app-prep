@@ -14,12 +14,8 @@ from dpr.walk import line_of
 AZURE_DB_FIREWALL = re.compile(
     r"azurerm_(?:postgresql|mysql|mariadb|mssql|sql|cosmosdb)\w*firewall_rule"
 )
-AWS_INGRESS = (
-    "aws_security_group",
-    "aws_security_group_rule",
-    "aws_vpc_security_group_ingress_rule",
-)
 DB_PORTS = {5432, 3306, 1433, 27017, 6379, 9200, 5984, 26257}
+PORT_NUMBER = re.compile(r"-?\d+")
 OPEN_CIDR = re.compile(r'"0\.0\.0\.0/0"')
 AZURE_WEB_APPS = re.compile(
     r"azurerm_(?:linux_web_app|windows_web_app|app_service|linux_function_app"
@@ -39,13 +35,37 @@ def _terraform(ctx: Context) -> Iterator[tuple[str, str, hcl.Block]]:
 
 
 def _ports(block: hcl.Block) -> set[int]:
-    numbers = set()
-    for match in re.finditer(r"\b(from_port|to_port)\s*=\s*(\d+)", block.body):
-        numbers.add(int(match.group(2)))
-    if len(numbers) == 2:
-        low, high = sorted(numbers)
-        return {p for p in DB_PORTS if low <= p <= high}
-    return numbers & DB_PORTS
+    """Database ports covered by this block's own from_port..to_port range.
+
+    A port given as a variable or other non-numeric expression is skipped, not guessed.
+    """
+    attrs = hcl.attributes(block)
+    low_raw = hcl.unquote(attrs.get("from_port", ("", 0))[0]).strip()
+    high_raw = hcl.unquote(attrs.get("to_port", ("", 0))[0]).strip()
+    if not (PORT_NUMBER.fullmatch(low_raw) and PORT_NUMBER.fullmatch(high_raw)):
+        return set()
+    low, high = sorted((int(low_raw), int(high_raw)))
+    return {p for p in DB_PORTS if low <= p <= high}
+
+
+def _port_list(ports: set[int]) -> str:
+    return ", ".join(str(p) for p in sorted(ports))
+
+
+def _open_ingress_ports(block: hcl.Block) -> tuple[set[int], int]:
+    """Union of database ports this security group's own `ingress` blocks expose to an open
+    CIDR, and the line of the first exposing ingress. `egress` blocks never count."""
+    exposed: set[int] = set()
+    first_line = 0
+    for nested in hcl.blocks(block.body):
+        if nested.kind != "ingress" or not OPEN_CIDR.search(nested.body):
+            continue
+        ports = _ports(nested)
+        if ports:
+            if not exposed:
+                first_line = block.body_line + nested.line - 1
+            exposed |= ports
+    return exposed, first_line
 
 
 def _open(rel: str, text: str, line: int, severity: str, what: str) -> Finding:
@@ -82,10 +102,26 @@ def db_network_open(ctx: Context) -> Iterator[Finding]:
             elif start == "0.0.0.0" and end == "255.255.255.255":
                 what = f"Firewall rule {name} admits every IPv4 address on the internet."
                 yield _open(rel, text, block.line, "high", what)
-        elif kind in AWS_INGRESS and OPEN_CIDR.search(block.body) and _ports(block):
-            ports = ", ".join(str(p) for p in sorted(_ports(block)))
-            what = f"Security group {name} allows 0.0.0.0/0 to database port(s) {ports}."
-            yield _open(rel, text, block.line, "high", what)
+        elif kind == "aws_security_group":
+            ports, line = _open_ingress_ports(block)
+            if ports:
+                what = (
+                    f"Security group {name} allows 0.0.0.0/0 to database "
+                    f"port(s) {_port_list(ports)}."
+                )
+                yield _open(rel, text, line, "high", what)
+        elif kind in ("aws_security_group_rule", "aws_vpc_security_group_ingress_rule"):
+            is_ingress = kind == "aws_vpc_security_group_ingress_rule" or (
+                hcl.unquote(attrs.get("type", ("", 0))[0]) == "ingress"
+            )
+            if is_ingress and OPEN_CIDR.search(block.body):
+                ports = _ports(block)
+                if ports:
+                    what = (
+                        f"Security group rule {name} allows 0.0.0.0/0 to database "
+                        f"port(s) {_port_list(ports)}."
+                    )
+                    yield _open(rel, text, block.line, "high", what)
         elif kind in ("aws_db_instance", "aws_rds_cluster_instance"):
             value, line = attrs.get("publicly_accessible", ("", 0))
             if value.strip() == "true":
