@@ -138,3 +138,28 @@ def test_apply_dump_reports_bad_rows():
         SchemaState(), " schemaname | tablename | rowsecurity\n public | x\n", "d"
     )
     assert problems == ["d:2: row skipped, unexpected column count"]
+
+
+def test_alter_table_rename_moves_table_policies_and_rls():
+    s = SchemaState()
+    sql = (
+        "create table public.notes (id int, user_id uuid);\n"
+        "alter table public.notes enable row level security;\n"
+        "create policy notes_read on public.notes for select using (auth.uid() = user_id);\n"
+        "alter table if exists public.notes rename to memos;\n"
+        "alter table memos rename column user_id to owner_id;\n"
+    )
+    for stmt in split_sql(sql):
+        s.apply(stmt, "m.sql")
+    assert sorted(s.tables) == ["public.memos"]
+    memos = s.tables["public.memos"]
+    assert (memos.key, memos.name, memos.rls, memos.rls_location.line) == (
+        "public.memos",
+        "memos",
+        True,
+        2,
+    )
+    assert memos.column_names() == ["id", "user_id"]
+    [policy] = s.policies_for("public.memos")
+    assert (policy.name, policy.table) == ("notes_read", "public.memos")
+    assert s.policies_for("public.notes") == []

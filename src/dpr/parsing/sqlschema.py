@@ -238,8 +238,12 @@ class SchemaState:
         match = ALTER_TABLE.match(s)
         if not match:
             return False
-        table = self.table(qualify(match.group(1)), loc)
-        rest = match.group(2)
+        key, rest = qualify(match.group(1)), match.group(2)
+        renamed = re.match(rf"^rename\s+to\s+({IDENT})\s*$", rest)
+        if renamed:
+            self._rename_table(key, qualify(f"{key.split('.')[0]}.{renamed.group(1)}"))
+            return True
+        table = self.table(key, loc)
         action = RLS_ACTION.match(rest)
         if action:
             if action.group(1) in ("enable", "disable"):
@@ -252,6 +256,20 @@ class SchemaState:
             if column and column.name not in table.column_names():
                 table.columns.append(column)
         return True
+
+    def _rename_table(self, old: str, new: str) -> None:
+        table = self.tables.pop(old, None)
+        if table is None:
+            return
+        table.key = new
+        self.tables[new] = table
+        moved = {}
+        for (key, name), policy in self.policies.items():
+            if key == old:
+                moved[(new, name)] = replace(policy, table=new)
+            else:
+                moved[(key, name)] = policy
+        self.policies = moved
 
     def _create_policy(self, s: str, loc: Location) -> bool:
         match = CREATE_POLICY.match(s)

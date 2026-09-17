@@ -14,6 +14,16 @@ OWNER_COLUMNS = ("user_id", "owner_id", "created_by", "author_id", "profile_id")
 TENANT_COLUMNS = ("org_id", "organization_id", "tenant_id", "workspace_id", "team_id")
 MEMBERSHIP_WORDS = ("member", "membership", "org_users", "team_users")
 AUTH_REF = re.compile(r"auth\.uid\s*\(|auth\.jwt\s*\(")
+SERVER_ROLES = frozenset({"service_role", "postgres", "supabase_admin"})
+AUTH_FUNCTIONS = frozenset({"auth.uid", "auth.jwt", "auth.role"})
+SQL_WORDS = frozenset(
+    "all and any array as between by case cast check distinct else end except exists filter "
+    "from having ilike in intersect is join lateral like limit not offset on or over returning "
+    "row select similar some then union using values when where with within".split()
+)
+FUNCTION_CALL = re.compile(r"(?<![\w.$:])([a-z_][a-z0-9_$]*(?:\s*\.\s*[a-z_][a-z0-9_$]*)?)\s*\(")
+STRING_LITERAL = re.compile(r"'(?:[^']|'')*'")
+HELPER_PROOF = "Read the called function to confirm it checks the row owner or tenant."
 DASHBOARD_QUERIES = """```sql
 select schemaname, tablename, rowsecurity
 from pg_tables
@@ -62,6 +72,21 @@ def predicate(state: SchemaState, table: TableDef) -> str | None:
 
 def predicate_text(policy: Policy) -> str:
     return " ".join(p for p in (policy.using, policy.with_check) if p)
+
+
+def grants_clients(policy: Policy) -> bool:
+    """A permissive policy that applies to at least one role a client can use."""
+    return policy.permissive and not (policy.roles and set(policy.roles) <= SERVER_ROLES)
+
+
+def calls_helper(text: str | None) -> bool:
+    """True when the predicate calls a function other than auth.uid(), auth.jwt() or auth.role()."""
+    bare = STRING_LITERAL.sub("''", text or "")
+    for match in FUNCTION_CALL.finditer(bare):
+        name = re.sub(r"\s+", "", match.group(1))
+        if name not in AUTH_FUNCTIONS and name not in SQL_WORDS:
+            return True
+    return False
 
 
 def qualified(key: str) -> str:
