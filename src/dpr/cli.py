@@ -14,9 +14,10 @@ from dpr.model import Report, ScanError
 from dpr.questions.catalogue import answers_template, load_questions
 from dpr.report.json_out import render_json
 from dpr.report.markdown import render_markdown
+from dpr.report.sarif import render_sarif
 from dpr.reviews import REVIEWS
 
-FORMATS = ("md", "json")
+FORMATS = ("md", "json", "sarif")
 SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
 FAIL_LEVELS = {"none": 0, "medium": 2, "high": 3, "critical": 4}
 MAX_SUMMARY_LINES = 15
@@ -44,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--with-audit", action="store_true")
     scan.add_argument("--semgrep", default="auto", metavar="auto|off|DIR")
     scan.add_argument("--db-dump", metavar="FILE")
-    scan.add_argument("--format", default="md,json", help="comma separated: md, json")
+    scan.add_argument("--format", default="md,json", help="comma separated: md, json, sarif")
     scan.add_argument("--out", metavar="DIR")
     scan.add_argument("--fail-on", default="none", choices=list(FAIL_LEVELS))
 
@@ -131,6 +132,9 @@ def _scan(args: argparse.Namespace) -> int:
     if "json" in formats:
         written.append(out_dir / f"report-{report.meta.date}.json")
         written[-1].write_text(render_json(report), encoding="utf-8")
+    if "sarif" in formats:
+        written.append(out_dir / f"report-{report.meta.date}.sarif")
+        written[-1].write_text(render_sarif(report), encoding="utf-8")
     for line in summary_lines(report, written, gitignore_tip(root, written[0])):
         print(line)
     return exit_code(report, args.fail_on)

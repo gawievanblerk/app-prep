@@ -69,8 +69,8 @@ def test_formats_reviews_and_out(tmp_path, capsys):
     assert main(["scan", str(root), "--reviews", "2,6", "--format", "json", "--out", str(out)]) == 0
     assert [p.suffix for p in out.iterdir()] == [".json"]
     assert "Tip:" not in capsys.readouterr().out
-    assert main(["scan", str(root), "--format", "sarif"]) == 2
-    assert "unknown format: sarif" in capsys.readouterr().err
+    assert main(["scan", str(root), "--format", "xml"]) == 2
+    assert "unknown format: xml" in capsys.readouterr().err
 
 
 def test_scan_errors_exit_2(tmp_path, capsys):
