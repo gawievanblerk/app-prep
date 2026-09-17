@@ -1,4 +1,6 @@
+import dataclasses
 import hashlib
+import re
 import socket
 import subprocess
 from pathlib import Path
@@ -99,3 +101,27 @@ def test_no_em_dash_characters_in_source_or_tests():
             if chr(0x2014) in data.decode("utf-8", errors="ignore"):
                 offenders.append(str(path.relative_to(root)))
     assert offenders == []
+
+
+def test_no_tree_sitter_point_row_or_column_access_in_source():
+    root = Path(__file__).resolve().parents[1]
+    pattern = re.compile(r"_point\.(row|column)")
+    offenders = [
+        str(path.relative_to(root))
+        for path in (root / "src").rglob("*.py")
+        if pattern.search(path.read_text(encoding="utf-8"))
+    ]
+    assert offenders == []
+
+
+def test_rendered_findings_have_no_unfilled_placeholders(bad):
+    report = review(bad)
+    assert report.findings
+    for finding in report.findings:
+        for field in dataclasses.fields(finding):
+            value = getattr(finding, field.name)
+            if field.name != "snippet" and isinstance(value, str):
+                assert "${" not in value, (finding.rule_id, field.name)
+    report.findings = [dataclasses.replace(f, snippet=None) for f in report.findings]
+    assert "${" not in render_markdown(report)
+    assert "${" not in render_json(report)

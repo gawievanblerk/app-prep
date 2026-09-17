@@ -39,3 +39,52 @@ def test_models_and_fields():
     assert by_name["email"].line == 7
     assert invoice.table == "Invoice"
     assert [f.name for f in invoice.fields] == ["id", "userId", "user"]
+
+
+SHAPES = """model Account {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  tags      String[]
+  nickname  String?
+  scores    Int[]    @default([])
+  note      String?  @default("a // not a comment") @map("note_text")
+  createdAt DateTime @default(now())
+
+  @@map("accounts")
+  @@unique([userId, nickname])
+  @@index([createdAt])
+}
+
+model Plain {
+  id   Int
+  name String
+}
+"""
+
+
+def test_attribute_shapes_and_a_model_without_attributes():
+    account, plain = parse_prisma(SHAPES)
+    assert (account.name, account.table, account.line) == ("Account", "accounts", 1)
+    fields = {f.name: f for f in account.fields}
+    assert list(fields) == ["id", "userId", "tags", "nickname", "scores", "note", "createdAt"]
+    assert fields["id"].attributes == "@id @default(autoincrement())"
+    assert (fields["id"].type, fields["id"].optional, fields["id"].is_list) == ("Int", False, False)
+    assert fields["userId"].column == "user_id"
+    assert (fields["tags"].type, fields["tags"].is_list, fields["tags"].attributes) == (
+        "String",
+        True,
+        "",
+    )
+    assert (fields["nickname"].optional, fields["nickname"].is_list) == (True, False)
+    assert (fields["scores"].is_list, fields["scores"].attributes) == (True, "@default([])")
+    assert (fields["note"].optional, fields["note"].column) == (True, "note_text")
+    assert fields["note"].attributes == '@default("a // not a comment") @map("note_text")'
+    assert (fields["createdAt"].column, fields["createdAt"].attributes) == (
+        "createdAt",
+        "@default(now())",
+    )
+    assert (plain.name, plain.table, plain.line) == ("Plain", "Plain", 15)
+    assert [(f.name, f.type, f.attributes, f.column, f.line) for f in plain.fields] == [
+        ("id", "Int", "", "id", 16),
+        ("name", "String", "", "name", 17),
+    ]
