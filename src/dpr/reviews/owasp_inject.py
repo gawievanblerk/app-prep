@@ -54,8 +54,78 @@ def _py_dynamic(node: ast.AST) -> bool:
     return isinstance(node, ast.Call) and (pyast.dotted(node.func) or "").endswith(".format")
 
 
-def _sql(ctx: Context, rel: str, line: int, scope_text: str, what: str) -> Finding:
-    from_request = bool(REQUEST_VALUE.search(scope_text))
+def _js_parts(node) -> list:
+    """The runtime parts of a JS string: template substitutions and non-literal operands."""
+    node = jsts.unwrap(node)
+    if node is None or node.type == "string":
+        return []
+    if node.type == "template_string":
+        return [c for c in node.named_children if c.type == "template_substitution"]
+    if node.type == "binary_expression":
+        return [p for child in node.named_children for p in _js_parts(child)]
+    return [node]
+
+
+def _js_bound(fn, name: str) -> list[str]:
+    """Values assigned to `name` in the function, including destructuring declarations."""
+    values = []
+    for decl in jsts.walk(fn, {"variable_declarator"}) if fn is not None else []:
+        target = decl.child_by_field_name("name")
+        bound = {
+            jsts.node_text(n)
+            for n in jsts.walk(target, {"identifier", "shorthand_property_identifier_pattern"})
+        }
+        if name in bound:
+            values.append(jsts.node_text(decl.child_by_field_name("value")))
+    return values
+
+
+def _js_from_request(call, first) -> bool:
+    """A request value, or a name assigned from one, is inside the SQL string's parts."""
+    fn = jsts.enclosing_function(call)
+    parts = _js_parts(first)
+    if first is not None and first.type == "identifier":
+        resolved = jsts.resolve_identifier(first)
+        parts = _js_parts(resolved) if resolved is not None else parts
+    for part in parts:
+        text = jsts.node_text(part)
+        if REQUEST_VALUE.search(text):
+            return True
+        for ident in jsts.walk(part, {"identifier"}):
+            if any(REQUEST_VALUE.search(v) for v in _js_bound(fn, jsts.node_text(ident))):
+                return True
+    return False
+
+
+def _py_parts(node: ast.AST) -> list[ast.AST]:
+    if isinstance(node, ast.JoinedStr):
+        return [v.value for v in node.values if isinstance(v, ast.FormattedValue)]
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return [*_py_parts(node.left), *_py_parts(node.right)]
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+        return [node.right]
+    if isinstance(node, ast.Call) and (pyast.dotted(node.func) or "").endswith(".format"):
+        return [*node.args, *(k.value for k in node.keywords)]
+    return [] if isinstance(node, ast.Constant) else [node]
+
+
+def _py_from_request(fn: ast.AST | None, first: ast.AST) -> bool:
+    assigned: dict[str, list[str]] = {}
+    for node in ast.walk(fn) if fn is not None else []:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                for name in pyast.names_in(target):
+                    assigned.setdefault(name, []).append(ast.unparse(node.value))
+    for part in _py_parts(first):
+        if REQUEST_VALUE.search(ast.unparse(part)):
+            return True
+        for name in pyast.names_in(part):
+            if any(REQUEST_VALUE.search(value) for value in assigned.get(name, [])):
+                return True
+    return False
+
+
+def _sql(ctx: Context, rel: str, line: int, from_request: bool, what: str) -> Finding:
     return make_finding(
         "OWASP-A03-RAW-SQL",
         tag=Tag.CONFIRMED if from_request else Tag.INFERRED,
@@ -83,10 +153,9 @@ def raw_sql(ctx: Context) -> Iterator[Finding]:
                 )
                 if not (unsafe or built):
                     continue
-                fn = jsts.enclosing_function(call)
-                scope = jsts.node_text(fn) if fn is not None else jsts.node_text(call)
                 what = f"{name} receives SQL built from values at runtime."
-                yield _sql(ctx, entry.rel, jsts.line(tree, call), scope, what)
+                from_request = _js_from_request(call, first)
+                yield _sql(ctx, entry.rel, jsts.line(tree, call), from_request, what)
     for entry in ctx.index.py_files:
         if is_test(entry.rel) or MIGRATIONS.search(entry.rel):
             continue
@@ -95,10 +164,10 @@ def raw_sql(ctx: Context) -> Iterator[Finding]:
             if not call.args or not _py_dynamic(call.args[0]):
                 continue
             fn = pyast.function_at(tree, call.lineno)
-            scope = ast.unparse(fn) if fn is not None else ast.unparse(call)
             name = pyast.dotted(call.func) or "execute"
             what = f"{name} receives SQL built with string formatting."
-            yield _sql(ctx, entry.rel, call.lineno, scope, what)
+            from_request = _py_from_request(fn, call.args[0])
+            yield _sql(ctx, entry.rel, call.lineno, from_request, what)
 
 
 def _xss(ctx: Context, rel: str, line: int, sink: str) -> Finding:

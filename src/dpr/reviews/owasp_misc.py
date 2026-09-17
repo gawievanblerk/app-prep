@@ -8,7 +8,7 @@ from collections.abc import Iterator
 
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
-from dpr.redact import snippet
+from dpr.redact import SECRET_PARAM_NAMES, snippet
 from dpr.reviews.owasp_inject import REQUEST_VALUE
 from dpr.reviews.owasp_paths import request_params
 from dpr.reviews.paths import is_test
@@ -17,9 +17,7 @@ from dpr.walk import line_of
 
 TOKEN_NAME = re.compile(r"(?i)token|secret|code|otp|reset|nonce|password|salt|api_?key")
 PY_RANDOM = re.compile(r"random\.(?:random|choice|choices|randint|randrange|sample|getrandbits)")
-SECRET_PARAM = re.compile(
-    r"""[?&](password|passwd|pwd|apikey|api_key|secret|client_secret|access_token|token)="""
-)
+SECRET_PARAM = re.compile(rf"[?&]({SECRET_PARAM_NAMES})=")
 ONE_TIME_LINK = re.compile(r"(?i)reset|verif|confirm|invite|magic|activate|unsubscribe")
 PRICE_FIELD = re.compile(
     r"(?:body|req\.body|request\.(?:json|data|POST|form)|payload|data|input|params)"

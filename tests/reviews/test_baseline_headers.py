@@ -294,3 +294,15 @@ def test_default_review_never_reads_headers(tmp_path, monkeypatch):
     monkeypatch.setattr(baseline_headers, "read_headers", refuse)
     report = review(repo(tmp_path))
     assert "baseline" in report.sections
+
+
+def test_nonce_or_hash_with_strict_dynamic_ignores_unsafe_inline():
+    strict = (
+        "default-src 'self'; script-src 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline' https:"
+    )
+    assert weak_csp_reason(strict) is None
+    hashed = "script-src 'sha256-abc=' 'strict-dynamic' 'unsafe-inline'"
+    assert weak_csp_reason(hashed) is None
+    assert weak_csp_reason("script-src 'nonce-abc' 'unsafe-inline'") == (
+        "script-src allows 'unsafe-inline'"
+    )

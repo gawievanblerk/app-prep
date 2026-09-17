@@ -157,3 +157,82 @@ def test_https_not_enforced(tmp_path):
     write(tmp_path, "infra/aws.tf", AWS)
     found = findings_for(tmp_path, "baseline", "BASE-HTTPS-NOT-ENFORCED")
     assert sorted(str(f.locations[0]) for f in found) == ["infra/aws.tf:21", "infra/azure.tf:21"]
+
+
+COMMENTED_OPEN = """
+resource "aws_security_group" "db" {
+  name = "db"
+  ingress {
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    # cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [aws_vpc.main.cidr_block]
+  }
+}
+resource "google_sql_database_instance" "main" {
+  settings {
+    ip_configuration {
+      # authorized_networks { value = "0.0.0.0/0" }
+      ipv4_enabled = false
+    }
+  }
+}
+resource "aws_security_group_rule" "closed" {
+  type        = "ingress"
+  from_port   = 5432
+  to_port     = 5432
+  // cidr_blocks = ["0.0.0.0/0"]
+  cidr_blocks = ["10.0.0.0/8"]
+}
+"""
+
+RULE_RESOURCES = """
+resource "aws_security_group_rule" "pg" {
+  type        = "ingress"
+  from_port   = 5432
+  to_port     = 5432
+  protocol    = "tcp"
+  cidr_blocks = ["0.0.0.0/0"]
+}
+resource "aws_security_group_rule" "pg_egress" {
+  type        = "egress"
+  from_port   = 5432
+  to_port     = 5432
+  cidr_blocks = ["0.0.0.0/0"]
+}
+resource "aws_vpc_security_group_ingress_rule" "mysql" {
+  from_port   = 3306
+  to_port     = 3306
+  ip_protocol = "tcp"
+  cidr_ipv6   = "::/0"
+}
+resource "aws_vpc_security_group_ingress_rule" "web" {
+  from_port = 443
+  to_port   = 443
+  cidr_ipv4 = "0.0.0.0/0"
+}
+resource "aws_security_group" "redis" {
+  ingress {
+    from_port        = 6379
+    to_port          = 6379
+    ipv6_cidr_blocks = ["::/0"]
+  }
+}
+"""
+
+
+def test_commented_out_open_cidrs_give_nothing(tmp_path):
+    write(tmp_path, "infra/main.tf", COMMENTED_OPEN)
+    assert findings_for(tmp_path, "baseline", "BASE-DB-NETWORK-OPEN") == []
+
+
+def test_security_group_rule_resources_and_ipv6(tmp_path):
+    write(tmp_path, "infra/rules.tf", RULE_RESOURCES)
+    found = findings_for(tmp_path, "baseline", "BASE-DB-NETWORK-OPEN")
+    assert sorted((str(f.locations[0]), f.severity.value) for f in found) == [
+        ("infra/rules.tf:15", "high"),
+        ("infra/rules.tf:2", "high"),
+        ("infra/rules.tf:27", "high"),
+    ]
+    assert any("::/0" in f.detail and "3306" in f.detail for f in found)

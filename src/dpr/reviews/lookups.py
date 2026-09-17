@@ -10,6 +10,7 @@ from dpr.model import DataModel, Location, Route
 from dpr.parsing import jsts, pyast
 from dpr.parsing.schemas import find_model
 from dpr.reviews.access import Access, path_params
+from dpr.reviews.visibility import js_visible, js_written_after, py_visible, py_written_after
 from dpr.rules import Context
 
 PY_ORM = re.compile(
@@ -49,6 +50,7 @@ class Lookup:
     by_primary_key: bool
     target: str | None
     via: Location | None = None
+    visible: bool = False
 
 
 def snake(name: str) -> str:
@@ -82,8 +84,8 @@ def request_keys(route: Route) -> set[str]:
     keys = set(path_params(route))
     fn = route.handler
     if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
-        params = [*fn.args.args, *fn.args.kwonlyargs]
-        defaults = [None] * (len(fn.args.args) - len(fn.args.defaults))
+        params = [*fn.args.posonlyargs, *fn.args.args, *fn.args.kwonlyargs]
+        defaults = [None] * (len(fn.args.posonlyargs) + len(fn.args.args) - len(fn.args.defaults))
         defaults += [*fn.args.defaults, *fn.args.kw_defaults]
         for arg, default in zip(params, defaults, strict=True):
             source = pyast.dotted(default.func) if isinstance(default, ast.Call) else None
@@ -94,7 +96,7 @@ def request_keys(route: Route) -> set[str]:
     return keys
 
 
-def _subject_text(text: str, subjects: tuple[str, ...]) -> bool:
+def subject_text(text: str, subjects: tuple[str, ...]) -> bool:
     return any(re.search(rf"(?<![\w.]){re.escape(s)}\b", text) for s in subjects)
 
 
@@ -201,16 +203,19 @@ def py_lookups(
         text = ast.unparse(value)
         names = pyast.names_in(value)
         used = names & keys
-        if not used or _subject_text(text, subjects):
+        if not used or subject_text(text, subjects):
             continue
         if PY_ORM.search(text):
+            model = _model_name(text, fn)
             found.append(
                 Lookup(
                     Location(rel, stmt.lineno),
                     tuple(sorted(used)),
-                    _model_name(text, fn),
+                    model,
                     bool(PY_PK.search(text)),
                     _target(stmt),
+                    visible=py_visible(value, model)
+                    and not py_written_after(fn, _target(stmt), stmt.lineno),
                 )
             )
             continue
@@ -241,6 +246,7 @@ def py_lookups(
                         item.by_primary_key,
                         _target(stmt),
                         via,
+                        item.visible and not py_written_after(fn, _target(stmt), stmt.lineno),
                     )
                 )
             if inner:
@@ -269,7 +275,7 @@ def py_checked_after(fn: ast.AST, lookup: Lookup, subjects: tuple[str, ...]) -> 
             text = " ".join(ast.unparse(a) for a in [*node.args, *node.keywords])
         else:
             continue
-        if not _subject_text(text, subjects):
+        if not subject_text(text, subjects):
             continue
         if pattern is None or pattern.search(text):
             return "owner"
@@ -296,7 +302,7 @@ def js_lookups(route: Route, subjects: tuple[str, ...]) -> list[Lookup]:
             continue
         text = jsts.node_text(call)
         used = {k for k in keys if re.search(rf"\b{re.escape(k)}\b", text)}
-        if not used or _subject_text(text, subjects):
+        if not used or subject_text(text, subjects):
             continue
         model = match.group(1) or match.group(3)
         target = None
@@ -311,7 +317,12 @@ def js_lookups(route: Route, subjects: tuple[str, ...]) -> list[Lookup]:
         pk = bool(re.search(r"\bid\s*:|findById", text))
         found.append(
             Lookup(
-                Location(route.file, jsts.line(tree, call)), tuple(sorted(used)), model, pk, target
+                Location(route.file, jsts.line(tree, call)),
+                tuple(sorted(used)),
+                model,
+                pk,
+                target,
+                visible=js_visible(call) and not js_written_after(handler, call, target),
             )
         )
     return found
@@ -322,7 +333,7 @@ def js_checked_after(route: Route, lookup: Lookup, subjects: tuple[str, ...]) ->
         if jsts.line(route.tree, node) <= lookup.location.line:
             continue
         text = jsts.node_text(node)
-        if _subject_text(text, subjects) and (
+        if subject_text(text, subjects) and (
             lookup.target is None or re.search(rf"\b{re.escape(lookup.target)}\b", text)
         ):
             return "owner"
@@ -339,7 +350,7 @@ def route_lookups(ctx: Context, route: Route, access: Access) -> list[tuple[Look
         derived = tuple(
             _target(s)
             for s in _statements(fn)
-            if _target(s) and _subject_text(ast.unparse(s.value), subjects)
+            if _target(s) and subject_text(ast.unparse(s.value), subjects)
         )
         subjects = (*subjects, *derived)
         keys = request_keys(route)

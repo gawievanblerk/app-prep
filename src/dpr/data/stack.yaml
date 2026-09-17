@@ -76,6 +76,6 @@ test_frameworks:
   mocha: {packages: [mocha]}
   pytest: {packages: [pytest]}
 header_config:
-  files: ["next.config.*", "middleware.[jt]s", nginx.conf, vercel.json, netlify.toml, _headers, settings.py]
+  files: ["next.config.*", "middleware.[jt]s", nginx.conf, vercel.json, netlify.toml, _headers, settings.py, staticwebapp.config.json, firebase.json]
   text: 'helmet|Content-Security-Policy|Strict-Transport-Security|X-Frame-Options|SECURE_HSTS|SECURE_CONTENT_TYPE_NOSNIFF'
 serverless_hosting: [vercel, netlify, serverless-framework]

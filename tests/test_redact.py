@@ -69,3 +69,114 @@ def test_snippet_counts_lines_by_newline_only():
     assert snippet(text, 1) == "first\fpage sep\rlone"
     assert snippet(text, 2) == "second line"
     assert snippet(text, 3) == "third\x1cgroup"
+
+
+SECRET = "Seed" + "Val-" + "88231"
+
+
+def test_snippet_masks_empty_user_url_credentials():
+    line = f'limiter = Limiter(storage_uri="redis://:{SECRET}@cache:6379/0")'
+    out = snippet(line, 1)
+    assert SECRET not in out
+    assert "redis://:<redacted:password>@cache:6379/0" in out
+
+
+def test_snippet_masks_cli_password_flags():
+    text = "\n".join(
+        [
+            f"python -m app.seed --admin-password {SECRET}",
+            f"python seed.py --password={SECRET} && uvicorn app.main:app",
+            f'node seed.js --db-password "{SECRET}"',
+            "python -m app.seed --password $ADMIN_PASSWORD",
+        ]
+    )
+    for number in (1, 2, 3):
+        assert SECRET not in snippet(text, number)
+        assert "<redacted:password>" in snippet(text, number)
+    assert snippet(text, 4).endswith("--password $ADMIN_PASSWORD")
+
+
+def test_snippet_masks_secret_query_parameters():
+    line = f'const url = "https://api.example.invalid/v1?api_key={SECRET}&city=" + city'
+    out = snippet(line, 1)
+    assert SECRET not in out
+    assert "?api_key=<redacted:secret>&city=" in out
+    dynamic = "const url = `${base}/v1?token=${token}`"
+    assert snippet(dynamic, 1) == dynamic
+
+
+def test_snippet_masks_literals_assigned_to_secret_names():
+    lines = [
+        f'ADMIN_PASSWORD = "{SECRET}"',
+        f"const apiKey = '{SECRET}'",
+        f'{{"client_secret": "{SECRET}", "name": "demo"}}',
+        f'login(user="admin", password="{SECRET}")',
+        f'admin_password: str = "{SECRET}"',
+        f"ADMIN_PASSWORD={SECRET} python -m app.seed",
+        f'if (token === "{SECRET}") return true',
+    ]
+    for line in lines:
+        out = snippet(line, 1)
+        assert SECRET not in out, line
+        assert "<redacted:" in out, line
+    assert snippet("password_hash = get_password_hash(data.password)", 1) == (
+        "password_hash = get_password_hash(data.password)"
+    )
+
+
+def test_snippet_masks_before_cutting_long_lines():
+    line = "x = call(" + "a" * 174 + f', api_key="{SECRET}")'
+    assert line.index(SECRET) == 194
+    out = snippet(line, 1)
+    assert len(out) <= 200
+    assert SECRET[:4] not in out
+
+
+def test_snippet_masks_concatenated_adjacent_escaped_and_triple_quoted_secrets():
+    half_a, half_b = "Half" + "One-" + "7310", "Half" + "Two-" + "7311"
+    lines = [
+        f'const url = base + "?city=" + city + "&api_key=" + "{SECRET}"',
+        f"url = BASE + '&token=' + '{SECRET}'",
+        f'ADMIN_PASSWORD = "{half_a}" "{half_b}"',
+        f'api_key = "{half_a}" + "{half_b}"',
+        f'password = "it\\"s-{SECRET}"',
+        f'SECRET_KEY = """{SECRET}"""',
+        f"token = '''{SECRET}'''",
+    ]
+    for line in lines:
+        out = snippet(line, 1)
+        for value in (SECRET, half_a, half_b):
+            assert value not in out, line
+        assert "<redacted:" in out, line
+
+
+def test_redaction_stays_linear_on_long_runs():
+    import time
+
+    cases = [
+        "-" * 60000,
+        "token" * 12000,
+        "a.token" * 20000,
+        "password-" * 20000,
+        "api_key." * 20000,
+        "secret: a.b[c]|d, " * 20000,
+        "--token-" * 20000,
+        "A_TOKEN=" * 50000,
+        "TOKEN" * 50000,
+        "&token=" * 50000,
+        'password = "' + "a" * 60000,
+        "x://a:" * 50000,
+    ]
+    for text in cases:
+        started = time.perf_counter()
+        redact(text)
+        assert time.perf_counter() - started < 1.0, text[:20]
+
+
+def test_snippet_masks_quoted_values_inside_query_and_form_strings():
+    line = f"""curl -X POST "https://api.example.invalid/v1" -d "user=bob&password='{SECRET}'" """
+    out = snippet(line, 1)
+    assert SECRET not in out
+    assert "&password='<redacted:secret>'" in out
+    dynamic = 'url = "https://x.example/?token="+token+"&a=1"'
+    assert snippet(dynamic, 1) == dynamic

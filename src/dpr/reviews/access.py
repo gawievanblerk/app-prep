@@ -1,68 +1,64 @@
-"""Route access: public, authenticated or admin, and the names that hold the caller."""
+"""Route access: public, authenticated or admin, and the names that hold the caller.
+
+Router mounts are read here as well: FastAPI include_router dependencies and Express
+middleware placed in front of a router where another file mounts it.
+"""
 
 from __future__ import annotations
 
 import ast
 import re
-from dataclasses import dataclass
 
 from dpr.model import Route
-from dpr.parsing import jsts, pyast
+from dpr.parsing import imports, jsts, pyast
+from dpr.reviews import access_frameworks as frameworks
+from dpr.reviews.access_names import (
+    ABSENCE,
+    ADMIN,
+    ADMIN_WORD,
+    AUTHENTICATED,
+    EXPLICIT,
+    MIXED,
+    PUBLIC,
+    PY_DEP,
+    Access,
+    auth_name,
+    dep_level,
+    public,
+    strongest,
+    unread_guard,
+)
+from dpr.reviews.access_next import next_js
+from dpr.reviews.paths import is_test
 from dpr.rules import Context
 
-PUBLIC, AUTHENTICATED, ADMIN = "public", "authenticated", "admin"
-AUTH_WORD = re.compile(
-    r"(?i)user|auth|login|session|token|principal|identity|staff|agent|member|account|verify"
-    r"|require|current|jwt|bearer|api_?key|oauth|protect|ensure|logged|passport"
+__all__ = [
+    "ABSENCE",
+    "ADMIN",
+    "AUTHENTICATED",
+    "EXPLICIT",
+    "MIXED",
+    "PUBLIC",
+    "PY_DEP",
+    "Access",
+    "access",
+    "fastapi_aliases",
+    "path_params",
+    "unread_guard",
+]
+SESSION_TYPE = re.compile(r"(?:^|[\[.\s|,(])(?:Async)?Session\b")
+ROUTE_VERBS = ("get", "post", "put", "patch", "delete", "head", "options", "route", "api_route")
+SERVER_VERB = re.compile(r"(?:\w+\.)*(?:get|post|put|patch|delete|all)")
+USE_CALL = re.compile(r"(?:\w+\.)+use")
+NON_AUTH_MIDDLEWARE = re.compile(
+    r"(?i)(?:^|\.)(?:json|urlencoded|static|raw|text|initialize|session|cookieSession"
+    r"|expressSession|cookieParser|bodyParser|cors|helmet|morgan|compression|\w*logger|\w*logging"
+    r"|\w*errorHandler|notFound\w*|rateLimit\w*|\w*limiter|slowDown|csrf|csurf|multer|hpp|xss\w*"
+    r"|\w*sanitize\w*|timeout|responseTime|serveStatic|favicon|methodOverride|pino\w*"
+    r"|requestHandler|tracingHandler|i18n\w*)$"
 )
-ADMIN_WORD = re.compile(r"(?i)admin|superuser|super_user")
-PY_DEP = re.compile(r"(?:\w+\.)*(?:Depends|Security)")
-FLASK_DECORATORS = re.compile(
-    r"(?:\w+\.)*(login_required|jwt_required|fresh_jwt_required|auth_required|token_required"
-    r"|requires_auth|roles_required|roles_accepted|admin_required|permission_required)"
-)
-DJANGO_DECORATORS = re.compile(
-    r"(?:\w+\.)*(login_required|permission_required|user_passes_test|staff_member_required"
-    r"|superuser_required)"
-)
-DJANGO_MIXINS = re.compile(r"(LoginRequired|PermissionRequired|UserPassesTest)Mixin")
-JS_AUTH_CALL = re.compile(
-    r"\b(auth|getServerSession|getSession|currentUser|getAuth|requireAuth|requireUser"
-    r"|getCurrentUser|verifyToken|getToken|validateRequest|getKindeServerSession|getUser"
-    r"|withAuth)\s*\("
-)
-JS_ADMIN_CHECK = re.compile(r"""isAdmin|role\s*[!=]==?\s*['"]admin['"]|['"]admin['"]\s*[!=]==?""")
+ROUTER_NAME = re.compile(r"(?i)(?:router|routes)$")
 EXPRESS_SUBJECTS = ("req.user", "req.auth", "req.session", "request.user")
-DJANGO_SUBJECTS = ("request.user", "self.request.user")
-FLASK_SUBJECTS = ("current_user", "g.user", "get_jwt_identity")
-
-
-@dataclass(frozen=True)
-class Access:
-    level: str
-    subjects: tuple[str, ...] = ()
-    evidence: str = ""
-
-
-def _dep_level(name: str) -> str | None:
-    roles = set(
-        re.findall(
-            r"admin|superuser|staff|manager|agent|member|client|customer|editor"
-            r"|viewer|owner|above|any",
-            name.lower(),
-        )
-    )
-    if roles and roles <= {"admin", "superuser", "staff"} and ADMIN_WORD.search(name):
-        return ADMIN
-    if AUTH_WORD.search(name) or ADMIN_WORD.search(name):
-        return AUTHENTICATED
-    return None
-
-
-def _strongest(levels: list[str]) -> str:
-    if ADMIN in levels:
-        return ADMIN
-    return AUTHENTICATED if AUTHENTICATED in levels else PUBLIC
 
 
 def _dep_names(node: ast.AST | None, aliases: dict[str, str]) -> list[str]:
@@ -98,14 +94,77 @@ def fastapi_aliases(ctx: Context) -> dict[str, str]:
     return aliases
 
 
-def _router_deps(tree: ast.Module, aliases: dict[str, str]) -> list[str]:
-    names = []
-    for value in pyast.assignments(tree.body).values():
-        if isinstance(value, ast.Call) and re.fullmatch(
-            r"(?:\w+\.)?(APIRouter|FastAPI)", pyast.dotted(value.func) or ""
-        ):
-            names += _dep_names(pyast.kwarg(value, "dependencies"), aliases)
-    return names
+def _router_name(fn: ast.AST) -> str | None:
+    for dec in getattr(fn, "decorator_list", []):
+        if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
+            if dec.func.attr in ROUTE_VERBS:
+                return pyast.dotted(dec.func.value)
+    return None
+
+
+def _constructor_deps(tree: ast.Module | None, name: str, aliases: dict[str, str]) -> list[str]:
+    value = pyast.assignments(tree.body).get(name) if tree is not None else None
+    if isinstance(value, ast.Call) and re.fullmatch(
+        r"(?:\w+\.)?(APIRouter|FastAPI)", pyast.dotted(value.func) or ""
+    ):
+        return _dep_names(pyast.kwarg(value, "dependencies"), aliases)
+    return []
+
+
+def _router_ref(rel: str, names: dict, expr: ast.AST) -> tuple[str, str] | None:
+    """The (file, variable) of the router passed to include_router."""
+    if isinstance(expr, ast.Name):
+        file, attr, _module = names.get(expr.id, (rel, expr.id, ""))
+        return (file, attr) if file and attr else None
+    if isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name):
+        file, attr, _module = names.get(expr.value.id, (None, "", ""))
+        return (file, expr.attr) if file and not attr else None
+    return None
+
+
+def _include_edges(ctx: Context) -> dict[tuple[str, str], list[tuple[tuple[str, str], list]]]:
+    """Included router to the routers that include it, with the include call's dependencies."""
+    key = ("fastapi-include-edges", "")
+    if key not in ctx.index.cache:
+        aliases = fastapi_aliases(ctx)
+        edges: dict[tuple[str, str], list[tuple[tuple[str, str], list]]] = {}
+        for entry in ctx.index.py_files:
+            if is_test(entry.rel) or "include_router" not in ctx.index.text(entry.rel):
+                continue
+            tree = pyast.parse_file(ctx.index, entry.rel)
+            names = imports.py_imports(ctx.index, entry.rel, tree)
+            for call in pyast.calls(tree, r"(?:\w+\.)*\w+\.include_router") if tree else []:
+                child = _router_ref(entry.rel, names, call.args[0]) if call.args else None
+                if child is None or not isinstance(call.func, ast.Attribute):
+                    continue
+                parent = (entry.rel, pyast.dotted(call.func.value) or "")
+                deps = _dep_names(pyast.kwarg(call, "dependencies"), aliases)
+                edges.setdefault(child, []).append((parent, deps))
+        ctx.index.cache[key] = edges
+    return ctx.index.cache[key]
+
+
+def _chains(ctx: Context, node: tuple[str, str], depth: int = 0) -> list[list[str]]:
+    """Dependency names added along every include_router chain above a router, one list per
+    chain. Includes in test files never count."""
+    parents = _include_edges(ctx).get(node, [])
+    if not parents or depth > 4:
+        return [[]]
+    aliases = fastapi_aliases(ctx)
+    chains = []
+    for (rel, name), deps in parents:
+        found = deps + _constructor_deps(pyast.parse_file(ctx.index, rel), name, aliases)
+        chains += [found + upper for upper in _chains(ctx, (rel, name), depth + 1)]
+    return chains[:32]
+
+
+def _guarded_everywhere(options: list[list[str]], guards) -> tuple[list[str], list[str]]:
+    """(names when every option is guarded, names of the guarded options when they disagree)."""
+    guarded = [option for option in options if any(guards(n) for n in option)]
+    names = list(dict.fromkeys(n for option in guarded for n in option if guards(n)))
+    if guarded and len(guarded) == len(options):
+        return names, []
+    return [], names
 
 
 def _fastapi(ctx: Context, route: Route) -> Access:
@@ -117,170 +176,198 @@ def _fastapi(ctx: Context, route: Route) -> Access:
     defaults = [None] * (len(fn.args.posonlyargs) + len(fn.args.args) - len(fn.args.defaults))
     defaults += [*fn.args.defaults, *fn.args.kw_defaults]
     for param, default in zip(params, defaults, strict=True):
+        if param.annotation is not None and SESSION_TYPE.search(ast.unparse(param.annotation)):
+            continue
         for name in _dep_names(param.annotation, aliases) + _dep_names(default, aliases):
-            level = _dep_level(name)
-            if level:
-                levels.append((level, name))
+            if dep_level(name):
+                levels.append((dep_level(name), name))
                 subjects.append(param.arg)
+    names = []
     for dec in fn.decorator_list:
         if isinstance(dec, ast.Call):
-            for name in _dep_names(pyast.kwarg(dec, "dependencies"), aliases):
-                if _dep_level(name):
-                    levels.append((_dep_level(name), name))
-    for name in _router_deps(route.tree, aliases):
-        if _dep_level(name):
-            levels.append((_dep_level(name), name))
+            names += _dep_names(pyast.kwarg(dec, "dependencies"), aliases)
+    router = _router_name(fn)
+    disputed: list[str] = []
+    if router:
+        names += _constructor_deps(route.tree, router, aliases)
+        inherited, disputed = _guarded_everywhere(_chains(ctx, (route.file, router)), dep_level)
+        names += inherited
+    levels += [(dep_level(name), name) for name in names if dep_level(name)]
+    if not levels and disputed:
+        guard = f"Depends({', '.join(disputed)})"
+        where = f"{guard} on another include_router mount of this router"
+        return Access(PUBLIC, (), f"{guard} on some include_router mounts only", MIXED, where)
     if not levels:
-        return Access(PUBLIC, (), "no authentication dependency")
-    level = _strongest([lv for lv, _ in levels])
-    names = ", ".join(dict.fromkeys(name for _, name in levels))
-    return Access(level, tuple(dict.fromkeys(subjects)), f"Depends({names})")
+        return public("no authentication dependency", frameworks.py_unread(ctx))
+    level = strongest([lv for lv, _ in levels])
+    evidence = ", ".join(dict.fromkeys(name for _, name in levels))
+    return Access(level, tuple(dict.fromkeys(subjects)), f"Depends({evidence})")
 
 
-def _decorator_names(node: ast.AST) -> list[tuple[str, ast.AST]]:
-    found = []
-    for dec in getattr(node, "decorator_list", []):
-        target = dec.func if isinstance(dec, ast.Call) else dec
-        found.append(((pyast.dotted(target) or ""), dec))
-    return found
-
-
-def _flask(route: Route) -> Access:
-    for name, dec in _decorator_names(route.handler):
-        match = FLASK_DECORATORS.fullmatch(name)
-        if not match:
-            continue
-        text = ast.unparse(dec)
-        admin = "admin" in text.lower()
-        return Access(ADMIN if admin else AUTHENTICATED, FLASK_SUBJECTS, f"@{match.group(1)}")
-    return Access(PUBLIC, (), "no login decorator")
-
-
-def _drf_default(ctx: Context) -> bool:
-    key = ("drf-default-auth", "")
-    if key not in ctx.index.cache:
-        ctx.index.cache[key] = any(
-            "DEFAULT_PERMISSION_CLASSES" in ctx.index.text(f.rel)
-            and "IsAuthenticated" in ctx.index.text(f.rel)
-            for f in ctx.index.named("settings.py", "base.py", "production.py")
-        )
-    return ctx.index.cache[key]
-
-
-def _django(ctx: Context, route: Route) -> Access:
-    node = route.handler
-    if node is None:
-        return Access(PUBLIC, (), "view not resolved")
-    for name, dec in _decorator_names(node):
-        match = DJANGO_DECORATORS.fullmatch(name)
-        if match:
-            admin = match.group(1) in ("staff_member_required", "superuser_required")
-            return Access(ADMIN if admin else AUTHENTICATED, DJANGO_SUBJECTS, f"@{match.group(1)}")
-        if name.endswith("permission_classes"):
-            text = ast.unparse(dec)
-            if "IsAdminUser" in text:
-                return Access(ADMIN, DJANGO_SUBJECTS, "IsAdminUser")
-            if "AllowAny" in text:
-                return Access(PUBLIC, (), "AllowAny")
-            return Access(AUTHENTICATED, DJANGO_SUBJECTS, "permission_classes")
-    if isinstance(node, ast.ClassDef):
-        if any(DJANGO_MIXINS.search(b) for b in pyast.base_names(node)):
-            return Access(AUTHENTICATED, DJANGO_SUBJECTS, "login mixin")
-        value = pyast.assignments(node.body).get("permission_classes")
-        if value is not None:
-            text = ast.unparse(value)
-            if "IsAdminUser" in text:
-                return Access(ADMIN, DJANGO_SUBJECTS, "IsAdminUser")
-            if "AllowAny" not in text:
-                return Access(AUTHENTICATED, DJANGO_SUBJECTS, "permission_classes")
-            return Access(PUBLIC, (), "AllowAny")
-    if route.framework == "drf" and _drf_default(ctx):
-        return Access(AUTHENTICATED, DJANGO_SUBJECTS, "DEFAULT_PERMISSION_CLASSES")
-    return Access(PUBLIC, (), "no login decorator or permission class")
-
-
-def _js_subjects(handler) -> tuple[str, ...]:
-    names = []
-    for decl in jsts.walk(handler, {"variable_declarator"}):
-        value = jsts.node_text(decl.child_by_field_name("value"))
-        if not JS_AUTH_CALL.search(value) and "auth.getUser" not in value:
-            continue
-        target = decl.child_by_field_name("name")
-        if target is not None and target.type == "identifier":
-            names.append(jsts.node_text(target))
-        elif target is not None:
-            for ident in jsts.walk(target, {"shorthand_property_identifier_pattern", "identifier"}):
-                names.append(jsts.node_text(ident))
-    return tuple(dict.fromkeys(names))
-
-
-def _matcher_covers(text: str, path: str) -> bool:
-    patterns = re.findall(r"""['"](/[^'"]*)['"]""", text[text.find("matcher") :])
-    if "matcher" not in text or not patterns:
+def _covers(mount: str, path: str) -> bool:
+    mount = mount.rstrip("/")
+    if not mount:
         return True
-    for pattern in patterns:
-        prefix = re.split(r"[:(\[*]", pattern, maxsplit=1)[0].rstrip("/")
-        if "(?!" in pattern or not prefix or path == prefix or path.startswith(prefix + "/"):
-            return True
-    return False
+    parts = re.split(r"(:\w+|\*)", mount)
+    pattern = "".join(
+        "[^/]+" if p.startswith(":") else ".*" if p == "*" else re.escape(p) for p in parts
+    )
+    return re.match(rf"{pattern}(?:/|$)", path) is not None
 
 
-def _next_middleware(ctx: Context, path: str) -> bool:
-    for entry in ctx.index.named("middleware.ts", "middleware.js"):
-        if entry.rel not in (
-            "middleware.ts",
-            "middleware.js",
-            "src/middleware.ts",
-            "src/middleware.js",
-        ):
+def _use_args(call) -> tuple[list[str] | None, list]:
+    """Mount paths of a .use call (None when it has none) and its middleware arguments."""
+    args = jsts.arguments(call)
+    first = jsts.unwrap(args[0]) if args else None
+    if first is None:
+        return None, []
+    if first.type == "string":
+        return [jsts.string_value(first) or ""], args[1:]
+    if first.type == "array":
+        return [jsts.string_value(item) or "" for item in first.named_children], args[1:]
+    if first.type in ("regex", "template_string"):
+        return [""], args[1:]
+    return None, args
+
+
+def _route_files(ctx: Context) -> set[str]:
+    if "express-route-files" not in ctx.facts:
+        ctx.facts["express-route-files"] = {
+            r.file for r in ctx.detection.routes if r.framework in ("express", "fastify")
+        }
+    return ctx.facts["express-route-files"]
+
+
+def _mounted_file(ctx: Context, rel: str, node) -> str | None:
+    node = jsts.unwrap(node)
+    if node is not None and node.type == "identifier":
+        target = imports.js_imports(ctx.index, rel).get(jsts.node_text(node), (None, "", ""))[0]
+    elif node is not None and node.type == "call_expression" and jsts.callee(node) == "require":
+        spec = jsts.string_value(jsts.arguments(node)[0]) if jsts.arguments(node) else None
+        target = imports.js_target(ctx.index, rel, spec) if spec else None
+    else:
+        return None
+    return target if target in _route_files(ctx) else None
+
+
+def _middleware(ctx: Context, rel: str, tree, node) -> tuple[str, str] | None:
+    """("auth", name) or ("unknown", name) for a .use argument; None for routers and known
+    non-auth middleware such as session(), passport.initialize() or express.json()."""
+    memo = ctx.facts.setdefault("express-middleware-kinds", {})
+    key = (rel, tree.line_offset, node.start_byte, node.end_byte)
+    if key not in memo:
+        memo[key] = _middleware_kind(ctx, rel, tree, node)
+    return memo[key]
+
+
+def _middleware_kind(ctx: Context, rel: str, tree, node) -> tuple[str, str] | None:
+    node = jsts.unwrap(node)
+    if node is not None and node.type in jsts.FUNCTION_TYPES:
+        return "unknown", "an inline middleware function"
+    if node is None or node.type not in ("identifier", "member_expression", "call_expression"):
+        return None
+    call = node.type == "call_expression"
+    name = jsts.callee(node) if call else re.sub(r"\s+", "", jsts.node_text(node))
+    if _mounted_file(ctx, rel, node) or NON_AUTH_MIDDLEWARE.search(name):
+        return None
+    if node.type == "identifier":
+        value = jsts.declared_value(tree.root, name)
+        if ROUTER_NAME.search(name) or (value is not None and "Router(" in jsts.node_text(value)):
+            return None
+    full = jsts.node_text(node)
+    if auth_name(name) or ADMIN_WORD.search(full):
+        return "auth", full if ADMIN_WORD.search(full) else name
+    return "unknown", name
+
+
+def _file_calls(ctx: Context, tree) -> tuple[list, dict[int, list]]:
+    """The .use calls of a file with their lines, and its route calls by line, read once."""
+    memo = ctx.facts.setdefault("express-file-calls", {})
+    key = (tree.rel, tree.line_offset)
+    if key not in memo:
+        uses, verbs = [], {}
+        for call in jsts.walk(tree.root, {"call_expression"}):
+            name = jsts.callee(call)
+            if USE_CALL.fullmatch(name):
+                uses.append((jsts.line(tree, call), call))
+            elif SERVER_VERB.fullmatch(name):
+                verbs.setdefault(jsts.line(tree, call), []).append(call)
+        memo[key] = (uses, verbs)
+    return memo[key]
+
+
+def _uses_before(ctx: Context, rel: str, tree, line: int, path: str) -> tuple[list, list]:
+    auth, unknown = [], []
+    for call_line, call in _file_calls(ctx, tree)[0]:
+        if call_line >= line:
             continue
-        text = ctx.index.text(entry.rel)
-        if re.search(r"auth|clerkMiddleware|withAuth|getToken|updateSession|session", text):
-            if _matcher_covers(text, path):
-                return True
-    return False
+        mounts, middleware = _use_args(call)
+        if mounts is not None and not any(_covers(m, path) for m in mounts):
+            continue
+        for arg in middleware:
+            kind = _middleware(ctx, rel, tree, arg)
+            if kind is not None:
+                (auth if kind[0] == "auth" else unknown).append(f"{kind[1]} in {rel}")
+    return auth, unknown
 
 
-def _auth_wrappers(route: Route) -> list[str]:
-    return [name for name in route.wrappers if AUTH_WORD.search(name) or ADMIN_WORD.search(name)]
+def _mounts(ctx: Context) -> dict[str, list[tuple[str, object, int, list[str] | None, list]]]:
+    """Route file to every .use call in another file that mounts it."""
+    if "express-mounts" not in ctx.facts:
+        found: dict[str, list] = {}
+        for entry in ctx.index.js_files:
+            if is_test(entry.rel) or ".use(" not in ctx.index.text(entry.rel):
+                continue
+            for tree in jsts.parse_file(ctx.index, entry.rel):
+                for _line, call in _file_calls(ctx, tree)[0]:
+                    mounts, middleware = _use_args(call)
+                    for arg in middleware:
+                        target = _mounted_file(ctx, entry.rel, arg)
+                        if target and target != entry.rel:
+                            line = jsts.line(tree, call)
+                            found.setdefault(target, []).append(
+                                (entry.rel, tree, line, mounts, middleware)
+                            )
+        ctx.facts["express-mounts"] = found
+    return ctx.facts["express-mounts"]
 
 
-def _next(ctx: Context, route: Route) -> Access:
-    handler = route.handler
-    text = jsts.node_text(handler) if handler is not None else ""
-    if JS_AUTH_CALL.search(text) or "auth.getUser" in text:
-        level = ADMIN if JS_ADMIN_CHECK.search(text) else AUTHENTICATED
-        return Access(level, _js_subjects(handler), "auth call in handler")
-    names = _auth_wrappers(route)
-    if names:
-        level = ADMIN if any(ADMIN_WORD.search(name) for name in names) else AUTHENTICATED
-        return Access(
-            level,
-            _js_subjects(handler) if handler is not None else (),
-            "wrapper " + ", ".join(names[:3]),
-        )
-    if _next_middleware(ctx, route.path):
-        return Access(AUTHENTICATED, (), "middleware matcher")
-    return Access(PUBLIC, (), "no auth call and no middleware matcher")
+def _mount_guards(ctx: Context, rel: str, path: str, depth: int = 0) -> tuple[list, list, list]:
+    """Middleware that other (non-test) files put in front of this router file: auth names
+    when every mount is guarded, unknown names from every mount, and the auth names of the
+    guarded mounts when mounts disagree."""
+    options, unknown, disputed = [], [], []
+    for mount_rel, tree, line, mounts, middleware in _mounts(ctx).get(rel, []) if depth < 4 else []:
+        full = (mounts or [""])[0].rstrip("/") + (path if path != "/" else "")
+        auth, other = _uses_before(ctx, mount_rel, tree, line, full)
+        for arg in middleware:
+            kind = _middleware(ctx, mount_rel, tree, arg)
+            if kind is not None:
+                (auth if kind[0] == "auth" else other).append(f"{kind[1]} in {mount_rel}")
+        up_auth, up_other, up_disputed = _mount_guards(ctx, mount_rel, full, depth + 1)
+        options.append(auth + up_auth)
+        unknown += other + up_other
+        disputed += up_disputed if not auth else []
+    everywhere, some = _guarded_everywhere(options, lambda name: True)
+    return everywhere, unknown, list(dict.fromkeys(some + disputed))
 
 
-def _express(route: Route) -> Access:
+def _express(ctx: Context, route: Route) -> Access:
     tree = route.tree
-    names: list[str] = []
-    for call in jsts.calls(tree, r"(?:\w+\.)*(?:get|post|put|patch|delete|all|use)"):
-        if jsts.line(tree, call) > route.line:
-            continue
-        args = jsts.arguments(call)
-        is_route = jsts.line(tree, call) == route.line
-        middle = args[1:-1] if is_route else args
-        if not is_route and not jsts.callee(call).endswith(".use"):
-            continue
-        names += [jsts.node_text(a) for a in middle if a.type != "string"]
-    names += route.wrappers
-    names = list(dict.fromkeys(names))
-    auth = [n for n in names if AUTH_WORD.search(n) or ADMIN_WORD.search(n)]
+    same_auth, unknown = _uses_before(ctx, route.file, tree, route.line, route.path)
+    names = [name.rsplit(" in ", 1)[0] for name in same_auth]
+    for call in _file_calls(ctx, tree)[1].get(route.line, []):
+        names += [jsts.node_text(a) for a in jsts.arguments(call)[1:-1] if a.type != "string"]
+    mount_auth, mount_unknown, disputed = _mount_guards(ctx, route.file, route.path)
+    names += [*route.wrappers, *(name.rsplit(" in ", 1)[0] for name in mount_auth)]
+    auth = [n for n in dict.fromkeys(names) if auth_name(n) or ADMIN_WORD.search(n)]
+    if not auth and disputed:
+        guard = ", ".join(disputed)
+        where = f"{guard} at another mount of this router"
+        return Access(PUBLIC, (), f"auth middleware on some mounts only: {guard}", MIXED, where)
     if not auth:
-        return Access(PUBLIC, (), "no auth middleware")
+        unread = ", ".join(dict.fromkeys(unknown + mount_unknown))
+        return public("no auth middleware", f"app-level middleware {unread}" if unread else "")
     admin = any(ADMIN_WORD.search(n) or "role" in n.lower() for n in auth)
     return Access(ADMIN if admin else AUTHENTICATED, EXPRESS_SUBJECTS, ", ".join(auth[:3]))
 
@@ -289,14 +376,14 @@ def _classify(ctx: Context, route: Route) -> Access:
     if route.framework == "fastapi" and isinstance(route.handler, ast.AST):
         return _fastapi(ctx, route)
     if route.framework == "flask" and isinstance(route.handler, ast.AST):
-        return _flask(route)
+        return frameworks.flask(ctx, route)
     if route.framework in ("django", "drf"):
-        return _django(ctx, route)
+        return frameworks.django(ctx, route)
     if route.framework.startswith("next"):
-        return _next(ctx, route)
+        return next_js(ctx, route)
     if route.framework in ("express", "fastify") and route.tree is not None:
-        return _express(route)
-    return Access(PUBLIC, (), "framework not classified")
+        return _express(ctx, route)
+    return public("framework not classified")
 
 
 def access(ctx: Context, route: Route) -> Access:

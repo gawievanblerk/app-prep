@@ -214,3 +214,33 @@ def test_ssrf_fixed_host_is_not_reported(tmp_path):
         "api/proxy.py:14",
         "server/proxy.js:8",
     ]
+
+
+def test_raw_sql_is_confirmed_only_when_a_request_value_is_interpolated(tmp_path):
+    write(
+        tmp_path,
+        "src/server.js",
+        "const TABLE = 'invoices'\n"
+        "app.get('/invoices/:id', requireUser, async (req, res) => {\n"
+        "  const rows = await pool.query(`SELECT * FROM ${TABLE} WHERE id = $1 AND user_id = $2`, [req.params.id, req.user.id])\n"
+        "  const { sort } = req.query\n"
+        "  await pool.query(`SELECT * FROM invoices ORDER BY ${sort}`)\n"
+        "  await pool.query('SELECT * FROM ' + TABLE + ' WHERE id = ' + req.params.id)\n"
+        "  res.json(rows.rows)\n"
+        "})\n",
+    )
+    write(
+        tmp_path,
+        "shop/views.py",
+        "TABLE = 'orders'\n"
+        "def detail(request, pk):\n"
+        "    cursor.execute(f'select * from {TABLE} where id = %s', [request.GET['id']])\n"
+        "    cursor.execute('select * from %s where name = %s' % (TABLE, request.GET['name']))\n",
+    )
+    assert locs(findings_for(tmp_path, "owasp", "OWASP-A03-RAW-SQL")) == [
+        ("shop/views.py:3", "INFERRED"),
+        ("shop/views.py:4", "CONFIRMED"),
+        ("src/server.js:3", "INFERRED"),
+        ("src/server.js:5", "CONFIRMED"),
+        ("src/server.js:6", "CONFIRMED"),
+    ]

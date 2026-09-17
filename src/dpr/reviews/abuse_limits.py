@@ -6,8 +6,9 @@ import ast
 import re
 from collections.abc import Iterator
 
+from dpr.data import load
 from dpr.model import Finding, Location, Tag
-from dpr.parsing import jsts, pyast
+from dpr.parsing import imports, jsts, pyast
 from dpr.redact import snippet
 from dpr.reviews.baseline_accounts import START_FILES
 from dpr.reviews.paths import is_test
@@ -27,6 +28,11 @@ PROXY_TRUST = re.compile(
 PY_LIMITER = re.compile(r"(?:\w+\.)*Limiter")
 COUNTER_NAME = re.compile(r"(?i)rate|limit|attempt|hits|count|bucket")
 UPLOAD_READ = re.compile(r"(?:\w+)\.read")
+EXPRESS_LIMITERS = ("express-rate-limit", "express-slow-down")
+STORAGE_ASSIGN = re.compile(r"""RATELIMIT_STORAGE_UR[IL]['"]?[ \t]{0,8}\]?[ \t]{0,8}[:=](?!=)""")
+STORAGE_SETTING = re.compile(
+    r"""RATELIMIT_STORAGE_UR[IL]['"]?[ \t]{0,8}\]?[ \t]{0,8}[:=][ \t]{0,8}(['"])([^'"\n]*)\1"""
+)
 
 
 def _strip_comment(line: str) -> str:
@@ -96,10 +102,30 @@ def _worker_location(group: list[tuple[int, str]]) -> int | None:
     return None
 
 
+def _hosting_file(ctx: Context, near: str) -> Location | None:
+    """The config file of the serverless host, closest to `near`."""
+    stack = load("stack.yaml")
+    patterns = [
+        pattern
+        for host in ctx.detection.hosting
+        if host in stack["serverless_hosting"]
+        for pattern in stack["hosting"].get(host, {}).get("files", [])
+    ]
+    files = [entry.rel for entry in ctx.index.named(*patterns)] if patterns else []
+    if not files:
+        return None
+    return Location(max(files, key=lambda rel: (len(_common(rel, near)), -len(rel))), 1)
+
+
 def multi_process(ctx: Context, near: str = "") -> Location | None:
-    """Evidence that more than one process or instance serves requests, closest to `near`."""
+    """Evidence that more than one process or instance serves requests, closest to `near`.
+
+    For serverless hosting the evidence is the host's config file (for example vercel.json).
+    """
     if ctx.detection.serverless:
-        return Location(ctx.detection.hosting[0] if ctx.detection.hosting else ".", 1)
+        hosting = _hosting_file(ctx, near)
+        if hosting is not None:
+            return hosting
     names = (*START_FILES, "gunicorn.conf.py", "*.yaml", "*.yml", "ecosystem.config.js")
     found = []
     for entry in ctx.index.named(*names):
@@ -133,11 +159,34 @@ def _limiters(ctx: Context) -> Iterator[tuple[str, ast.Module, ast.Call]]:
             yield entry.rel, tree, call
 
 
-def _memory_storage(tree: ast.Module, call: ast.Call) -> str | None:
-    """'always' when the limiter can only use memory, 'fallback' when one branch picks memory."""
+def _configured_storage(ctx: Context) -> str | None:
+    """RATELIMIT_STORAGE_URI (Flask-Limiter) or RATELIMIT_STORAGE_URL (slowapi) set in non-test
+    code or config: 'memory' or 'shared' when every setting is that literal, 'mixed' when the
+    settings disagree or one is read at runtime, None when nothing sets it."""
+    key = ("limiter-storage-setting", "")
+    if key not in ctx.index.cache:
+        kinds = set()
+        for entry in ctx.index.files:
+            text = ctx.index.text(entry.rel)
+            if is_test(entry.rel) or "RATELIMIT_STORAGE" not in text:
+                continue
+            for match in STORAGE_ASSIGN.finditer(text):
+                literal = STORAGE_SETTING.match(text, match.start())
+                if literal is None:
+                    kinds.add("runtime")
+                else:
+                    kinds.add("memory" if literal.group(2).startswith("memory://") else "shared")
+        single = len(kinds) == 1 and "runtime" not in kinds
+        ctx.index.cache[key] = kinds.pop() if single else ("mixed" if kinds else None)
+    return ctx.index.cache[key]
+
+
+def _memory_storage(tree: ast.Module, call: ast.Call, configured: str | None = None) -> str | None:
+    """'always' when the limiter can only use memory, 'fallback' when one branch picks memory,
+    'config' when no storage_uri is passed and app config or the environment can still set one."""
     storage = pyast.kwarg(call, "storage_uri")
     if storage is None:
-        return "always"
+        return {"memory": "always", "shared": None}.get(configured or "", "config")
     value = pyast.constant(storage, None)
     if isinstance(value, str):
         return "always" if value.startswith("memory://") else None
@@ -154,16 +203,26 @@ def _memory_storage(tree: ast.Module, call: ast.Call) -> str | None:
 
 
 def _inmemory(
-    ctx: Context, rel: str, line: int, tag: Tag, what: str, evidence: Location
+    ctx: Context, rel: str, line: int, tag: Tag, what: str, evidence: Location, proof: str = ""
 ) -> Finding:
     return make_finding(
         "ABUSE-INMEMORY-LIMITER",
         tag=tag,
         locations=[Location(rel, line), evidence],
         snippet=snippet(ctx.index.text(rel), line),
-        proof_needed="Check whether production sets the shared store (for example REDIS_URL).",
+        proof_needed=proof
+        or "Check whether production sets the shared store (for example REDIS_URL).",
         what=what,
     )
+
+
+def express_limiter_names(ctx: Context, rel: str) -> set[str]:
+    """Local names bound to express-rate-limit or express-slow-down in this file."""
+    return {
+        local
+        for local, (_file, _exported, spec) in imports.js_imports(ctx.index, rel).items()
+        if spec in EXPRESS_LIMITERS
+    }
 
 
 @rule(
@@ -176,21 +235,33 @@ def _inmemory(
 def inmemory_limiter(ctx: Context) -> Iterator[Finding]:
     if multi_process(ctx) is None:
         return
+    configured = _configured_storage(ctx)
     for rel, tree, call in _limiters(ctx):
         evidence = multi_process(ctx, rel)
-        kind = _memory_storage(tree, call)
+        kind = _memory_storage(tree, call, configured)
         if kind == "always":
             what = "The limiter keeps its counters in process memory."
             yield _inmemory(ctx, rel, call.lineno, Tag.CONFIRMED, what, evidence)
         elif kind == "fallback":
             what = "The limiter falls back to process memory when no shared store is configured."
             yield _inmemory(ctx, rel, call.lineno, Tag.INFERRED, what, evidence)
+        elif kind == "config":
+            what = "The limiter passes no storage_uri, so it counts in process memory by default."
+            proof = (
+                "The storage can still come from app config or the environment "
+                "(RATELIMIT_STORAGE_URI or RATELIMIT_STORAGE_URL); check what production sets."
+            )
+            yield _inmemory(ctx, rel, call.lineno, Tag.INFERRED, what, evidence, proof)
     for entry in ctx.index.js_files:
         text = ctx.index.text(entry.rel)
-        if is_test(entry.rel) or not re.search(r"rateLimit|new Map\(", text):
+        if is_test(entry.rel) or not re.search(
+            r"express-rate-limit|express-slow-down|new Map\(", text
+        ):
             continue
+        names = express_limiter_names(ctx, entry.rel)
+        callee = re.compile("|".join(re.escape(n) for n in sorted(names))) if names else None
         for tree in jsts.parse_file(ctx.index, entry.rel):
-            for call in jsts.calls(tree, r"rateLimit|slowDown"):
+            for call in jsts.calls(tree, callee) if callee else []:
                 args = jsts.arguments(call)
                 if not args or "store" not in jsts.object_pairs(args[0]):
                     what = "express-rate-limit has no store option, so it counts in process memory."
@@ -256,10 +327,16 @@ def limiter_proxy_ip(ctx: Context) -> Iterator[Finding]:
                 key="get_remote_address",
             )
     for entry in ctx.index.js_files:
-        if is_test(entry.rel) or "rateLimit" not in ctx.index.text(entry.rel):
+        if is_test(entry.rel) or "rate-limit" not in ctx.index.text(entry.rel):
             continue
+        names = {
+            local
+            for local, (_file, _exported, spec) in imports.js_imports(ctx.index, entry.rel).items()
+            if spec == "express-rate-limit"
+        }
+        callee = re.compile("|".join(re.escape(n) for n in sorted(names))) if names else None
         for tree in jsts.parse_file(ctx.index, entry.rel):
-            for call in jsts.calls(tree, r"rateLimit"):
+            for call in jsts.calls(tree, callee) if callee else []:
                 args = jsts.arguments(call)
                 if not args or "keyGenerator" not in jsts.object_pairs(args[0]):
                     line = jsts.line(tree, call)

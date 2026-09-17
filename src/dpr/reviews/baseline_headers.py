@@ -103,7 +103,11 @@ def weak_csp_reason(policy: str) -> str | None:
     script = _directive(policy, "script-src")
     default = _directive(policy, "default-src")
     effective = script if script is not None else default
-    if effective is not None and "'unsafe-inline'" in effective:
+    tokens = effective.split() if effective is not None else []
+    strict = "'strict-dynamic'" in tokens and any(
+        token.startswith(("'nonce-", "'sha256-", "'sha384-", "'sha512-")) for token in tokens
+    )
+    if "'unsafe-inline'" in tokens and not strict:
         return "script-src allows 'unsafe-inline'"
     if default is not None and "*" in default.split():
         return "default-src allows any origin (*)"

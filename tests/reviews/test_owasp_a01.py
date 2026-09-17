@@ -208,3 +208,199 @@ def test_email_ownership(tmp_path):
         ("app/portal.py:2", "INFERRED"),
         ("lib/portal.ts:1", "INFERRED"),
     ]
+
+
+def test_unguarded_method_is_inferred_when_app_middleware_cannot_be_read(tmp_path):
+    write(
+        tmp_path,
+        "server.js",
+        "const express = require('express')\nconst app = express()\n"
+        "app.use(tenantGate)\n"
+        "app.get('/notes/:id', requireAuth, (req, res) => res.json({}))\n"
+        "app.delete('/notes/:id', (req, res) => res.json({}))\n",
+    )
+    [f] = findings_for(tmp_path, "owasp", "OWASP-A01-UNGUARDED-METHOD")
+    assert (str(f.locations[0]), f.tag.value) == ("server.js:5", "INFERRED")
+    assert "tenantGate" in f.proof_needed
+    write(
+        tmp_path,
+        "server.js",
+        "const express = require('express')\nconst app = express()\n"
+        "app.use(express.json())\n"
+        "app.get('/notes/:id', requireAuth, (req, res) => res.json({}))\n"
+        "app.delete('/notes/:id', (req, res) => res.json({}))\n",
+    )
+    [f] = findings_for(tmp_path, "owasp", "OWASP-A01-UNGUARDED-METHOD")
+    assert f.tag.value == "CONFIRMED"
+
+
+def test_unscoped_lookups_on_public_routes_are_inferred(tmp_path):
+    write(
+        tmp_path,
+        "prisma/schema.prisma",
+        "model Post {\n  id String @id @default(uuid())\n  authorId String\n  published Boolean\n}\n"
+        "model Invoice {\n  id String @id @default(uuid())\n  userId String\n}\n",
+    )
+    write(
+        tmp_path,
+        "app/api/posts/[id]/route.ts",
+        "export async function GET(req: Request, { params }: { params: { id: string } }) {\n"
+        "  const post = await prisma.post.findUnique({ where: { id: params.id, published: true } })\n"
+        "  return Response.json(post)\n}\n",
+    )
+    write(
+        tmp_path,
+        "app/api/invoices/[id]/route.ts",
+        "export async function GET(req: Request, { params }: { params: { id: string } }) {\n"
+        "  const invoice = await prisma.invoice.findUnique({ where: { id: params.id } })\n"
+        "  return Response.json(invoice)\n}\n"
+        "export async function PUT(req: Request, { params }: { params: { id: string } }) {\n"
+        "  const session = await auth()\n"
+        "  return prisma.invoice.update({ where: { id: params.id }, data: {} })\n}\n",
+    )
+    write(
+        tmp_path,
+        "api/posts.py",
+        "from fastapi import APIRouter\nrouter = APIRouter()\n"
+        "@router.get('/pages/{page_id}')\nasync def page(page_id: str, db=None):\n"
+        "    return await db.execute(select(Post).where(Post.id == page_id, Post.is_public == True))\n",
+    )
+    found = findings_for(tmp_path, "owasp", "OWASP-A01-UNSCOPED-QUERY")
+    assert summary(found) == [
+        ("app/api/invoices/[id]/route.ts:2", "INFERRED"),
+        ("app/api/invoices/[id]/route.ts:7", "CONFIRMED"),
+    ]
+    public = next(f for f in found if f.tag.value == "INFERRED")
+    assert public.proof_needed == "Confirm this record type is not meant to be public."
+    assert "Sign in" not in public.attack
+
+
+def test_positional_only_parameters_do_not_break_lookups(tmp_path):
+    write(
+        tmp_path,
+        "app/main.py",
+        "from fastapi import FastAPI\napp = FastAPI()\n"
+        "@app.get('/items/{item_id}')\ndef read(item_id: int = 1, /, q: str = ''):\n"
+        "    return db.get(Item, item_id)\n",
+    )
+    found = findings_for(tmp_path, "owasp", "OWASP-A01-UNSCOPED-QUERY")
+    assert summary(found) == [("app/main.py:5", "INFERRED")]
+
+
+def test_visibility_skip_needs_a_truthy_top_level_filter_on_a_read(tmp_path):
+    write(
+        tmp_path,
+        "prisma/schema.prisma",
+        "model User {\n  id String @id\n  posts Post[]\n}\n"
+        "model Post {\n  id String @id @default(uuid())\n  authorId String\n  published Boolean\n}\n",
+    )
+    route = (
+        "export async function {method}(req: Request, {{ params }}: {{ params: {{ id: string }} }}) {{\n"
+        "  const session = await getServerSession()\n"
+        "  return Response.json(await {call})\n}}\n"
+    )
+    cases = {
+        "include": "prisma.user.findUnique({ where: { id: params.id }, include: { posts: { where: { published: true } } } })",
+        "update": "prisma.post.update({ where: { id: params.id, published: true }, data: { title: 'x' } })",
+        "hidden": "prisma.post.findFirst({ where: { id: params.id, published: false } })",
+        "shown": "prisma.post.findFirst({ where: { id: params.id, published: true } })",
+        "listed": "prisma.post.findFirst({ where: { id: params.id, visibility: 'public' } })",
+    }
+    for name, call in cases.items():
+        write(
+            tmp_path,
+            f"app/api/{name}/[id]/route.ts",
+            route.format(method="PUT" if name == "update" else "GET", call=call),
+        )
+    write(
+        tmp_path,
+        "api/app/models.py",
+        "class Page(Base):\n    __tablename__ = 'pages'\n    id = Column(String, primary_key=True)\n"
+        "    owner_id = Column(String)\n    is_public = Column(Boolean)\n",
+    )
+    write(tmp_path, "api/app/deps.py", DEPS)
+    write(
+        tmp_path,
+        "api/app/pages.py",
+        "from fastapi import APIRouter\nfrom app.deps import CurrentUser\nrouter = APIRouter()\n"
+        "@router.get('/pages/{page_id}')\nasync def shown(page_id: str, me: CurrentUser, db=None):\n"
+        "    return await db.execute(select(Page).where(Page.id == page_id, Page.is_public == True))\n"
+        "@router.get('/private/{page_id}')\nasync def hidden(page_id: str, me: CurrentUser, db=None):\n"
+        "    return await db.execute(select(Page).where(Page.id == page_id, Page.is_public == False))\n"
+        "@router.get('/owner/{page_id}')\nasync def owner(page_id: str, me: CurrentUser, db=None):\n"
+        "    return await db.execute(select(Page).join(Owner).where(Page.id == page_id, Owner.published == True))\n",
+    )
+    found = findings_for(tmp_path, "owasp", "OWASP-A01-UNSCOPED-QUERY")
+    assert sorted(str(f.locations[0]) for f in found) == [
+        "api/app/pages.py:12",
+        "api/app/pages.py:9",
+        "app/api/hidden/[id]/route.ts:3",
+        "app/api/include/[id]/route.ts:3",
+        "app/api/update/[id]/route.ts:3",
+    ]
+
+
+def test_visibility_skip_needs_a_public_literal_and_no_later_write(tmp_path):
+    write(
+        tmp_path,
+        "prisma/schema.prisma",
+        "model Post {\n  id String @id @default(uuid())\n  authorId String\n  published Boolean\n"
+        "  visibility String\n}\n",
+    )
+    route = (
+        "export async function GET(req: Request, {{ params }}: {{ params: {{ id: string }} }}) {{\n"
+        "  const session = await getServerSession()\n  const body = await req.json()\n"
+        "  const post = await prisma.post.findFirst({{ where: {{ id: params.id, {where} }} }})\n"
+        "  {after}\n  return Response.json(post)\n}}\n"
+    )
+    cases = {
+        "team": ('visibility: "team"', ""),
+        "members": ('visibility: "members"', ""),
+        "restricted": ('visibility: "restricted"', ""),
+        "body": ("published: body.published", ""),
+        "request": ("isPublic: req.isPublic", ""),
+        "written": (
+            "published: true",
+            "await prisma.post.update({ where: { id: post.id }, data: body })",
+        ),
+        "assigned": ("published: true", "post.title = body.title"),
+        "literal-true": ("published: true", ""),
+        "literal-one": ("published: 1", ""),
+        "literal-public": ('visibility: "public"', ""),
+    }
+    for name, (where, after) in cases.items():
+        write(tmp_path, f"app/api/{name}/[id]/route.ts", route.format(where=where, after=after))
+    write(
+        tmp_path,
+        "api/app/models.py",
+        "class Page(Base):\n    __tablename__ = 'pages'\n    id = Column(String, primary_key=True)\n"
+        "    owner_id = Column(String)\n    is_public = Column(Boolean)\n    title = Column(String)\n",
+    )
+    write(tmp_path, "api/app/deps.py", DEPS)
+    write(
+        tmp_path,
+        "api/app/pages.py",
+        "from fastapi import APIRouter\nfrom app.deps import CurrentUser\nrouter = APIRouter()\n"
+        "@router.put('/pages/{page_id}')\nasync def rename(page_id: str, title: str, me: CurrentUser, db=None):\n"
+        "    page = (await db.execute(select(Page).where(Page.id == page_id, Page.is_public == True))).scalar_one()\n"
+        "    page.title = title\n    await db.commit()\n    return page\n"
+        "@router.get('/query/{page_id}')\nasync def by_flag(page_id: str, is_public: bool, me: CurrentUser, db=None):\n"
+        "    return await db.execute(select(Page).where(Page.id == page_id, Page.is_public == is_public))\n"
+        "@router.get('/body/{page_id}')\nasync def by_body(page_id: str, me: CurrentUser, filters: Filters, db=None):\n"
+        "    return await db.execute(select(Page).where(Page.id == page_id, Page.is_public == filters.is_public))\n"
+        "@router.get('/shown/{page_id}')\nasync def shown(page_id: str, me: CurrentUser, db=None):\n"
+        "    return await db.execute(select(Page).where(Page.id == page_id, Page.is_public == True))\n",
+    )
+    found = findings_for(tmp_path, "owasp", "OWASP-A01-UNSCOPED-QUERY")
+    assert sorted(str(f.locations[0]) for f in found) == [
+        "api/app/pages.py:12",
+        "api/app/pages.py:15",
+        "api/app/pages.py:6",
+        "app/api/assigned/[id]/route.ts:4",
+        "app/api/body/[id]/route.ts:4",
+        "app/api/members/[id]/route.ts:4",
+        "app/api/request/[id]/route.ts:4",
+        "app/api/restricted/[id]/route.ts:4",
+        "app/api/team/[id]/route.ts:4",
+        "app/api/written/[id]/route.ts:4",
+    ]

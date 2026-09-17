@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import re
 from collections.abc import Iterator
 from pathlib import PurePosixPath
 
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast, pyvalues
-from dpr.redact import snippet
+from dpr.redact import redact, snippet
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
@@ -126,10 +127,53 @@ def _copies(ctx: Context, owner: str, literals: list[pyvalues.Literal]) -> list[
     return found
 
 
+def _char_column(source_line: str, byte_column: int) -> int:
+    return len(source_line.encode("utf-8")[:byte_column].decode("utf-8", errors="ignore"))
+
+
+def _literal_spans(text: str, line: int, values: set[str]) -> list[tuple[int, int]]:
+    """Character ranges on `line` covered by Python string literals whose value is one of
+    `values`, however the literal is spelled (adjacent parts, escapes, triple quotes)."""
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return []
+    lines = text.split("\n")
+    spans = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Constant) and node.value in values):
+            continue
+        end_line = node.end_lineno or node.lineno
+        if not node.lineno <= line <= end_line or node.end_col_offset is None:
+            continue
+        source = lines[line - 1]
+        start = _char_column(source, node.col_offset) if node.lineno == line else 0
+        end = _char_column(source, node.end_col_offset) if end_line == line else len(source)
+        spans.append((start, end))
+    return spans
+
+
 def _masked(text: str, line: int, literals: list[pyvalues.Literal]) -> str:
-    value = snippet(text, line)
-    for lit in literals:
-        value = value.replace(lit.value, "<redacted:password>")
+    """The snippet of `line` with every literal masked on the whole line before it is cut.
+
+    Python literals are masked by their source range, so a value spelled differently in the
+    source (adjacent parts, escaped quotes, a triple-quoted block) never survives; other files
+    fall back to the value's text forms."""
+    lines = text.split("\n")
+    full = lines[line - 1].removesuffix("\r") if 0 < line <= len(lines) else ""
+    values = {lit.value for lit in literals}
+    for start, end in sorted(_literal_spans(text, line, values), reverse=True):
+        full = full[:start] + "<redacted:password>" + full[end:]
+    forms = {f for v in values for f in (v, repr(v)[1:-1], json.dumps(v)[1:-1])}
+    forms |= {part for form in forms for part in form.split("\n") if len(part) >= 4}
+    for form in sorted(forms, key=len, reverse=True):
+        full = full.replace(form, "<redacted:password>")
+    value = snippet(full, 1)
+    if len(value) < len(redact(full)):
+        for form in forms:
+            for size in range(len(form) - 1, 0, -1):
+                if value.endswith(form[:size]):
+                    return value[: len(value) - size] + "<redacted:password>"
     return value
 
 

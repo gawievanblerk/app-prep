@@ -142,3 +142,39 @@ def test_mixed_content(tmp_path):
     )
     [f] = findings_for(tmp_path, "baseline", "BASE-MIXED-CONTENT")
     assert [str(loc) for loc in f.locations] == ["public/index.html:2"]
+
+
+def test_weak_hash_skips_random_tokens_but_keeps_passwords(tmp_path):
+    write(
+        tmp_path,
+        "src/auth.js",
+        "const crypto = require('crypto')\n"
+        "function createPasswordResetToken(user) {\n"
+        "  const resetToken = crypto.randomBytes(32).toString('hex')\n"
+        "  user.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex')\n"
+        "  return resetToken\n}\n"
+        "function hashPasswordToken(password) {\n"
+        "  return crypto.createHash('sha256').update(password).digest('hex')\n}\n"
+        "function passwordFingerprint(user) {\n"
+        "  const raw = crypto.randomBytes(16)\n"
+        "  return crypto.createHash('md5').update(raw).digest('hex')\n}\n",
+    )
+    write(
+        tmp_path,
+        "app/tokens.py",
+        "import hashlib, secrets\n"
+        "def create_password_reset_token():\n"
+        "    raw = secrets.token_urlsafe(32)\n"
+        "    return raw, hashlib.sha256(raw.encode()).hexdigest()\n"
+        "def store_password_api_key(user, api_key):\n"
+        "    user.api_key_hash = hashlib.sha256(api_key.encode()).hexdigest()\n"
+        "def password_otp(code):\n"
+        "    return hashlib.sha256(code.encode()).hexdigest()\n"
+        "def hash_password(password, reset_token):\n"
+        "    return hashlib.sha256((password + reset_token).encode()).hexdigest()\n",
+    )
+    found = findings_for(tmp_path, "baseline", "BASE-WEAK-HASH")
+    assert sorted((str(f.locations[0]), f.severity.value) for f in found) == [
+        ("app/tokens.py:10", "critical"),
+        ("src/auth.js:8", "critical"),
+    ]

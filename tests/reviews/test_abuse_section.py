@@ -14,7 +14,8 @@ def app(root):
     write(
         root,
         "api/routes.py",
-        "from fastapi import APIRouter, Depends\nrouter = APIRouter(prefix='/api')\n"
+        "from fastapi import APIRouter, Depends\nfrom api.chat import ask\n"
+        "router = APIRouter(prefix='/api')\n"
         "@router.post('/chat')\nasync def chat(user=Depends(get_current_user)):\n    return ask([])\n"
         "@router.post('/auth/register')\nasync def register(data): ...\n"
         "@router.post('/auth/login')\nasync def login(data): ...\n"
@@ -64,7 +65,7 @@ def test_abuse_section_parts(tmp_path):
     )
     assert parts["Limits per endpoint"].rows[2][2:5] == ("10", "20", "15 min")
     assert "SlowAPIMiddleware" in parts["Implementation for this stack"].body
-    assert "- `api/routes.py:15`: return a generic message" in parts["CORS and error messages"].body
+    assert "- `api/routes.py:16`: return a generic message" in parts["CORS and error messages"].body
     assert "- `API_CHAT_ENABLED` for POST /api/chat" in parts["Alerts and kill switches"].body
     text = render_markdown(report)
     assert "## 7. Abuse and bill guard" in text and "#### GUARD 1:" in text
