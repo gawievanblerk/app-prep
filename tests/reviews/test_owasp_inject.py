@@ -175,3 +175,42 @@ def test_client_price_and_ssrf(tmp_path):
         "api/main.py:5",
         "app/api/preview/route.ts:3",
     ]
+
+
+def test_ssrf_fixed_host_is_not_reported(tmp_path):
+    write(
+        tmp_path,
+        "api/proxy.py",
+        "from fastapi import FastAPI\n"
+        "app = FastAPI()\n"
+        "@app.get('/one')\n"
+        "async def one(item_id: str):\n"
+        "    return httpx.get(f'https://api.internal.example.com/items/{item_id}')\n"
+        "@app.get('/two')\n"
+        "async def two(item_id: str):\n"
+        "    return httpx.get(f'{settings.API_BASE}/items/{item_id}')\n"
+        "@app.get('/three')\n"
+        "async def three(url: str):\n"
+        "    return httpx.get(url)\n"
+        "@app.get('/four')\n"
+        "async def four(path: str):\n"
+        "    return httpx.get(f'https://api.internal.example.com{path}')\n",
+    )
+    write(
+        tmp_path,
+        "server/proxy.js",
+        "app.get('/five', (req, res) => {\n"
+        "  fetch(`https://api.internal.example.com/items/${req.params.id}`)\n"
+        "})\n"
+        "app.get('/six', (req, res) => {\n"
+        "  fetch(`${process.env.API_URL}/items/${req.params.id}`)\n"
+        "})\n"
+        "app.get('/seven', (req, res) => {\n"
+        "  fetch(req.query.url)\n"
+        "})\n",
+    )
+    assert [loc for loc, _ in locs(findings_for(tmp_path, "owasp", "OWASP-A10-SSRF"))] == [
+        "api/proxy.py:11",
+        "api/proxy.py:14",
+        "server/proxy.js:8",
+    ]

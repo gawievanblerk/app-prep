@@ -33,6 +33,82 @@ PY_FETCH = re.compile(
     r"|request|head)|urllib\.request\.urlopen|urlopen"
 )
 ALLOWLIST = re.compile(r"(?i)allow_?list|allowed_?(?:hosts|domains|origins)|ALLOWED|whitelist")
+FIXED_HOST = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://[^/{}\s@]+/")
+TRUSTED_HOST_PY = re.compile(
+    r"[A-Z][A-Z0-9_]*|settings\.\w+|config\.\w+|os\.environ\[.*\]|os\.environ\.get\(.*\)"
+    r"|os\.getenv\(.*\)"
+)
+TRUSTED_HOST_JS = re.compile(r"process\.env\.\w+|[A-Z][A-Z0-9_]*")
+
+
+def _flatten_add(node: ast.AST) -> list[ast.AST]:
+    """Left-to-right operands of a chain of `+` concatenations."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return [*_flatten_add(node.left), *_flatten_add(node.right)]
+    return [node]
+
+
+def _next_starts_with_slash(part: ast.AST | None) -> bool:
+    value = pyast.constant(part, None)
+    return isinstance(value, str) and value.startswith("/")
+
+
+def _fixed_host_py(node: ast.AST | None) -> bool:
+    """True when a URL expression starts with a literal scheme and host, or a trusted
+
+    name (an ALL_CAPS constant, settings/config attribute, or os.environ/os.getenv) is
+    immediately followed by a literal path starting with a slash.
+    """
+    if isinstance(node, ast.JoinedStr) and node.values:
+        first = node.values[0]
+        if isinstance(pyast.constant(first, None), str):
+            return bool(FIXED_HOST.match(first.value))
+        if isinstance(first, ast.FormattedValue) and TRUSTED_HOST_PY.fullmatch(
+            ast.unparse(first.value)
+        ):
+            return _next_starts_with_slash(node.values[1] if len(node.values) > 1 else None)
+        return False
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        parts = _flatten_add(node)
+        first = parts[0]
+        if isinstance(pyast.constant(first, None), str):
+            return bool(FIXED_HOST.match(first.value))
+        if TRUSTED_HOST_PY.fullmatch(ast.unparse(first)):
+            return _next_starts_with_slash(parts[1] if len(parts) > 1 else None)
+        return False
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+        left = pyast.constant(node.left, None)
+        return isinstance(left, str) and bool(FIXED_HOST.match(left))
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "format"
+        and isinstance(pyast.constant(node.func.value, None), str)
+    ):
+        return bool(FIXED_HOST.match(node.func.value.value))
+    return False
+
+
+def _fixed_host_js(node) -> bool:
+    """Same test as `_fixed_host_py`, for a JS/TS template string."""
+    if node is None or node.type != "template_string":
+        return False
+    parts = [c for c in node.named_children if c.type != "comment"]
+    if not parts:
+        return False
+    first = parts[0]
+    if first.type == "string_fragment":
+        return bool(FIXED_HOST.match(jsts.node_text(first)))
+    if first.type == "template_substitution":
+        inner = first.named_children[0] if first.named_children else None
+        if inner is None or not TRUSTED_HOST_JS.fullmatch(jsts.node_text(inner)):
+            return False
+        return (
+            len(parts) > 1
+            and parts[1].type == "string_fragment"
+            and jsts.node_text(parts[1]).startswith("/")
+        )
+    return False
 
 
 def _weak(ctx: Context, rel: str, line: int, name: str, call: str) -> Finding:
@@ -147,18 +223,22 @@ def ssrf(ctx: Context) -> Iterator[Finding]:
             continue
         if isinstance(handler, ast.FunctionDef | ast.AsyncFunctionDef):
             scope = ast.unparse(handler)
+            assigned_exprs = {
+                n.targets[0].id: n.value
+                for n in ast.walk(handler)
+                if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)
+            }
             for call in pyast.calls(route.tree, PY_FETCH, handler):
-                target = ast.unparse(call.args[0]) if call.args else ""
-                target_names = pyast.names_in(call.args[0]) if call.args else set()
-                assigned = [
-                    ast.unparse(n.value)
-                    for n in ast.walk(handler)
-                    if isinstance(n, ast.Assign)
-                    and isinstance(n.targets[0], ast.Name)
-                    and n.targets[0].id in target_names
-                ]
+                if not call.args:
+                    continue
+                arg = call.args[0]
+                target_names = pyast.names_in(arg)
+                resolved_exprs = [assigned_exprs[n] for n in target_names if n in assigned_exprs]
+                if any(_fixed_host_py(c) for c in (arg, *resolved_exprs)):
+                    continue
+                assigned = [ast.unparse(e) for e in resolved_exprs]
                 params = set(request_params(ctx, route)) - {"request"}
-                from_request = REQUEST_VALUE.search(" ".join([target, *assigned]))
+                from_request = REQUEST_VALUE.search(" ".join([ast.unparse(arg), *assigned]))
                 if (from_request or target_names & params) and not ALLOWLIST.search(scope):
                     yield _ssrf(ctx, route.file, call.lineno)
         elif route.tree is not None and getattr(handler, "type", "") in jsts.FUNCTION_TYPES:
@@ -166,10 +246,13 @@ def ssrf(ctx: Context) -> Iterator[Finding]:
             for call in jsts.calls(route.tree, JS_FETCH, handler):
                 args = jsts.arguments(call)
                 first = jsts.unwrap(args[0]) if args else None
-                text = jsts.node_text(first)
+                target_node, text = first, jsts.node_text(first)
                 if first is not None and first.type == "identifier":
                     resolved = jsts.resolve_identifier(first)
-                    text = jsts.node_text(resolved) if resolved is not None else text
+                    if resolved is not None:
+                        target_node, text = resolved, jsts.node_text(resolved)
+                if _fixed_host_js(target_node):
+                    continue
                 if REQUEST_VALUE.search(text) and not ALLOWLIST.search(scope):
                     yield _ssrf(ctx, route.file, jsts.line(route.tree, call))
 
