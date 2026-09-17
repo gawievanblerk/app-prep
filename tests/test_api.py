@@ -127,3 +127,23 @@ def test_failing_rule_is_recorded_when_not_strict(tmp_path, monkeypatch):
     monkeypatch.setitem(rules.CHECKS, "leaks", [*rules.CHECKS["leaks"], ("TEST-BOOM", boom)])
     report = review(root, reviews=["leaks"])
     assert "rule TEST-BOOM failed: RuntimeError" in report.not_covered
+
+
+def test_failing_review_module_is_recorded_when_not_strict(tmp_path, monkeypatch):
+    from dpr.reviews import leaks
+
+    root = app(tmp_path)
+
+    def boom(ctx):
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(leaks, "run", boom)
+    monkeypatch.delenv("DPR_STRICT")
+    report = review(root)
+    assert "review leaks failed: RuntimeError" in report.not_covered
+    assert set(report.sections) == {"rls"}
+    assert not any(f.review == "leaks" for f in report.findings)
+    assert dict(report.meta.applicability)["leaks"] == "failed: RuntimeError"
+    monkeypatch.setenv("DPR_STRICT", "1")
+    with pytest.raises(RuntimeError):
+        review(root)

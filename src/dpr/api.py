@@ -57,6 +57,9 @@ def _reason(slug: str, selected: list[str], modules: dict, sections: dict, notes
         return "not selected"
     if slug not in modules:
         return "not available in this version"
+    failed = f"review {slug} failed: "
+    if any(n.startswith(failed) for n in notes):
+        return next(n for n in notes if n.startswith(failed))[len(f"review {slug} ") :]
     prefix = f"Review {number(slug)} ({slug}): "
     return next((n[len(prefix) :] for n in notes if n.startswith(prefix)), "not applicable")
 
@@ -104,7 +107,13 @@ def review(
         if slug not in modules:
             ctx.not_covered.append(f"Review {number(slug)} ({slug}): not available in this version")
             continue
-        section = modules[slug].run(ctx)
+        try:
+            section = modules[slug].run(ctx)
+        except Exception as exc:
+            if os.environ.get("DPR_STRICT") == "1":
+                raise
+            ctx.not_covered.append(f"review {slug} failed: {type(exc).__name__}")
+            continue
         if section is None:
             continue
         sections[slug] = section

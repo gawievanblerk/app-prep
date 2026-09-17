@@ -606,6 +606,7 @@ Exit codes: `0` completed and nothing at or above `--fail-on`; `1` a finding at 
 | File fails to parse | Listed in `not_covered`, run continues |
 | File cannot be read, or is not a regular file | Unreadable files are listed in `not_covered`; pipes, sockets and devices are skipped; run continues |
 | Rule raises | Caught per rule, `rule <id> failed: <ExceptionType>` in `not_covered`, run continues. With env `DPR_STRICT=1` the exception is re-raised (set in tests). |
+| A review module's `run()` raises | Caught per review, `review <slug> failed: <ExceptionType>` in `not_covered`, that review's section and rules are skipped, run continues. With env `DPR_STRICT=1` the exception is re-raised. |
 | Optional tool missing | Listed as not run with the reason |
 | Adapter timeout | Semgrep 300 s, audits 120 s, header request 10 s; listed as incomplete |
 | Not a git repo | Git-based rules skipped and listed; meta shows `uncommitted working tree` |
