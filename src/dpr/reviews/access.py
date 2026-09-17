@@ -233,6 +233,14 @@ def _mounted_file(ctx: Context, rel: str, node) -> str | None:
 def _middleware(ctx: Context, rel: str, tree, node) -> tuple[str, str] | None:
     """("auth", name) or ("unknown", name) for a .use argument; None for routers and known
     non-auth middleware such as session(), passport.initialize() or express.json()."""
+    memo = ctx.facts.setdefault("express-middleware-kinds", {})
+    key = (rel, tree.line_offset, node.start_byte, node.end_byte)
+    if key not in memo:
+        memo[key] = _middleware_kind(ctx, rel, tree, node)
+    return memo[key]
+
+
+def _middleware_kind(ctx: Context, rel: str, tree, node) -> tuple[str, str] | None:
     node = jsts.unwrap(node)
     if node is not None and node.type in jsts.FUNCTION_TYPES:
         return "unknown", "an inline middleware function"
@@ -252,10 +260,26 @@ def _middleware(ctx: Context, rel: str, tree, node) -> tuple[str, str] | None:
     return "unknown", name
 
 
+def _file_calls(ctx: Context, tree) -> tuple[list, dict[int, list]]:
+    """The .use calls of a file with their lines, and its route calls by line, read once."""
+    memo = ctx.facts.setdefault("express-file-calls", {})
+    key = (tree.rel, tree.line_offset)
+    if key not in memo:
+        uses, verbs = [], {}
+        for call in jsts.walk(tree.root, {"call_expression"}):
+            name = jsts.callee(call)
+            if USE_CALL.fullmatch(name):
+                uses.append((jsts.line(tree, call), call))
+            elif SERVER_VERB.fullmatch(name):
+                verbs.setdefault(jsts.line(tree, call), []).append(call)
+        memo[key] = (uses, verbs)
+    return memo[key]
+
+
 def _uses_before(ctx: Context, rel: str, tree, line: int, path: str) -> tuple[list, list]:
     auth, unknown = [], []
-    for call in jsts.calls(tree, USE_CALL):
-        if jsts.line(tree, call) >= line:
+    for call_line, call in _file_calls(ctx, tree)[0]:
+        if call_line >= line:
             continue
         mounts, middleware = _use_args(call)
         if mounts is not None and not any(_covers(m, path) for m in mounts):
@@ -275,7 +299,7 @@ def _mounts(ctx: Context) -> dict[str, list[tuple[str, object, int, list[str] | 
             if ".use(" not in ctx.index.text(entry.rel):
                 continue
             for tree in jsts.parse_file(ctx.index, entry.rel):
-                for call in jsts.calls(tree, USE_CALL):
+                for _line, call in _file_calls(ctx, tree)[0]:
                     mounts, middleware = _use_args(call)
                     for arg in middleware:
                         target = _mounted_file(ctx, entry.rel, arg)
@@ -309,9 +333,8 @@ def _express(ctx: Context, route: Route) -> Access:
     tree = route.tree
     same_auth, unknown = _uses_before(ctx, route.file, tree, route.line, route.path)
     names = [name.rsplit(" in ", 1)[0] for name in same_auth]
-    for call in jsts.calls(tree, SERVER_VERB):
-        if jsts.line(tree, call) == route.line:
-            names += [jsts.node_text(a) for a in jsts.arguments(call)[1:-1] if a.type != "string"]
+    for call in _file_calls(ctx, tree)[1].get(route.line, []):
+        names += [jsts.node_text(a) for a in jsts.arguments(call)[1:-1] if a.type != "string"]
     mount_auth, mount_unknown = _mount_guards(ctx, route.file, route.path)
     names += [*route.wrappers, *(name.rsplit(" in ", 1)[0] for name in mount_auth)]
     auth = [n for n in dict.fromkeys(names) if auth_name(n) or ADMIN_WORD.search(n)]

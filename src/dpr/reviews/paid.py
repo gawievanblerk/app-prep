@@ -209,6 +209,29 @@ def _js_exported(ctx: Context, rel: str | None, name: str) -> tuple[object, obje
     return None
 
 
+def _js_local_functions(ctx: Context, tree) -> dict[str, object]:
+    """Functions a file declares by name, top-level declarations first."""
+    key = ("js-local-functions", f"{tree.rel}:{tree.line_offset}")
+    if key not in ctx.index.cache:
+        found: dict[str, object] = {}
+        nodes = [*tree.root.named_children, *jsts.walk(tree.root, set(jsts.NAMED_FUNCTIONS))]
+        nodes += list(jsts.walk(tree.root, {"variable_declarator"}))
+        for node in nodes:
+            if node.type == "export_statement":
+                node = node.child_by_field_name("declaration") or node
+            items = node.named_children if node.type.endswith("_declaration") else []
+            for item in [node, *items]:
+                if item.type in jsts.NAMED_FUNCTIONS:
+                    found.setdefault(jsts.node_text(item.child_by_field_name("name")), item)
+                elif item.type == "variable_declarator":
+                    value = jsts.unwrap(item.child_by_field_name("value"))
+                    if value is not None and value.type in jsts.FUNCTION_TYPES:
+                        name = jsts.node_text(item.child_by_field_name("name"))
+                        found.setdefault(name, value)
+        ctx.index.cache[key] = found
+    return ctx.index.cache[key]
+
+
 def _js_target(ctx: Context, tree, call) -> tuple[object, object, bool] | None:
     """(tree, function, exact) for a call that resolves through this file or its imports."""
     func = jsts.unwrap(call.child_by_field_name("function"))
@@ -216,12 +239,8 @@ def _js_target(ctx: Context, tree, call) -> tuple[object, object, bool] | None:
     if func is not None and func.type == "identifier":
         name = jsts.node_text(func)
         if name not in names:
-            value = jsts.declared_value(tree.root, name)
-            return (
-                (tree, value, True)
-                if value is not None and value.type in jsts.FUNCTION_TYPES
-                else None
-            )
+            value = _js_local_functions(ctx, tree).get(name)
+            return (tree, value, True) if value is not None else None
         file, exported, spec = names[name]
         found = _js_exported(ctx, file, exported)
         if found is not None:
