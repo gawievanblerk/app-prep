@@ -12,6 +12,7 @@ from dpr.reviews.access_names import (
     ADMIN,
     ADMIN_WORD,
     AUTHENTICATED,
+    MIXED,
     PUBLIC,
     Access,
     auth_middleware,
@@ -35,6 +36,12 @@ DJANGO_DECORATORS = re.compile(
 )
 DJANGO_MIXINS = re.compile(r"(LoginRequired|PermissionRequired|UserPassesTest)Mixin")
 DRF_VIEW = re.compile(r"(?:APIView|ViewSet|GenericAPIView)$")
+READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+VIEW_ACTIONS = {
+    "get": "GET", "head": "HEAD", "options": "OPTIONS", "list": "GET", "retrieve": "GET",
+    "post": "POST", "create": "POST", "put": "PUT", "update": "PUT", "patch": "PATCH",
+    "partial_update": "PATCH", "delete": "DELETE", "destroy": "DELETE",
+}  # fmt: skip
 JS_AUTH_CALL = re.compile(
     r"\b(auth|getServerSession|getSession|currentUser|getAuth|requireAuth|requireUser"
     r"|getCurrentUser|verifyToken|getToken|validateRequest|getKindeServerSession|getUser"
@@ -100,22 +107,71 @@ def _settings_names(node: ast.AST) -> list[str]:
     return []
 
 
-def django_settings(ctx: Context) -> tuple[bool, bool, str]:
-    """From every settings module: LoginRequiredMiddleware listed, a DRF default that requires
-    sign-in, and a custom auth middleware the classifier cannot read."""
+def _permission_names(node: ast.AST | None) -> list[str]:
+    """Class names in a permission list: strings ("rest_framework.permissions.X") or names."""
+    names = []
+    for item in ast.walk(node) if node is not None else []:
+        value = pyast.constant(item, None)
+        if isinstance(value, str):
+            names.append(value.split(".")[-1])
+        elif isinstance(item, ast.Name | ast.Attribute) and not isinstance(item.ctx, ast.Store):
+            names.append((pyast.dotted(item) or "").split(".")[-1])
+    return [n for n in names if n]
+
+
+def _permission_kind(names: list[str]) -> str | None:
+    """'admin', 'authenticated', 'read-only' (sign-in for writes only) or None."""
+    if "IsAdminUser" in names:
+        return "admin"
+    if "IsAuthenticated" in names:
+        return "authenticated"
+    if {"IsAuthenticatedOrReadOnly", "DjangoModelPermissionsOrAnonReadOnly"} & set(names):
+        return "read-only"
+    return None
+
+
+def _drf_default(node: ast.AST) -> ast.AST | None:
+    """The DEFAULT_PERMISSION_CLASSES value in a REST_FRAMEWORK dict literal, update() or
+    subscript assignment."""
+    if isinstance(node, ast.Assign | ast.AnnAssign) and "REST_FRAMEWORK" in _settings_names(node):
+        dicts = [node.value]
+    elif isinstance(node, ast.Call) and "REST_FRAMEWORK" in _settings_names(node):
+        dicts = list(node.args)
+    elif (
+        isinstance(node, ast.Assign)
+        and isinstance(node.targets[0], ast.Subscript)
+        and pyast.dotted(node.targets[0].value) == "REST_FRAMEWORK"
+        and pyast.constant(node.targets[0].slice, None) == "DEFAULT_PERMISSION_CLASSES"
+    ):
+        return node.value
+    else:
+        return None
+    for value in dicts:
+        if isinstance(value, ast.Dict):
+            for key, item in zip(value.keys, value.values, strict=True):
+                if pyast.constant(key, None) == "DEFAULT_PERMISSION_CLASSES":
+                    return item
+    return None
+
+
+def django_settings(ctx: Context) -> tuple[bool, str | None, str]:
+    """From every non-test settings module, read as a syntax tree so comments never count:
+    LoginRequiredMiddleware listed, the DRF default permission kind, and a custom auth
+    middleware the classifier cannot read."""
     key = ("django-settings-auth", "")
     if key in ctx.index.cache:
         return ctx.index.cache[key]
-    login, drf, unread = False, False, ""
+    login, drf, unread = False, None, ""
     for entry in ctx.index.py_files:
         text = ctx.index.text(entry.rel)
         if not re.search(r"INSTALLED_APPS|REST_FRAMEWORK|MIDDLEWARE", text) or is_test(entry.rel):
             continue
         holds = "INSTALLED_APPS" in text or "REST_FRAMEWORK" in text
-        if holds and "DEFAULT_PERMISSION_CLASSES" in text and "IsAuthenticated" in text:
-            drf = True
         tree = pyast.parse_file(ctx.index, entry.rel)
         for node in ast.walk(tree) if tree else []:
+            default = _drf_default(node) if holds else None
+            if default is not None:
+                drf = _permission_kind(_permission_names(default))
             if "MIDDLEWARE" not in _settings_names(node):
                 continue
             for item in ast.walk(node):
@@ -130,30 +186,70 @@ def django_settings(ctx: Context) -> tuple[bool, bool, str]:
     return ctx.index.cache[key]
 
 
-def _django_marker(node: ast.AST) -> Access | None:
+def _view_methods(node: ast.AST | None) -> set[str] | None:
+    """HTTP methods a DRF view serves, or None when they cannot be read."""
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        for name, dec in _decorator_names(node):
+            if name.endswith("api_view"):
+                args = dec.args if isinstance(dec, ast.Call) else []
+                values = [pyast.constant(e, None) for a in args[:1] for e in ast.walk(a)]
+                return {v.upper() for v in values if isinstance(v, str)} or {"GET"}
+        return None
+    if not isinstance(node, ast.ClassDef):
+        return None
+    defined = {
+        VIEW_ACTIONS[item.name]
+        for item in node.body
+        if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef) and item.name in VIEW_ACTIONS
+    }
+    bases = " ".join(pyast.base_names(node))
+    if re.search(r"ReadOnly|\bList\w*APIView|\bRetrieveAPIView", bases):
+        defined.add("GET")
+    if re.search(r"ModelViewSet|Create|Update|Destroy", bases) and "ReadOnly" not in bases:
+        defined |= {"GET", "POST"}
+    return defined or None
+
+
+def _permission_access(route: Route, kind: str, evidence: str) -> Access:
+    if kind == "admin":
+        return Access(ADMIN, DJANGO_SUBJECTS, evidence)
+    if kind == "authenticated":
+        return Access(AUTHENTICATED, DJANGO_SUBJECTS, evidence)
+    methods = _view_methods(route.handler)
+    if methods is not None and methods <= READ_METHODS:
+        return Access(PUBLIC, (), f"{evidence} on a read-only view")
+    if methods is not None and not methods & READ_METHODS:
+        return Access(AUTHENTICATED, DJANGO_SUBJECTS, evidence)
+    return Access(
+        PUBLIC, (), f"{evidence} (reads need no sign-in)", MIXED, f"{evidence} for writes"
+    )
+
+
+def _django_marker(route: Route) -> Access | None:
+    node = route.handler
     for name, dec in _decorator_names(node):
         match = DJANGO_DECORATORS.fullmatch(name)
         if match:
             admin = match.group(1) in ("staff_member_required", "superuser_required")
             return Access(ADMIN if admin else AUTHENTICATED, DJANGO_SUBJECTS, f"@{match.group(1)}")
         if name.endswith("permission_classes"):
-            text = ast.unparse(dec)
-            if "IsAdminUser" in text:
-                return Access(ADMIN, DJANGO_SUBJECTS, "IsAdminUser")
-            if "AllowAny" in text:
+            names = _permission_names(dec)
+            if "AllowAny" in names and not _permission_kind(names):
                 return Access(PUBLIC, (), "AllowAny")
-            return Access(AUTHENTICATED, DJANGO_SUBJECTS, "permission_classes")
+            kind = _permission_kind(names) or "authenticated"
+            evidence = "IsAdminUser" if kind == "admin" else "permission_classes"
+            return _permission_access(route, kind, evidence)
     if isinstance(node, ast.ClassDef):
         if any(DJANGO_MIXINS.search(b) for b in pyast.base_names(node)):
             return Access(AUTHENTICATED, DJANGO_SUBJECTS, "login mixin")
         value = pyast.assignments(node.body).get("permission_classes")
         if value is not None:
-            text = ast.unparse(value)
-            if "IsAdminUser" in text:
-                return Access(ADMIN, DJANGO_SUBJECTS, "IsAdminUser")
-            if "AllowAny" not in text:
-                return Access(AUTHENTICATED, DJANGO_SUBJECTS, "permission_classes")
-            return Access(PUBLIC, (), "AllowAny")
+            names = _permission_names(value)
+            if "AllowAny" in names and not _permission_kind(names):
+                return Access(PUBLIC, (), "AllowAny")
+            kind = _permission_kind(names) or "authenticated"
+            evidence = "IsAdminUser" if kind == "admin" else "permission_classes"
+            return _permission_access(route, kind, evidence)
     return None
 
 
@@ -176,12 +272,13 @@ def _is_drf(route: Route) -> bool:
 
 def django(ctx: Context, route: Route) -> Access:
     node = route.handler
-    marker = _django_marker(node) if node is not None else None
+    marker = _django_marker(route) if node is not None else None
     if marker is not None and marker.level != PUBLIC:
         return marker
     login, drf, unread = django_settings(ctx)
+    drf_view = _is_drf(route)
     exempt = node is not None and _login_not_required(node)
-    if login and not exempt:
+    if login and not exempt and not drf_view:
         return Access(AUTHENTICATED, DJANGO_SUBJECTS, "LoginRequiredMiddleware")
     if exempt:
         return Access(PUBLIC, (), "@login_not_required")
@@ -189,8 +286,8 @@ def django(ctx: Context, route: Route) -> Access:
         return marker
     if node is None:
         return public("view not resolved", unread)
-    if drf and _is_drf(route):
-        return Access(AUTHENTICATED, DJANGO_SUBJECTS, "DEFAULT_PERMISSION_CLASSES")
+    if drf and drf_view:
+        return _permission_access(route, drf, "DEFAULT_PERMISSION_CLASSES")
     return public("no login decorator or permission class", unread)
 
 

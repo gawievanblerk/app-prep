@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 
 PUBLIC, AUTHENTICATED, ADMIN = "public", "authenticated", "admin"
-EXPLICIT, ABSENCE = "explicit", "absence"
+EXPLICIT, ABSENCE, MIXED = "explicit", "absence", "mixed"
 AUTH_TOKEN = re.compile(
     r"auth[nz]?|authed|authenticated?|authentication|authenticator|authori[sz](?:e[ds]?|ation|er)"
     r"|users?|login|logged|sessions?|tokens?|principal|identity|staff|agents?|members?|accounts?"
@@ -29,10 +29,13 @@ PY_DEP = re.compile(r"(?:\w+\.)*(?:Depends|Security)")
 class Access:
     """How a route is guarded.
 
-    `basis` is "explicit" when a marker was read (a guard, or a public marker such as AllowAny)
-    and "absence" when the route is public only because no guard was found. `unread` names a
-    global mechanism the classifier cannot read (an auth middleware class, a request hook,
-    unknown app-level middleware) that may still guard a route whose answer rests on absence.
+    `basis` is "explicit" when a marker was read (a guard, or a public marker such as AllowAny),
+    "absence" when the route is public only because no guard was found, and "mixed" when some
+    ways of reaching the route are guarded and others are not (router mounts that disagree, a
+    read-only permission on a view that also writes). `unread` names a global mechanism the
+    classifier cannot read (an auth middleware class, a request hook, unknown app-level
+    middleware) that may still guard a route whose answer rests on absence, or, for "mixed",
+    the guard that applies only in some places.
     """
 
     level: str
@@ -49,7 +52,14 @@ def public(evidence: str, unread: str = "") -> Access:
 def unread_guard(level: Access) -> str | None:
     """proof_needed text when a public answer rests on absence and a global mechanism the
     classifier cannot read may still guard the route, else None."""
-    if level.level != PUBLIC or level.basis != ABSENCE or not level.unread:
+    if level.level != PUBLIC or not level.unread:
+        return None
+    if level.basis == MIXED:
+        return (
+            f"The route is guarded in some places but not all ({level.unread}); confirm that "
+            "the unguarded way in is reachable in production."
+        )
+    if level.basis != ABSENCE:
         return None
     return f"Confirm that {level.unread} does not already require a signed-in caller here."
 

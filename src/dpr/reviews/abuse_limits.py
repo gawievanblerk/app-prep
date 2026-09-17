@@ -29,7 +29,10 @@ PY_LIMITER = re.compile(r"(?:\w+\.)*Limiter")
 COUNTER_NAME = re.compile(r"(?i)rate|limit|attempt|hits|count|bucket")
 UPLOAD_READ = re.compile(r"(?:\w+)\.read")
 EXPRESS_LIMITERS = ("express-rate-limit", "express-slow-down")
-STORAGE_SETTING = re.compile(r"""RATELIMIT_STORAGE_UR[IL]['"]?\s*\]?\s*[:=]\s*(['"])([^'"\n]*)\1""")
+STORAGE_ASSIGN = re.compile(r"""RATELIMIT_STORAGE_UR[IL]['"]?[ \t]{0,8}\]?[ \t]{0,8}[:=](?!=)""")
+STORAGE_SETTING = re.compile(
+    r"""RATELIMIT_STORAGE_UR[IL]['"]?[ \t]{0,8}\]?[ \t]{0,8}[:=][ \t]{0,8}(['"])([^'"\n]*)\1"""
+)
 
 
 def _strip_comment(line: str) -> str:
@@ -157,16 +160,24 @@ def _limiters(ctx: Context) -> Iterator[tuple[str, ast.Module, ast.Call]]:
 
 
 def _configured_storage(ctx: Context) -> str | None:
-    """A literal RATELIMIT_STORAGE_URI (Flask-Limiter) or RATELIMIT_STORAGE_URL (slowapi) set
-    in code or config: 'memory' or 'shared'. None when it is unset or read at runtime."""
+    """RATELIMIT_STORAGE_URI (Flask-Limiter) or RATELIMIT_STORAGE_URL (slowapi) set in non-test
+    code or config: 'memory' or 'shared' when every setting is that literal, 'mixed' when the
+    settings disagree or one is read at runtime, None when nothing sets it."""
     key = ("limiter-storage-setting", "")
     if key not in ctx.index.cache:
-        found = None
+        kinds = set()
         for entry in ctx.index.files:
             text = ctx.index.text(entry.rel)
-            for match in STORAGE_SETTING.finditer(text) if "RATELIMIT_STORAGE" in text else []:
-                found = "memory" if match.group(2).startswith("memory://") else "shared"
-        ctx.index.cache[key] = found
+            if is_test(entry.rel) or "RATELIMIT_STORAGE" not in text:
+                continue
+            for match in STORAGE_ASSIGN.finditer(text):
+                literal = STORAGE_SETTING.match(text, match.start())
+                if literal is None:
+                    kinds.add("runtime")
+                else:
+                    kinds.add("memory" if literal.group(2).startswith("memory://") else "shared")
+        single = len(kinds) == 1 and "runtime" not in kinds
+        ctx.index.cache[key] = kinds.pop() if single else ("mixed" if kinds else None)
     return ctx.index.cache[key]
 
 

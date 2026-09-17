@@ -18,6 +18,7 @@ from dpr.reviews.access_names import (
     ADMIN_WORD,
     AUTHENTICATED,
     EXPLICIT,
+    MIXED,
     PUBLIC,
     PY_DEP,
     Access,
@@ -27,6 +28,7 @@ from dpr.reviews.access_names import (
     strongest,
     unread_guard,
 )
+from dpr.reviews.paths import is_test
 from dpr.rules import Context
 
 __all__ = [
@@ -34,6 +36,7 @@ __all__ = [
     "ADMIN",
     "AUTHENTICATED",
     "EXPLICIT",
+    "MIXED",
     "PUBLIC",
     "PY_DEP",
     "Access",
@@ -125,7 +128,7 @@ def _include_edges(ctx: Context) -> dict[tuple[str, str], list[tuple[tuple[str, 
         aliases = fastapi_aliases(ctx)
         edges: dict[tuple[str, str], list[tuple[tuple[str, str], list]]] = {}
         for entry in ctx.index.py_files:
-            if "include_router" not in ctx.index.text(entry.rel):
+            if is_test(entry.rel) or "include_router" not in ctx.index.text(entry.rel):
                 continue
             tree = pyast.parse_file(ctx.index, entry.rel)
             names = imports.py_imports(ctx.index, entry.rel, tree)
@@ -140,17 +143,27 @@ def _include_edges(ctx: Context) -> dict[tuple[str, str], list[tuple[tuple[str, 
     return ctx.index.cache[key]
 
 
-def _inherited(ctx: Context, node: tuple[str, str], depth: int = 0) -> list[str]:
-    """Dependencies that include_router chains add above a router, along the weakest chain."""
+def _chains(ctx: Context, node: tuple[str, str], depth: int = 0) -> list[list[str]]:
+    """Dependency names added along every include_router chain above a router, one list per
+    chain. Includes in test files never count."""
     parents = _include_edges(ctx).get(node, [])
     if not parents or depth > 4:
-        return []
+        return [[]]
     aliases = fastapi_aliases(ctx)
-    options = []
+    chains = []
     for (rel, name), deps in parents:
         found = deps + _constructor_deps(pyast.parse_file(ctx.index, rel), name, aliases)
-        options.append(found + _inherited(ctx, (rel, name), depth + 1))
-    return next((o for o in options if not any(dep_level(n) for n in o)), options[0])
+        chains += [found + upper for upper in _chains(ctx, (rel, name), depth + 1)]
+    return chains[:32]
+
+
+def _guarded_everywhere(options: list[list[str]], guards) -> tuple[list[str], list[str]]:
+    """(names when every option is guarded, names of the guarded options when they disagree)."""
+    guarded = [option for option in options if any(guards(n) for n in option)]
+    names = list(dict.fromkeys(n for option in guarded for n in option if guards(n)))
+    if guarded and len(guarded) == len(options):
+        return names, []
+    return [], names
 
 
 def _fastapi(ctx: Context, route: Route) -> Access:
@@ -173,10 +186,16 @@ def _fastapi(ctx: Context, route: Route) -> Access:
         if isinstance(dec, ast.Call):
             names += _dep_names(pyast.kwarg(dec, "dependencies"), aliases)
     router = _router_name(fn)
+    disputed: list[str] = []
     if router:
         names += _constructor_deps(route.tree, router, aliases)
-        names += _inherited(ctx, (route.file, router))
+        inherited, disputed = _guarded_everywhere(_chains(ctx, (route.file, router)), dep_level)
+        names += inherited
     levels += [(dep_level(name), name) for name in names if dep_level(name)]
+    if not levels and disputed:
+        guard = f"Depends({', '.join(disputed)})"
+        where = f"{guard} on another include_router mount of this router"
+        return Access(PUBLIC, (), f"{guard} on some include_router mounts only", MIXED, where)
     if not levels:
         return public("no authentication dependency", frameworks.py_unread(ctx))
     level = strongest([lv for lv, _ in levels])
@@ -296,7 +315,7 @@ def _mounts(ctx: Context) -> dict[str, list[tuple[str, object, int, list[str] | 
     if "express-mounts" not in ctx.facts:
         found: dict[str, list] = {}
         for entry in ctx.index.js_files:
-            if ".use(" not in ctx.index.text(entry.rel):
+            if is_test(entry.rel) or ".use(" not in ctx.index.text(entry.rel):
                 continue
             for tree in jsts.parse_file(ctx.index, entry.rel):
                 for _line, call in _file_calls(ctx, tree)[0]:
@@ -312,10 +331,11 @@ def _mounts(ctx: Context) -> dict[str, list[tuple[str, object, int, list[str] | 
     return ctx.facts["express-mounts"]
 
 
-def _mount_guards(ctx: Context, rel: str, path: str, depth: int = 0) -> tuple[list, list]:
-    """Middleware other files put in front of this router file: auth names along the weakest
-    mount, and unknown names from every mount."""
-    options, unknown = [], []
+def _mount_guards(ctx: Context, rel: str, path: str, depth: int = 0) -> tuple[list, list, list]:
+    """Middleware that other (non-test) files put in front of this router file: auth names
+    when every mount is guarded, unknown names from every mount, and the auth names of the
+    guarded mounts when mounts disagree."""
+    options, unknown, disputed = [], [], []
     for mount_rel, tree, line, mounts, middleware in _mounts(ctx).get(rel, []) if depth < 4 else []:
         full = (mounts or [""])[0].rstrip("/") + (path if path != "/" else "")
         auth, other = _uses_before(ctx, mount_rel, tree, line, full)
@@ -323,10 +343,12 @@ def _mount_guards(ctx: Context, rel: str, path: str, depth: int = 0) -> tuple[li
             kind = _middleware(ctx, mount_rel, tree, arg)
             if kind is not None:
                 (auth if kind[0] == "auth" else other).append(f"{kind[1]} in {mount_rel}")
-        up_auth, up_other = _mount_guards(ctx, mount_rel, full, depth + 1)
+        up_auth, up_other, up_disputed = _mount_guards(ctx, mount_rel, full, depth + 1)
         options.append(auth + up_auth)
         unknown += other + up_other
-    return next((o for o in options if not o), options[0] if options else []), unknown
+        disputed += up_disputed if not auth else []
+    everywhere, some = _guarded_everywhere(options, lambda name: True)
+    return everywhere, unknown, list(dict.fromkeys(some + disputed))
 
 
 def _express(ctx: Context, route: Route) -> Access:
@@ -335,9 +357,13 @@ def _express(ctx: Context, route: Route) -> Access:
     names = [name.rsplit(" in ", 1)[0] for name in same_auth]
     for call in _file_calls(ctx, tree)[1].get(route.line, []):
         names += [jsts.node_text(a) for a in jsts.arguments(call)[1:-1] if a.type != "string"]
-    mount_auth, mount_unknown = _mount_guards(ctx, route.file, route.path)
+    mount_auth, mount_unknown, disputed = _mount_guards(ctx, route.file, route.path)
     names += [*route.wrappers, *(name.rsplit(" in ", 1)[0] for name in mount_auth)]
     auth = [n for n in dict.fromkeys(names) if auth_name(n) or ADMIN_WORD.search(n)]
+    if not auth and disputed:
+        guard = ", ".join(disputed)
+        where = f"{guard} at another mount of this router"
+        return Access(PUBLIC, (), f"auth middleware on some mounts only: {guard}", MIXED, where)
     if not auth:
         unread = ", ".join(dict.fromkeys(unknown + mount_unknown))
         return public("no auth middleware", f"app-level middleware {unread}" if unread else "")

@@ -200,3 +200,28 @@ def test_limiter_storage_from_config_or_environment_is_inferred(tmp_path):
     )
     [found] = findings_for(explicit, "abuse", "ABUSE-INMEMORY-LIMITER")
     assert found.tag.value == "CONFIRMED"
+
+
+def test_test_configs_and_disagreeing_storage_settings_keep_the_limiter_inferred(tmp_path):
+    flask = tmp_path / "flask"
+    write(flask, "requirements.txt", "flask\nflask-limiter\ngunicorn\n")
+    write(flask, "Procfile", "web: gunicorn app:app --workers 4\n")
+    write(
+        flask,
+        "app.py",
+        "import os\nfrom flask import Flask\nfrom flask_limiter import Limiter\n"
+        "from flask_limiter.util import get_remote_address\napp = Flask(__name__)\n"
+        "app.config['RATELIMIT_STORAGE_URI'] = os.environ.get('REDIS_URL')\n"
+        "limiter = Limiter(get_remote_address, app=app)\n",
+    )
+    write(
+        flask,
+        "tests/conftest.py",
+        "from app import app\napp.config['RATELIMIT_STORAGE_URI'] = 'memory://'\n",
+    )
+    [found] = findings_for(flask, "abuse", "ABUSE-INMEMORY-LIMITER")
+    assert found.tag.value == "INFERRED"
+    write(flask, "config/dev.py", "RATELIMIT_STORAGE_URI = 'memory://'\n")
+    write(flask, "config/prod.py", "RATELIMIT_STORAGE_URI = 'redis://cache:6379'\n")
+    [found] = findings_for(flask, "abuse", "ABUSE-INMEMORY-LIMITER")
+    assert found.tag.value == "INFERRED"
