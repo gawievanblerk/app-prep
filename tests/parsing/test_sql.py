@@ -61,3 +61,20 @@ def test_helpers():
     assert qualify("auth.users") == "auth.users"
     assert clean_predicate(" ((true)) ") == "true"
     assert clean_predicate("(a) and (b)") == "(a) and (b)"
+
+
+def test_escape_strings_keep_backslash_quotes_inside():
+    sql = (
+        r"insert into t values (E'it\'s; fine', e'back\\slash', note'x');"
+        "\nselect 2;\n"
+        r"create table x (note text default 'plain\');"
+        "\nselect 3;"
+    )
+    stmts = split_sql(sql)
+    assert [s.norm for s in stmts] == [
+        r"insert into t values (e'it\'s; fine', e'back\\slash', note'x')",
+        "select 2",
+        r"create table x (note text default 'plain\')",
+        "select 3",
+    ]
+    assert [s.line for s in stmts] == [1, 2, 3, 4]

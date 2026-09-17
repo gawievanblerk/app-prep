@@ -32,10 +32,21 @@ class _Builder:
         self.raw, self.norm, self.start_line = [], [], None
 
 
+def _is_escape_string(sql: str, i: int) -> bool:
+    """True for the quote of an E'...' string, where a backslash escapes the next character."""
+    if sql[i] != "'" or i == 0 or sql[i - 1] not in "eE":
+        return False
+    return i == 1 or not (sql[i - 2].isalnum() or sql[i - 2] in "_$")
+
+
 def _quoted_end(sql: str, i: int) -> int:
     quote = sql[i]
+    backslash = _is_escape_string(sql, i)
     j = i + 1
     while j < len(sql):
+        if backslash and sql[j] == "\\":
+            j += 2
+            continue
         if sql[j] == quote:
             if j + 1 < len(sql) and sql[j + 1] == quote:
                 j += 2

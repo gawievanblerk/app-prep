@@ -275,7 +275,7 @@ stdlib `ast`. Files that fail to parse are listed in `not_covered`. Helpers mirr
 
 ### 7.4 SQL
 
-A statement splitter that respects single quotes, double-quoted identifiers, dollar quoting (`$$` and `$tag$`), `--` and `/* */` comments. Recognised statements:
+A statement splitter that respects single quotes (with backslash escapes inside `E'...'` strings), double-quoted identifiers, dollar quoting (`$$` and `$tag$`), `--` and `/* */` comments. Recognised statements:
 
 - `CREATE TABLE` (columns and types, schema, primary key)
 - `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` and `DISABLE`
