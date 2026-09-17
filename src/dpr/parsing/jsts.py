@@ -88,7 +88,7 @@ def node_text(node: Node | None) -> str:
 
 
 def line(tree: JsTree, node: Node) -> int:
-    return node.start_point.row + 1 + tree.line_offset
+    return node.start_point[0] + 1 + tree.line_offset
 
 
 def walk(node: Node, types: frozenset[str] | set[str] | None = None
