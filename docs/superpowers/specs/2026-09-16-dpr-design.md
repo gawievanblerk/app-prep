@@ -52,6 +52,7 @@ Success means: on the fixture apps, every planted defect is reported with the co
 2. **"USING without WITH CHECK on insert/update lets the caller write rows owned by someone else."** Tested on PostgreSQL 14.17: an UPDATE policy with only `USING` reuses it as the check and blocks moving a row to another owner, and an INSERT policy with no `WITH CHECK` blocks the insert. The real defect is a `WITH CHECK` that is present but does not check ownership, such as `WITH CHECK (true)`. For UPDATE that is only exploitable when the table's select policies do not restrict ownership either, because Postgres also checks the new row against select policies when the update has a filter. `dpr` reports this as `RLS-WEAK-WITH-CHECK` (section 10.2).
 3. **Report title** uses a colon instead of a dash: `# Data Protection Review: <project>`.
 4. **SARIF.** GitHub shows SARIF inline only for public repositories or with paid GitHub Code Security. The CI example therefore uploads the Markdown report as a workflow artifact. SARIF output is still produced.
+5. **Tag case.** Evidence tags are uppercase strings (CONFIRMED, INFERRED, UNVERIFIED, UNKNOWN) in JSON and SARIF output, matching section 6.2; section 11.2's lowercase rule applies to severity and exploitability only.
 
 ## 4. Non-negotiable rules, enforced in code
 
@@ -567,7 +568,7 @@ Jinja2 template mirroring the skill's `report-template.md` section for section, 
 
 ### 11.2 JSON
 
-`{"schema_version": 1, "meta": ..., "detection": ..., "findings": [...], "sections": ..., "questions": ..., "not_covered": [...]}`. Enums as lowercase strings, locations as objects.
+`{"schema_version": 1, "meta": ..., "detection": ..., "findings": [...], "sections": ..., "questions": ..., "not_covered": [...]}`. Enums as lowercase strings (evidence tags stay uppercase, deviation 5 in section 3), locations as objects.
 
 ### 11.3 SARIF 2.1.0
 
