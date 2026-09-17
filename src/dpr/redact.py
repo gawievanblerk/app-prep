@@ -73,7 +73,7 @@ def redact(text: str) -> str:
 
 
 def snippet(text: str, line: int, before: int = 0, after: int = 0, width: int = 200) -> str:
-    lines = text.splitlines()
+    lines = [item.removesuffix("\r") for item in text.split("\n")]
     start = max(line - 1 - before, 0)
     end = min(line + after, len(lines))
     return "\n".join(redact(item)[:width] for item in lines[start:end][:5])

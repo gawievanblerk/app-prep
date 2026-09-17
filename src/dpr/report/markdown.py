@@ -59,7 +59,9 @@ def _block(label: str, position: int, f: Finding) -> str:
         f.detail,
     ]
     if f.snippet:
-        lines += ["", "```text", f.snippet, "```"]
+        longest = max((len(run) for run in re.findall(r"`+", f.snippet)), default=0)
+        fence = "`" * max(3, longest + 1)
+        lines += ["", f"{fence}text", f.snippet, fence]
     for heading, value in (
         ("Proof needed", f.proof_needed),
         ("Attack", f.attack),

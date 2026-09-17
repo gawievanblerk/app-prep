@@ -62,3 +62,10 @@ def test_names():
     assert is_secret_name("NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY")
     assert is_secret_name("VITE_OPENAI_API_KEY")
     assert not is_secret_name("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+
+
+def test_snippet_counts_lines_by_newline_only():
+    text = "first\fpage sep\rlone\nsecond line\r\nthird\x1cgroup\n"
+    assert snippet(text, 1) == "first\fpage sep\rlone"
+    assert snippet(text, 2) == "second line"
+    assert snippet(text, 3) == "third\x1cgroup"

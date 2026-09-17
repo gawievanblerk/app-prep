@@ -152,3 +152,21 @@ def test_empty_report():
     text = render_markdown(r)
     assert "No findings." in text
     assert "### Still open: needs a human\n\nNone." in text
+
+
+def test_snippet_fence_is_longer_than_any_backtick_run_inside():
+    r = report()
+    code = "const md = `a ``` b ```` c`"
+    r.findings = [
+        finding(
+            "LEAK-LOGGED-PII",
+            "leaks",
+            "high",
+            "Log call",
+            tag="INFERRED",
+            proof_needed="Check it.",
+            snippet=code,
+        )
+    ]
+    text = render_markdown(r)
+    assert f"`````text\n{code}\n`````" in text
