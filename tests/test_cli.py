@@ -1,6 +1,7 @@
 import json
 import subprocess
 
+import pytest
 import yaml
 
 from dpr.cli import main
@@ -96,3 +97,27 @@ def test_questions_command(tmp_path, capsys):
     assert set(yaml.safe_load(target.read_text())) and len(yaml.safe_load(target.read_text())) == 22
     assert main(["questions", str(root)]) == 2
     assert "already exists" in capsys.readouterr().err
+
+
+def test_unexpected_error_exits_2_with_one_line(tmp_path, capsys, monkeypatch):
+    root = app(tmp_path)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("parser exploded\nsecond line")
+
+    monkeypatch.setattr("dpr.cli.review", boom)
+    monkeypatch.delenv("DPR_STRICT")
+    assert main(["scan", str(root)]) == 2
+    assert capsys.readouterr().err == "dpr: error: RuntimeError: parser exploded second line\n"
+    monkeypatch.setenv("DPR_STRICT", "1")
+    with pytest.raises(RuntimeError):
+        main(["scan", str(root)])
+
+
+def test_write_failure_exits_2(tmp_path, capsys, monkeypatch):
+    root = app(tmp_path)
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("x")
+    monkeypatch.delenv("DPR_STRICT")
+    assert main(["scan", str(root), "--out", str(blocker)]) == 2
+    assert capsys.readouterr().err.startswith("dpr: error: FileExistsError: ")

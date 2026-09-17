@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import os
 import re
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -113,19 +114,37 @@ class RepoIndex:
             for name in sorted(filenames):
                 self._add(current / name)
 
+    def _unreadable(self, path: Path, exc: OSError) -> None:
+        self.skipped.append(f"{self._rel(path)}: could not be read ({type(exc).__name__})")
+
+    def _regular_size(self, path: Path) -> int | None:
+        """Size of a regular file. Symlinks, pipes, sockets and devices give None."""
+        try:
+            info = path.lstat()
+        except OSError as exc:
+            self._unreadable(path, exc)
+            return None
+        return info.st_size if stat.S_ISREG(info.st_mode) else None
+
     def _add(self, path: Path) -> None:
-        if path.is_symlink():
+        size = self._regular_size(path)
+        if size is None:
             return
         rel = self._rel(path)
-        size = path.stat().st_size
         entry = SourceFile(rel, path, size)
-        if is_env_file(path.name):
-            self.env_files.append(entry)
-            return
-        if size > SOURCE_MAX_BYTES:
-            self.skipped.append(f"{rel}: larger than 1 MB")
-            return
-        if _is_binary(path):
+        try:
+            if is_env_file(path.name):
+                with path.open("rb"):
+                    pass
+                self.env_files.append(entry)
+                return
+            if size > SOURCE_MAX_BYTES:
+                self.skipped.append(f"{rel}: larger than 1 MB")
+                return
+            if _is_binary(path):
+                return
+        except OSError as exc:
+            self._unreadable(path, exc)
             return
         self.files.append(entry)
 
@@ -137,13 +156,18 @@ class RepoIndex:
             )
             for name in sorted(filenames):
                 path = current / name
-                if path.is_symlink():
+                size = self._regular_size(path)
+                if size is None:
                     continue
-                size = path.stat().st_size
                 if size > BUILD_MAX_BYTES:
                     self.skipped.append(f"{self._rel(path)}: build file larger than 10 MB")
                     continue
-                if not _is_binary(path):
+                try:
+                    binary = _is_binary(path)
+                except OSError as exc:
+                    self._unreadable(path, exc)
+                    continue
+                if not binary:
                     self.build_files.append(SourceFile(self._rel(path), path, size))
 
     def text(self, rel: str) -> str:

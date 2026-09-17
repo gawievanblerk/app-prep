@@ -97,3 +97,11 @@ def test_collect_env_vars_names_only(tmp_path):
     assert env["NEXT_PUBLIC_SUPABASE_URL"].public and env["VITE_API"].public
     assert not env["STRIPE_SECRET_KEY"].public
     assert "do-not-read" not in repr(env)
+
+
+def test_package_json_that_is_not_an_object_is_ignored(tmp_path):
+    write(tmp_path, "package.json", '["next", "react"]')
+    write(tmp_path, "web/package.json", '{"dependencies": {"next": "14"}}')
+    write(tmp_path, "web/a.ts", "export const a = 1\n")
+    packages, _ = collect_packages(RepoIndex(tmp_path))
+    assert "next" in packages and "react" not in packages

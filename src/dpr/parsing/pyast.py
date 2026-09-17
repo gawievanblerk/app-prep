@@ -20,6 +20,9 @@ def parse_file(index: RepoIndex, rel: str) -> ast.Module | None:
         except (SyntaxError, ValueError):
             index.cache[key] = None
             index.skipped.append(f"{rel}: Python syntax could not be parsed")
+        except (RecursionError, MemoryError):
+            index.cache[key] = None
+            index.skipped.append(f"{rel}: Python file is too deeply nested to parse")
     return index.cache[key]
 
 

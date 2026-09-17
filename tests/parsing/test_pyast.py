@@ -74,3 +74,12 @@ def test_parse_file_caches_and_records_syntax_errors(tmp_path):
     assert pyast.parse_file(index, "ok.py") is pyast.parse_file(index, "ok.py")
     assert pyast.parse_file(index, "bad.py") is None
     assert index.skipped == ["bad.py: Python syntax could not be parsed"]
+
+
+def test_parse_file_survives_deeply_nested_expressions(tmp_path):
+    (tmp_path / "gen.py").write_text(
+        "from fastapi import FastAPI\nx = " + " + ".join(["a"] * 20000)
+    )
+    index = RepoIndex(tmp_path)
+    assert pyast.parse_file(index, "gen.py") is None
+    assert index.skipped == ["gen.py: Python file is too deeply nested to parse"]

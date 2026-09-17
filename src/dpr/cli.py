@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -151,4 +152,10 @@ def main(argv: list[str] | None = None) -> int:
         return _scan(args) if args.command == "scan" else _questions(args)
     except ScanError as exc:
         print(f"dpr: error: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:
+        if os.environ.get("DPR_STRICT") == "1":
+            raise
+        message = " ".join(str(exc).split())
+        print(f"dpr: error: {type(exc).__name__}: {message}", file=sys.stderr)
         return 2

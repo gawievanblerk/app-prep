@@ -591,7 +591,7 @@ dpr scan [PATH]
 dpr questions [PATH] [--out FILE]  (default FILE: <PATH>/dpr-answers.yaml)
 ```
 
-Exit codes: `0` completed and nothing at or above `--fail-on`; `1` a finding at or above `--fail-on`; `2` `ScanError` or invalid arguments.
+Exit codes: `0` completed and nothing at or above `--fail-on`; `1` a finding at or above `--fail-on`; `2` `ScanError`, invalid arguments, or any other unexpected error (one line `dpr: error: <Type>: <message>` on stderr; with `DPR_STRICT=1` the exception is re-raised).
 
 ## 13. Error handling
 
@@ -600,6 +600,7 @@ Exit codes: `0` completed and nothing at or above `--fail-on`; `1` a finding at 
 | Path missing, sanity check fails, `--url` without `--i-own-this-host`, invalid answers YAML | `ScanError`, exit 2, one-line message |
 | Unknown key in answers | Warning printed, key ignored |
 | File fails to parse | Listed in `not_covered`, run continues |
+| File cannot be read, or is not a regular file | Unreadable files are listed in `not_covered`; pipes, sockets and devices are skipped; run continues |
 | Rule raises | Caught per rule, `rule <id> failed: <ExceptionType>` in `not_covered`, run continues. With env `DPR_STRICT=1` the exception is re-raised (set in tests). |
 | Optional tool missing | Listed as not run with the reason |
 | Adapter timeout | Semgrep 300 s, audits 120 s, header request 10 s; listed as incomplete |

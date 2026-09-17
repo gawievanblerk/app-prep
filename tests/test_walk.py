@@ -1,4 +1,5 @@
 import os
+import threading
 
 import pytest
 
@@ -105,3 +106,38 @@ def test_helpers(tmp_path):
     assert index.language_counts() == {"javascript/typescript": 2, "python": 1}
     assert line_of("a\nb\nc", 2) == 2
     assert is_env_file(".env.production") and not is_env_file("env.ts")
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can read files without permission")
+def test_unreadable_files_are_skipped(tmp_path):
+    write(tmp_path, "a.py")
+    locked = [write(tmp_path, "locked.py", "y = 2"), write(tmp_path, ".env", "A=1\n")]
+    for path in locked:
+        path.chmod(0)
+    try:
+        index = RepoIndex(tmp_path)
+    finally:
+        for path in locked:
+            path.chmod(0o644)
+    assert rels(index.files) == ["a.py"]
+    assert index.env_files == []
+    assert index.skipped == [
+        ".env: could not be read (PermissionError)",
+        "locked.py: could not be read (PermissionError)",
+    ]
+
+
+def test_named_pipes_are_skipped_without_blocking(tmp_path):
+    write(tmp_path, "a.py")
+    os.mkfifo(tmp_path / "pipe.py")
+    os.mkfifo(tmp_path / ".env.local")
+    (tmp_path / "dist").mkdir()
+    os.mkfifo(tmp_path / "dist" / "main.js")
+    result = {}
+    worker = threading.Thread(target=lambda: result.update(index=RepoIndex(tmp_path)), daemon=True)
+    worker.start()
+    worker.join(10)
+    assert not worker.is_alive(), "walking a named pipe blocked"
+    index = result["index"]
+    assert rels(index.files) == ["a.py"]
+    assert index.env_files == [] and index.build_files == []

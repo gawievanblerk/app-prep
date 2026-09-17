@@ -51,6 +51,8 @@ def _manifest_packages(index: RepoIndex) -> set[str]:
             data = json.loads(index.text(entry.rel))
         except ValueError:
             continue
+        if not isinstance(data, dict):
+            continue
         for key in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
             names.update(data.get(key) or {})
     for entry in index.named("pyproject.toml"):
