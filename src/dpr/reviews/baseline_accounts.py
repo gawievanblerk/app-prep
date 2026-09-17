@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import re
 from collections.abc import Iterator
 from pathlib import PurePosixPath
 
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast, pyvalues
-from dpr.redact import snippet
+from dpr.redact import redact, snippet
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
@@ -127,9 +128,22 @@ def _copies(ctx: Context, owner: str, literals: list[pyvalues.Literal]) -> list[
 
 
 def _masked(text: str, line: int, literals: list[pyvalues.Literal]) -> str:
-    value = snippet(text, line)
-    for lit in literals:
-        value = value.replace(lit.value, "<redacted:password>")
+    """The snippet of `line` with every literal masked on the whole line before it is cut."""
+    lines = text.split("\n")
+    full = lines[line - 1].removesuffix("\r") if 0 < line <= len(lines) else ""
+    forms = {
+        f
+        for lit in literals
+        for f in (lit.value, repr(lit.value)[1:-1], json.dumps(lit.value)[1:-1])
+    }
+    for form in sorted(forms, key=len, reverse=True):
+        full = full.replace(form, "<redacted:password>")
+    value = snippet(full, 1)
+    if len(value) < len(redact(full)):
+        for form in forms:
+            for size in range(len(form) - 1, 0, -1):
+                if value.endswith(form[:size]):
+                    return value[: len(value) - size] + "<redacted:password>"
     return value
 
 

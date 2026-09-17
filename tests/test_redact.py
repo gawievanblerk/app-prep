@@ -69,3 +69,64 @@ def test_snippet_counts_lines_by_newline_only():
     assert snippet(text, 1) == "first\fpage sep\rlone"
     assert snippet(text, 2) == "second line"
     assert snippet(text, 3) == "third\x1cgroup"
+
+
+SECRET = "Seed" + "Val-" + "88231"
+
+
+def test_snippet_masks_empty_user_url_credentials():
+    line = f'limiter = Limiter(storage_uri="redis://:{SECRET}@cache:6379/0")'
+    out = snippet(line, 1)
+    assert SECRET not in out
+    assert "redis://:<redacted:password>@cache:6379/0" in out
+
+
+def test_snippet_masks_cli_password_flags():
+    text = "\n".join(
+        [
+            f"python -m app.seed --admin-password {SECRET}",
+            f"python seed.py --password={SECRET} && uvicorn app.main:app",
+            f'node seed.js --db-password "{SECRET}"',
+            "python -m app.seed --password $ADMIN_PASSWORD",
+        ]
+    )
+    for number in (1, 2, 3):
+        assert SECRET not in snippet(text, number)
+        assert "<redacted:password>" in snippet(text, number)
+    assert snippet(text, 4).endswith("--password $ADMIN_PASSWORD")
+
+
+def test_snippet_masks_secret_query_parameters():
+    line = f'const url = "https://api.example.invalid/v1?api_key={SECRET}&city=" + city'
+    out = snippet(line, 1)
+    assert SECRET not in out
+    assert "?api_key=<redacted:secret>&city=" in out
+    dynamic = "const url = `${base}/v1?token=${token}`"
+    assert snippet(dynamic, 1) == dynamic
+
+
+def test_snippet_masks_literals_assigned_to_secret_names():
+    lines = [
+        f'ADMIN_PASSWORD = "{SECRET}"',
+        f"const apiKey = '{SECRET}'",
+        f'{{"client_secret": "{SECRET}", "name": "demo"}}',
+        f'login(user="admin", password="{SECRET}")',
+        f'admin_password: str = "{SECRET}"',
+        f"ADMIN_PASSWORD={SECRET} python -m app.seed",
+        f'if (token === "{SECRET}") return true',
+    ]
+    for line in lines:
+        out = snippet(line, 1)
+        assert SECRET not in out, line
+        assert "<redacted:" in out, line
+    assert snippet("password_hash = get_password_hash(data.password)", 1) == (
+        "password_hash = get_password_hash(data.password)"
+    )
+
+
+def test_snippet_masks_before_cutting_long_lines():
+    line = "x = call(" + "a" * 174 + f', api_key="{SECRET}")'
+    assert line.index(SECRET) == 194
+    out = snippet(line, 1)
+    assert len(out) <= 200
+    assert SECRET[:4] not in out

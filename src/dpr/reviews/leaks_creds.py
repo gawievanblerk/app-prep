@@ -6,7 +6,7 @@ import re
 from collections.abc import Iterator
 
 from dpr.model import Finding, Location, Tag
-from dpr.redact import public_prefix
+from dpr.redact import CLI_PASSWORD, public_prefix
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
@@ -20,7 +20,6 @@ SECRET_KEY_NAME = re.compile(r"(?i)password|passwd|secret|token|api_?key|private
 COMPOSE = re.compile(r"(?:^|/)(?:docker-)?compose[\w.-]*\.ya?ml$")
 ENV_ENTRY = re.compile(r"""^\s*(?:-\s*)?["']?(\w+)["']?\s*[:=]\s*["']?([^"'\s#]+)""")
 SHELL_DEFAULT = re.compile(r"\$\{(\w+):?-([^}]+)\}")
-CLI_PASSWORD = re.compile(r"--[\w-]*pass(?:word|wd)?[ =](?![<$*{\[])([^\s\\'\"]+)", re.IGNORECASE)
 URL_CREDENTIALS = re.compile(r"://[\w.-]+:(?![$<{*])([^@\s/'\"]+)@")
 SCRIPT_SUFFIXES = (".sh", ".py", ".md", ".txt", ".ps1", ".bash")
 
