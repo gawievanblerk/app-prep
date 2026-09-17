@@ -1,3 +1,5 @@
+import time
+
 from dpr.parsing.routes import extract_routes
 from dpr.parsing.routes_py import decorator_routes, django_routes
 from dpr.walk import RepoIndex
@@ -88,3 +90,31 @@ def test_extract_routes_sets_public_form_flag(tmp_path):
         ("POST", "/contact"),
     ]
     assert routes == sorted(routes, key=lambda r: (r.file, r.line, r.method))
+
+
+def test_django_routes_scale_linearly(tmp_path, monkeypatch):
+    patterns = []
+    for i in range(400):
+        helpers = "".join(f"def helper_{i}_{j}(request):\n    return None\n\n" for j in range(3))
+        write(
+            tmp_path,
+            f"app{i}/views.py",
+            f"{helpers}def view_{i}(request):\n    return None\n\n\nclass Page{i}(View):\n    pass\n",
+        )
+        patterns.append(f"    path('v{i}/', app{i}.views.view_{i}),\n")
+    write(
+        tmp_path,
+        "urls.py",
+        "from django.urls import path\n\nurlpatterns = [\n" + "".join(patterns) + "]\n",
+    )
+    index = RepoIndex(tmp_path)
+    reads = []
+    original = index.text
+    monkeypatch.setattr(index, "text", lambda rel: reads.append(rel) or original(rel))
+    started = time.perf_counter()
+    routes = django_routes(index)
+    elapsed = time.perf_counter() - started
+    assert len(routes) == 400
+    assert {r.file for r in routes if r.path == "/v7"} == {"app7/views.py"}
+    assert elapsed < 5
+    assert len(reads) <= 3 * len(index.py_files)

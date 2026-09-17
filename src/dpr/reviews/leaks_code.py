@@ -343,26 +343,39 @@ def _js_sensitive(arg) -> bool:
     return False
 
 
-def _py_sensitive(node: ast.AST, tree: ast.Module, line: int) -> bool:
+def _except_handlers(ctx: Context, rel: str, tree: ast.Module) -> list[tuple[str, int, int, bool]]:
+    """(error name, first line, last line, try body touches the database) per except handler."""
+    key = ("py-except", rel)
+    if key not in ctx.index.cache:
+        found = []
+        for block in ast.walk(tree):
+            if not isinstance(block, ast.Try):
+                continue
+            named = [h for h in block.handlers if h.name in ERROR_NAMES]
+            if not named:
+                continue
+            db = bool(PY_DB.search("\n".join(ast.unparse(s) for s in block.body)))
+            found += [(h.name, h.lineno, h.end_lineno or h.lineno, db) for h in named]
+        ctx.index.cache[key] = found
+    return ctx.index.cache[key]
+
+
+def _py_sensitive(node: ast.AST, handlers: list[tuple[str, int, int, bool]], line: int) -> bool:
     if isinstance(node, ast.JoinedStr):
         return any(
-            _py_sensitive(v.value, tree, line)
+            _py_sensitive(v.value, handlers, line)
             for v in node.values
             if isinstance(v, ast.FormattedValue)
         )
     if isinstance(node, ast.Call) and pyast.dotted(node.func) in ("json.dumps", "str", "repr"):
-        return any(_py_sensitive(a, tree, line) for a in node.args)
+        return any(_py_sensitive(a, handlers, line) for a in node.args)
     root = pyast.name_root(node)
     if root in SENSITIVE_ROOTS:
         return True
     if root in ERROR_NAMES:
-        for block in ast.walk(tree):
-            if not isinstance(block, ast.Try):
-                continue
-            for handler in block.handlers:
-                inside = handler.lineno <= line <= (handler.end_lineno or handler.lineno)
-                if handler.name == root and inside:
-                    return bool(PY_DB.search("\n".join(ast.unparse(s) for s in block.body)))
+        for name, first, last, db in handlers:
+            if name == root and first <= line <= last:
+                return db
     return False
 
 
@@ -389,7 +402,8 @@ def logged_pii(ctx: Context) -> Iterator[Finding]:
         if tree is None:
             continue
         for call in pyast.calls(tree, PY_LOG_CALL):
-            if any(_py_sensitive(a, tree, call.lineno) for a in call.args):
+            handlers = _except_handlers(ctx, entry.rel, tree)
+            if any(_py_sensitive(a, handlers, call.lineno) for a in call.args):
                 yield _logged(ctx, entry.rel, call.lineno, OBJECT_LOGGED)
         for call in pyast.calls(tree, r"traceback\.print_exc"):
             yield _logged(ctx, entry.rel, call.lineno, TRACEBACK_LOGGED)

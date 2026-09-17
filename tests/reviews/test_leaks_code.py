@@ -251,3 +251,32 @@ def test_env_tracked_severity_follows_the_names_in_the_file(tmp_path):
     assert "Rotate" in found[".env:1"].fix
     text = repr(list(found.values()))
     assert "Example Shop" not in text and "postgres://localhost/app" not in text
+
+
+def test_logged_pii_walks_each_module_a_fixed_number_of_times(tmp_path, monkeypatch):
+    import ast
+
+    from dpr import reviews, rules
+    from dpr.discovery.detect import detect
+    from dpr.reviews import leaks_code
+    from dpr.walk import RepoIndex
+
+    write(
+        tmp_path,
+        "svc/views.py",
+        "".join(
+            f"def f{i}():\n    try:\n        Invoice.objects.get(id={i})\n"
+            "    except Exception as e:\n        print(e)\n"
+            for i in range(50)
+        ),
+    )
+    reviews.available()
+    index = RepoIndex(tmp_path)
+    ctx = rules.Context(index=index, detection=detect(index))
+    walks = []
+    original = ast.walk
+    monkeypatch.setattr(
+        ast, "walk", lambda node: walks.append(isinstance(node, ast.Module)) or original(node)
+    )
+    assert len(list(leaks_code.logged_pii(ctx))) == 50
+    assert sum(walks) <= 5

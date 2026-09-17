@@ -8,11 +8,13 @@ from pathlib import PurePosixPath
 
 from dpr.model import Route
 from dpr.parsing import pyast
-from dpr.walk import RepoIndex, SourceFile
+from dpr.walk import RepoIndex
 
 VERBS = ("get", "post", "put", "patch", "delete")
 URL_CALL = re.compile(r"(?:\w+\.)?(path|re_path|url)")
 REGISTER_CALL = re.compile(r"(?:\w+\.)*register")
+TOP_LEVEL_DEF = re.compile(r"^(?:async\s+def|def|class)\s", re.MULTILINE)
+DEFS_KEY = ("py", "top-level definitions")
 
 
 def _methods(decorator: ast.Call, default: list[str]) -> list[str]:
@@ -64,28 +66,31 @@ def _view_name(node: ast.AST) -> str | None:
     return parts[-1] if parts else None
 
 
+def _top_level_defs(index: RepoIndex) -> dict[str, list[tuple[str, ast.stmt, ast.Module]]]:
+    """Top-level function and class names mapped to (file, node, tree), built once per index."""
+    if DEFS_KEY not in index.cache:
+        defs: dict[str, list[tuple[str, ast.stmt, ast.Module]]] = {}
+        for entry in sorted(index.py_files, key=lambda f: f.rel):
+            if not TOP_LEVEL_DEF.search(index.text(entry.rel)):
+                continue
+            tree = pyast.parse_file(index, entry.rel)
+            for node in tree.body if tree else []:
+                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                    defs.setdefault(node.name, []).append((entry.rel, node, tree))
+        index.cache[DEFS_KEY] = defs
+    return index.cache[DEFS_KEY]
+
+
 def _find_view(index: RepoIndex, urls_rel: str, name: str | None):
+    """The view named in a URL pattern, preferring a definition under the urls.py folder."""
     if not name:
         return None, None, None
     folder = PurePosixPath(urls_rel).parent.as_posix()
     prefix = "" if folder == "." else folder + "/"
-
-    def is_local(f: SourceFile) -> bool:
-        return f.rel.startswith(prefix)
-
-    ordered = sorted(index.py_files, key=lambda f: (not is_local(f), f.rel))
-    for entry in ordered:
-        text = index.text(entry.rel)
-        if f"def {name}" not in text and f"class {name}" not in text:
-            continue
-        tree = pyast.parse_file(index, entry.rel)
-        if tree is None:
-            continue
-        for node in tree.body:
-            is_def = isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
-            if is_def and node.name == name:
-                return node, entry.rel, tree
-    return None, None, None
+    candidates = _top_level_defs(index).get(name, [])
+    local = next((c for c in candidates if c[0].startswith(prefix)), None)
+    rel, node, tree = local or (candidates[0] if candidates else (None, None, None))
+    return node, rel, tree
 
 
 def _url_path(route: str) -> str:
