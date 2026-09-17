@@ -1,0 +1,56 @@
+OWASP-A08-NO-SRI:
+  title: Third-party script loaded without integrity check
+  effort_minutes: 10
+  detail: ${count} script tag(s) load code from another origin without an integrity attribute, so a change on that server runs on this site.
+  attack: Compromise or impersonate the script host and serve modified JavaScript to every visitor.
+  blast: Everything the page can read or do for every visitor.
+  fix: Pin the script version and add integrity="sha384-..." with crossorigin="anonymous", or self-host the file.
+  verify: View the page source and confirm each external script tag has an integrity attribute.
+OWASP-A08-UNSAFE-DESERIALISE:
+  title: Unsafe deserialisation with ${call}
+  effort_minutes: 20
+  detail: ${call} can build arbitrary objects, and running it on untrusted bytes can execute code.
+  proof_needed: Trace whether the input can come from a request, an upload, a cache or a queue an attacker can write to.
+  attack: Send a crafted payload that constructs an object whose loading runs a command.
+  blast: Code execution with the server process's rights.
+  fix: Use JSON for untrusted data, yaml.safe_load for YAML, and never unpickle data that crossed a trust boundary.
+  verify: Confirm the call now uses a safe loader or a data-only format.
+OWASP-A08-CI-UNTRUSTED:
+  title: CI runs pull request code with repository secrets
+  effort_minutes: 15
+  detail: A pull_request_target workflow checks out the pull request's head, so code from a fork runs with the base repository's secrets and write token.
+  attack: Open a pull request from a fork that changes a build script to print or send the secrets.
+  blast: Every secret and write permission available to the workflow.
+  fix: Use the pull_request trigger for building fork code, or check out only the base ref in pull_request_target workflows and never run scripts from the pull request there.
+  verify: Open a test pull request from a fork and confirm the job does not run its code with secrets.
+OWASP-A08-UNPINNED-DEPS:
+  title: Dependencies are not pinned
+  effort_minutes: 30
+  detail: ${what} Each build can install a different version, including a compromised release.
+  fix: Generate a lock file (pip-compile with hashes, uv lock, poetry lock, npm install to create package-lock.json) and install from it in every build.
+  verify: Build twice from a clean cache and confirm the installed versions match the lock file.
+OWASP-A08-UNPINNED-INSTALL:
+  title: Packages installed without pinned versions in ${file}
+  effort_minutes: 15
+  detail: ${what}
+  attack: Publish or take over a package version that the unpinned install picks up on the next build or restart.
+  blast: The build agent and its deployment credentials, or the running app when the install happens at start-up.
+  fix: Pin tool versions (pip install tool==1.2.3, npx @scope/cli@1.2.3), install app packages from the lock file at build time, and use npm ci in CI.
+  verify: Search the file for pip install, npm install and npx lines and confirm each one is pinned or uses the lock file.
+OWASP-A09-NO-AUTH-FAIL-LOG:
+  title: Failed sign-ins on ${path} are not logged
+  effort_minutes: 10
+  detail: The sign-in handler rejects bad credentials but writes nothing to the log, so password spraying and account takeover attempts leave no trace.
+  proof_needed: Check whether a middleware, gateway or auth provider logs these failures instead.
+  blast: The ability to tell, after an incident, which accounts were attacked and when.
+  fix: Log each failure with a request id, the account identifier (or a hash of it) and the client address, without the password.
+  verify: Sign in with a wrong password and confirm a log line appears.
+OWASP-A05-XML-PARSER:
+  title: XML parsed without defusedxml
+  effort_minutes: 10
+  detail: The code parses XML (or spreadsheets, which are zipped XML) and the project does not declare defusedxml, so entity expansion and external entity protections depend on library defaults.
+  proof_needed: Check whether the parsed files can come from users and which parser versions run in production.
+  attack: Upload a document with nested entity definitions that expands to gigabytes in memory.
+  blast: Memory and CPU of the API worker, and possibly local file reads with older parsers.
+  fix: Add defusedxml to the dependencies (openpyxl uses it automatically when installed) and use defusedxml parsers for direct XML parsing.
+  verify: Confirm defusedxml is installed in the deployed environment and that a billion-laughs test file is rejected.
