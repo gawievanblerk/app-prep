@@ -67,6 +67,7 @@ def _good_extras(root: Path) -> None:
 EXTRAS = {
     "next-supabase-bad": _bad_extras,
     "next-supabase-good": _good_extras,
+    "django-bad": _commit,
 }
 
 
