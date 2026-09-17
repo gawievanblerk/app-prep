@@ -74,6 +74,10 @@ def is_env_file(name: str) -> bool:
     return name == ".env" or name.startswith(".env.")
 
 
+def _is_virtualenv(path: Path, name: str) -> bool:
+    return name == "site-packages" or (path / "pyvenv.cfg").is_file()
+
+
 def _is_binary(path: Path) -> bool:
     with path.open("rb") as fh:
         return b"\0" in fh.read(8192)
@@ -108,7 +112,7 @@ class RepoIndex:
                 elif name == ".next":
                     if (sub / "static").is_dir():
                         self._walk_build(sub / "static")
-                elif name not in SKIP_DIRS:
+                elif name not in SKIP_DIRS and not _is_virtualenv(sub, name):
                     keep.append(name)
             dirnames[:] = keep
             for name in sorted(filenames):
@@ -210,14 +214,13 @@ class RepoIndex:
 
     def sanity_check(self) -> None:
         names = {f.name for f in self.files}
-        if "package.json" in names and not self.js_files:
+        manifests = []
+        if "package.json" in names:
+            manifests.append("package.json")
+        if "pyproject.toml" in names or any(fnmatch.fnmatch(n, "requirements*.txt") for n in names):
+            manifests.append("Python manifest")
+        if manifests and not (self.js_files or self.py_files):
             raise ScanError(
-                "package.json found but no JS/TS files were indexed; the scan would read nothing"
-            )
-        has_py_manifest = "pyproject.toml" in names or any(
-            fnmatch.fnmatch(n, "requirements*.txt") for n in names
-        )
-        if has_py_manifest and not self.py_files:
-            raise ScanError(
-                "Python manifest found but no .py files were indexed; the scan would read nothing"
+                f"{' and '.join(manifests)} found but no JS/TS or Python source files were "
+                "indexed; the scan would read nothing"
             )

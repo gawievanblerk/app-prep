@@ -141,3 +141,31 @@ def test_named_pipes_are_skipped_without_blocking(tmp_path):
     index = result["index"]
     assert rels(index.files) == ["a.py"]
     assert index.env_files == [] and index.build_files == []
+
+
+def test_virtualenvs_and_site_packages_are_skipped_whatever_their_name(tmp_path):
+    write(tmp_path, "app.py", "x = 1")
+    write(tmp_path, ".env/pyvenv.cfg", "home = /usr/bin\n")
+    write(tmp_path, ".env/lib/python3.12/site-packages/django/__init__.py")
+    write(tmp_path, "services/api/env/pyvenv.cfg", "home = /usr/bin\n")
+    write(tmp_path, "services/api/env/lib/helper.py")
+    write(tmp_path, "services/api/main.py")
+    write(tmp_path, "tools/site-packages/requests/api.py")
+    index = RepoIndex(tmp_path)
+    assert rels(index.files) == ["app.py", "services/api/main.py"]
+    assert index.env_files == []
+
+
+def test_sanity_check_accepts_any_supported_source(tmp_path):
+    py_repo = tmp_path / "py"
+    write(py_repo, "package.json", '{"devDependencies": {"prettier": "3"}}')
+    write(py_repo, "app/main.py", "x = 1")
+    RepoIndex(py_repo).sanity_check()
+    js_repo = tmp_path / "js"
+    write(js_repo, "requirements.txt", "mkdocs\n")
+    write(js_repo, "src/index.ts", "export const a = 1")
+    RepoIndex(js_repo).sanity_check()
+    empty = tmp_path / "empty"
+    write(empty, "package.json", "{}")
+    with pytest.raises(ScanError, match="package.json"):
+        RepoIndex(empty).sanity_check()

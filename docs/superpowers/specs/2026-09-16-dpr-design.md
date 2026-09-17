@@ -253,7 +253,7 @@ Each review returns a `ReviewSection` holding the tables and text blocks its par
 
 ### 7.1 RepoIndex
 
-- Skipped directories: `node_modules`, `.git`, `.next`, `dist`, `build`, `out`, `vendor`, `.venv`, `venv`, `__pycache__`, `.turbo`, `coverage`, `.pytest_cache`, `.mypy_cache`, `data-protection-review`.
+- Skipped directories: `node_modules`, `.git`, `.next`, `dist`, `build`, `out`, `vendor`, `.venv`, `venv`, `__pycache__`, `.turbo`, `coverage`, `.pytest_cache`, `.mypy_cache`, `data-protection-review`, `site-packages`, and any directory that holds a `pyvenv.cfg` file (a virtualenv under any name, such as `.env/` or `env/`).
 - Build output directories (`dist`, `build`, `out`, `.next/static`) are indexed separately as `build_files` and read only by the leaks review.
 - Symlinks are not followed.
 - Binary files (null byte in the first 8 KB) are skipped.
@@ -261,7 +261,7 @@ Each review returns a `ReviewSection` holding the tables and text blocks its par
 - Text read as UTF-8 with `errors="replace"`.
 - Parsed trees are cached per file for the run.
 
-**Sanity check.** If a `package.json` is present and zero JS/TS/Vue/Svelte files were indexed, or a `pyproject.toml` / `requirements*.txt` is present and zero `.py` files were indexed, raise `ScanError`. This is the silent empty-scan failure the skill hit.
+**Sanity check.** If a `package.json`, `pyproject.toml` or `requirements*.txt` is present and no supported source file was indexed at all (no JS/TS/Vue/Svelte file and no `.py` file), raise `ScanError`. A Python repository with a tooling-only `package.json`, or a JS repository with a docs `requirements.txt`, scans normally. This is the silent empty-scan failure the skill hit.
 
 ### 7.2 JS/TS
 
