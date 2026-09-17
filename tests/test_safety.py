@@ -1,5 +1,6 @@
 import socket
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -51,7 +52,7 @@ def test_evidence_rules_hold_for_every_finding(bad):
 def test_report_has_no_legal_verdicts_or_em_dashes(bad):
     text = render_markdown(review(bad))
     assert not any(phrase in text.lower() for phrase in BANNED_PHRASES)
-    assert "—" not in text
+    assert chr(0x2014) not in text
 
 
 def test_review_does_not_change_the_repository(bad):
@@ -63,3 +64,14 @@ def test_review_does_not_change_the_repository(bad):
                            capture_output=True, text=True, check=True).stdout
     assert after == before
     assert sorted(p.relative_to(bad).as_posix() for p in bad.rglob("*") if ".git/" not in p.as_posix()) == listing
+
+
+def test_no_em_dash_characters_in_source_or_tests():
+    root = Path(__file__).resolve().parents[1]
+    offenders = []
+    for folder in ("src", "tests"):
+        for path in (root / folder).rglob("*"):
+            if path.is_file() and path.suffix in {".py", ".yaml", ".j2", ".md", ".ts", ".js", ".sql", ".json", ".prisma"}:
+                if chr(0x2014) in path.read_text(encoding="utf-8", errors="replace"):
+                    offenders.append(str(path.relative_to(root)))
+    assert offenders == []
