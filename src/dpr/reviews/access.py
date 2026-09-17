@@ -241,12 +241,24 @@ def _next_middleware(ctx: Context, path: str) -> bool:
     return False
 
 
+def _auth_wrappers(route: Route) -> list[str]:
+    return [name for name in route.wrappers if AUTH_WORD.search(name) or ADMIN_WORD.search(name)]
+
+
 def _next(ctx: Context, route: Route) -> Access:
     handler = route.handler
     text = jsts.node_text(handler) if handler is not None else ""
     if JS_AUTH_CALL.search(text) or "auth.getUser" in text:
         level = ADMIN if JS_ADMIN_CHECK.search(text) else AUTHENTICATED
         return Access(level, _js_subjects(handler), "auth call in handler")
+    names = _auth_wrappers(route)
+    if names:
+        level = ADMIN if any(ADMIN_WORD.search(name) for name in names) else AUTHENTICATED
+        return Access(
+            level,
+            _js_subjects(handler) if handler is not None else (),
+            "wrapper " + ", ".join(names[:3]),
+        )
     if _next_middleware(ctx, route.path):
         return Access(AUTHENTICATED, (), "middleware matcher")
     return Access(PUBLIC, (), "no auth call and no middleware matcher")
@@ -264,6 +276,8 @@ def _express(route: Route) -> Access:
         if not is_route and not jsts.callee(call).endswith(".use"):
             continue
         names += [jsts.node_text(a) for a in middle if a.type != "string"]
+    names += route.wrappers
+    names = list(dict.fromkeys(names))
     auth = [n for n in names if AUTH_WORD.search(n) or ADMIN_WORD.search(n)]
     if not auth:
         return Access(PUBLIC, (), "no auth middleware")

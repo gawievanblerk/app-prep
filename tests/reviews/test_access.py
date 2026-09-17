@@ -1,6 +1,6 @@
 from dpr import rules
 from dpr.discovery.detect import detect
-from dpr.reviews.access import access, path_params
+from dpr.reviews.access import Access, access, path_params
 from dpr.walk import RepoIndex
 from tests.reviews.helpers import write
 
@@ -137,6 +137,58 @@ def test_express_route_and_use_middleware(tmp_path):
     assert found[("DELETE", "/orders/:orderId")].level == "admin"
     assert found[("POST", "/orders")].level == "authenticated"
     assert found[("POST", "/orders")].subjects[0] == "req.user"
+
+
+def test_next_wrapper_auth(tmp_path):
+    write(
+        tmp_path,
+        "app/api/secret/route.ts",
+        "export const GET = withAuth(async (req) => { return Response.json({ ok: true }) })\n",
+    )
+    write(
+        tmp_path,
+        "app/api/admin/users/route.ts",
+        "export const GET = withAdmin(async () => Response.json([]))\n",
+    )
+    write(
+        tmp_path,
+        "app/api/log/route.ts",
+        "export const POST = withLogging(async () => Response.json({}))\n",
+    )
+    write(
+        tmp_path,
+        "pages/api/auth/[...nextauth].ts",
+        "export default NextAuth(authOptions)\n",
+    )
+    index = RepoIndex(tmp_path)
+    ctx = rules.Context(index=index, detection=detect(index))
+    found = {(r.method, r.path): r for r in ctx.detection.routes}
+
+    secret = access(ctx, found[("GET", "/api/secret")])
+    assert secret.level == "authenticated"
+    assert "withAuth" in secret.evidence
+
+    admin = access(ctx, found[("GET", "/api/admin/users")])
+    assert admin.level == "admin"
+
+    log = access(ctx, found[("POST", "/api/log")])
+    assert log.level == "public"
+
+    nextauth_route = found[("ANY", "/api/auth/*nextauth")]
+    assert nextauth_route.handler.type == "call_expression"
+    nextauth = access(ctx, nextauth_route)
+    assert isinstance(nextauth, Access)
+
+
+def test_express_wrapped_last_argument(tmp_path):
+    write(
+        tmp_path,
+        "server/app.js",
+        "const app = require('express')()\n"
+        "app.get('/me', requireAuth((req, res) => res.send('ok')))\n",
+    )
+    found = classify(tmp_path)
+    assert found[("GET", "/me")].level == "authenticated"
 
 
 def test_path_params():
