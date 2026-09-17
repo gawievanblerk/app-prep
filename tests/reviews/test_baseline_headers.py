@@ -257,6 +257,36 @@ def test_test_files_and_comments_do_not_count(tmp_path):
     assert not any("unsafe-inline" in policy for policy, _ in csp_values(context(root)))
 
 
+def test_comment_mask_is_per_language(tmp_path):
+    root = tmp_path
+    write(root, "app/package.json", "{}")
+    write(root, "app/next.config.js", "module.exports = {}\n")
+    write(
+        root,
+        "app/src/server.js",
+        "class App {\n"
+        "  #configure() { this.headers.set('Strict-Transport-Security', 'max-age=31536000') }\n"
+        "}\n"
+        "// res.setHeader('Permissions-Policy', 'camera=()')\n",
+    )
+    write(root, "api/requirements.txt", "fastapi\n")
+    write(
+        root,
+        "api/app/main.py",
+        "from fastapi import FastAPI\n"
+        "app = FastAPI()\n"
+        'limit = total // 2; response.headers["X-Frame-Options"] = "DENY"\n'
+        '# response.headers["Referrer-Policy"] = "no-referrer"\n',
+    )
+    found = {s.name: s for s in surfaces(context(root))}
+    next_headers = found["app/next.config.js"].headers
+    assert "strict-transport-security" in next_headers
+    assert "permissions-policy" not in next_headers
+    api_headers = found["api/app/main.py"].headers
+    assert "x-frame-options" in api_headers
+    assert "referrer-policy" not in api_headers
+
+
 def test_default_review_never_reads_headers(tmp_path, monkeypatch):
     def refuse(*args, **kwargs):
         raise AssertionError("live header read without a URL")

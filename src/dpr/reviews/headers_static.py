@@ -31,13 +31,17 @@ HEADER_LITERAL = re.compile(
 )
 STRING_LITERAL = re.compile(r""""(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`""")
 PLATFORM_HSTS = {"vercel.json", "netlify.toml"}
-# Matches a string literal (kept verbatim) or a //, /* */ or # comment (masked to blanks), so
-# header names and CSP policies written inside comments are never mistaken for real code.
-COMMENT_MASK = re.compile(
-    r"""(?P<string>"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)"""
-    r"""|//[^\n]*|/\*.*?\*/|\#[^\n]*""",
-    re.DOTALL,
-)
+# A string literal, kept verbatim so a header name or CSP value inside one is never lost. Tried
+# first in every mask below, so a comment marker inside a real string (a URL's //, for example)
+# is consumed as part of the string and never misread as the start of a comment.
+_STRING_ALT = rf"(?P<string>{STRING_LITERAL.pattern})"
+JS_SUFFIXES = frozenset({".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"})
+HASH_SUFFIXES = frozenset({".py", ".toml", ".conf"})
+HASH_NAMES = frozenset({"_headers"})
+# // starts a JS/TS comment but is floor division in Python, and # starts a Python comment but a
+# private class field or method in JS/TS, so each language gets only its own comment syntax.
+JS_COMMENT_MASK = re.compile(rf"{_STRING_ALT}|//[^\n]*|/\*.*?\*/", re.DOTALL)
+HASH_COMMENT_MASK = re.compile(rf"{_STRING_ALT}|\#[^\n]*")
 
 
 @dataclass(frozen=True)
@@ -68,15 +72,29 @@ def app_root(ctx: Context, rel: str) -> str:
         folder = folder.parent
 
 
-def _mask_comments(text: str) -> str:
-    """Blank out comments (keeping newlines and string literals intact) before scanning."""
+def _comment_mask_for(rel: str) -> re.Pattern[str] | None:
+    """The comment syntax to mask for this file, chosen by name and suffix. None masks nothing."""
+    path = PurePosixPath(rel)
+    suffix = path.suffix.lower()
+    if suffix in JS_SUFFIXES:
+        return JS_COMMENT_MASK
+    if suffix in HASH_SUFFIXES or path.name in HASH_NAMES:
+        return HASH_COMMENT_MASK
+    return None
+
+
+def _mask_comments(text: str, rel: str) -> str:
+    """Blank out this file's own comment syntax (keeping newlines and string literals intact)."""
+    pattern = _comment_mask_for(rel)
+    if pattern is None:
+        return text
 
     def repl(match: re.Match[str]) -> str:
         if match.group("string") is not None:
             return match.group(0)
         return "".join(ch if ch == "\n" else " " for ch in match.group(0))
 
-    return COMMENT_MASK.sub(repl, text)
+    return pattern.sub(repl, text)
 
 
 def _code_headers(ctx: Context, root: str) -> frozenset[str]:
@@ -84,7 +102,7 @@ def _code_headers(ctx: Context, root: str) -> frozenset[str]:
     for entry in [*ctx.index.js_files, *ctx.index.py_files]:
         if is_test(entry.rel) or app_root(ctx, entry.rel) != root:
             continue
-        text = _mask_comments(ctx.index.text(entry.rel))
+        text = _mask_comments(ctx.index.text(entry.rel), entry.rel)
         found.update(m.group(1).lower() for m in HEADER_LITERAL.finditer(text))
         if "frame-ancestors" in text:
             found.add("x-frame-options")
@@ -218,7 +236,7 @@ def csp_values(ctx: Context) -> list[tuple[str, Location]]:
         if not is_test(f.rel) and app_root(ctx, f.rel) in roots
     ]
     for rel in dict.fromkeys(candidates):
-        text = _mask_comments(ctx.index.text(rel))
+        text = _mask_comments(ctx.index.text(rel), rel)
         for match in STRING_LITERAL.finditer(text):
             policy = match.group(0)[1:-1]
             if "default-src" in policy or "script-src" in policy:
