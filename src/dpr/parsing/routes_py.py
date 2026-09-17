@@ -25,6 +25,19 @@ def _methods(decorator: ast.Call, default: list[str]) -> list[str]:
     return default
 
 
+def _router_prefixes(tree: ast.Module) -> dict[str, str]:
+    found = {}
+    for name, value in pyast.assignments(tree.body).items():
+        if not isinstance(value, ast.Call):
+            continue
+        kind = (pyast.dotted(value.func) or "").split(".")[-1]
+        keyword = {"APIRouter": "prefix", "Blueprint": "url_prefix"}.get(kind)
+        prefix = pyast.constant(pyast.kwarg(value, keyword), None) if keyword else None
+        if isinstance(prefix, str):
+            found[name] = prefix.rstrip("/")
+    return found
+
+
 def decorator_routes(index: RepoIndex) -> list[Route]:
     routes = []
     for entry in index.py_files:
@@ -35,6 +48,7 @@ def decorator_routes(index: RepoIndex) -> list[Route]:
         tree = pyast.parse_file(index, entry.rel)
         if tree is None:
             continue
+        prefixes = _router_prefixes(tree)
         for fn in pyast.functions(tree):
             for dec in fn.decorator_list:
                 if not isinstance(dec, ast.Call) or not isinstance(dec.func, ast.Attribute):
@@ -52,9 +66,10 @@ def decorator_routes(index: RepoIndex) -> list[Route]:
                     methods = _methods(dec, ["ANY"])
                 else:
                     continue
+                full = prefixes.get(pyast.dotted(dec.func.value) or "", "") + path
                 for method in methods:
                     routes.append(
-                        Route(method, path, entry.rel, fn.lineno, framework, handler=fn, tree=tree)
+                        Route(method, full, entry.rel, fn.lineno, framework, handler=fn, tree=tree)
                     )
     return routes
 
