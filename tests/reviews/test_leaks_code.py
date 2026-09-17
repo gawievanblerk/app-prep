@@ -190,3 +190,36 @@ def test_logged_pii(tmp_path):
         "svc/views.py:5",
         "svc/views.py:9",
     ]
+
+
+def test_broad_response_through_wrappers_and_chained_status(tmp_path):
+    write(tmp_path, "prisma/schema.prisma", SCHEMA)
+    write(
+        tmp_path,
+        "app/api/me/route.ts",
+        "export const GET = withAuth(async () => {\n"
+        "  const user = await prisma.user.findUnique({ where: { id: 1 } })\n"
+        "  return NextResponse.json(user)\n})\n",
+    )
+    write(
+        tmp_path,
+        "server.js",
+        "router.get('/users/:id', auth, asyncHandler(async (req, res) => {\n"
+        "  const user = await prisma.user.findUnique({ where: { id: req.params.id } })\n"
+        "  res.status(200).json(user)\n"
+        "  res.status(200).json({ id: user.id })\n"
+        "  cache.json(user)\n"
+        "}))\n",
+    )
+    write(
+        tmp_path,
+        "api.js",
+        "fastify.get('/invoices/:id', async (req, reply) => {\n"
+        "  const invoice = await prisma.invoice.findFirst({ where: { id: 1 } })\n"
+        "  return reply.code(200).send(invoice)\n})\n",
+    )
+    assert locs(findings_for(tmp_path, "leaks", "LEAK-BROAD-RESPONSE")) == [
+        "api.js:3",
+        "app/api/me/route.ts:3",
+        "server.js:3",
+    ]

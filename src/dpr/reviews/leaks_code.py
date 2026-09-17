@@ -11,13 +11,13 @@ from dpr.data import load
 from dpr.gitutil import run_git, tracked_files
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
+from dpr.parsing.routes_js import response_calls
 from dpr.parsing.schemas import find_model
 from dpr.redact import snippet
 from dpr.rules import Context, make_finding, rule
 
 ENV_NAME = re.compile(r"^\.env(\..+)?$")
 ENV_EXAMPLE = re.compile(r"\.(example|sample|template)$")
-RESPONSE_CALL = re.compile(r"(?:NextResponse|Response)\.json|res\.(?:json|send)|reply\.send|json")
 ORM_READ = re.compile(
     r"(?:prisma|db|tx)\.(\w+)\.(findUnique|findUniqueOrThrow|findFirst|findFirstOrThrow|findMany)"
 )
@@ -185,11 +185,7 @@ def _js_responses(ctx: Context) -> Iterator[Finding]:
             continue
         if handler.type not in jsts.FUNCTION_TYPES:
             continue
-        candidates = [
-            jsts.arguments(c)[0]
-            for c in jsts.calls(route.tree, RESPONSE_CALL, handler)
-            if jsts.arguments(c)
-        ]
+        candidates = [jsts.arguments(c)[0] for c in response_calls(handler) if jsts.arguments(c)]
         if route.framework == "next-action":
             candidates += [
                 r.named_children[0]

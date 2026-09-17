@@ -300,7 +300,7 @@ Line parser for `model` blocks: field name, type, optional/list markers, attribu
 
 ### 7.7 Routes
 
-`routes.py` returns `Route(method, path, file, line, framework, handler_node, is_public_form)`:
+`routes.py` returns `Route(method, path, file, line, framework, is_public_form, wrappers, handler_node)`:
 
 All Next.js paths below are also matched under `src/`.
 
@@ -311,6 +311,8 @@ All Next.js paths below are also matched under `src/`.
 - Django: `path()` and `re_path()` in `urls.py`, resolved to the view function or class in the same app where possible. DRF `router.register`.
 - FastAPI: `@app.<method>` and `@router.<method>` decorators.
 - Flask: `@app.route` and `@bp.route` with `methods=`.
+
+Handlers passed through a wrapper call, such as `export const POST = withAuth(async () => ...)` or `router.get('/x', auth, asyncHandler(async (req, res) => ...))`, are unwrapped to the last function argument, and `export { handler as GET, handler as POST }` is followed to `handler`. A wrapper call with no function argument is kept as the handler. `wrappers` lists the wrapper callees, outermost first, and for Express and Fastify it starts with the middleware names between the path and the handler (Fastify `onRequest`, `preParsing`, `preValidation` and `preHandler` options included).
 
 `is_public_form` is true when the path or handler name contains `signup`, `sign-up`, `register`, `login`, `signin`, `reset`, `forgot`, `contact`, `waitlist`, `newsletter`, `feedback`, `invite`, `upload`.
 

@@ -25,7 +25,16 @@ def test_render_json_shape(tmp_path):
     }
     assert "schema" not in data["detection"] and "packages" not in data["detection"]
     [route] = data["detection"]["routes"]
-    assert set(route) == {"method", "path", "file", "line", "framework", "is_public_form"}
+    assert set(route) == {
+        "method",
+        "path",
+        "file",
+        "line",
+        "framework",
+        "is_public_form",
+        "wrappers",
+    }
+    assert route["wrappers"] == []
     first = data["findings"][0]
     assert first["tag"] in ("CONFIRMED", "INFERRED", "UNVERIFIED")
     assert isinstance(first["locations"][0], dict) and {"file", "line"} <= set(

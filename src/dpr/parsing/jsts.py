@@ -186,47 +186,102 @@ def enclosing_function(node: Node) -> Node | None:
     return None
 
 
-def _top_level_function(root: Node, name: str) -> Node | None:
-    for stmt in root.named_children:
-        if stmt.type in ("function_declaration", "generator_function_declaration"):
-            if node_text(stmt.child_by_field_name("name")) == name:
-                return stmt
-        if stmt.type in ("lexical_declaration", "variable_declaration"):
-            for decl in stmt.named_children:
-                value = unwrap(decl.child_by_field_name("value"))
-                if node_text(decl.child_by_field_name("name")) == name and value is not None:
-                    if value.type in FUNCTION_TYPES:
-                        return value
+NAMED_FUNCTIONS = ("function_declaration", "generator_function_declaration")
+MAX_HANDLER_DEPTH = 8
+
+
+def _declared(decl: Node, name: str) -> Node | None:
+    if decl.type in NAMED_FUNCTIONS:
+        return decl if node_text(decl.child_by_field_name("name")) == name else None
+    if decl.type == "variable_declarator" and node_text(decl.child_by_field_name("name")) == name:
+        return unwrap(decl.child_by_field_name("value"))
     return None
 
 
-def exported_functions(tree: JsTree) -> dict[str, Node]:
-    found: dict[str, Node] = {}
-    for stmt in tree.root.named_children:
+def declared_value(root: Node, name: str) -> Node | None:
+    """The function or initial value a name is declared with, top level first."""
+    for stmt in root.named_children:
+        decl = stmt.child_by_field_name("declaration") if stmt.type == "export_statement" else stmt
+        if decl is None:
+            continue
+        items = decl.named_children if decl.type.endswith("_declaration") else []
+        for item in [decl, *items]:
+            found = _declared(item, name)
+            if found is not None:
+                return found
+    for decl in walk(root, {*NAMED_FUNCTIONS, "variable_declarator"}):
+        found = _declared(decl, name)
+        if found is not None:
+            return found
+    return None
+
+
+def resolve_handler(root: Node, node: Node | None, depth: int = 0) -> tuple[Node | None, tuple]:
+    """Follow a name or wrapper calls to the handler, with the wrapper callees outermost first.
+
+    A wrapper call such as withAuth(async () => ...) unwraps to its last function-typed
+    argument. A call with no such argument is itself the handler, and its callee is recorded.
+    """
+    node = unwrap(node)
+    if node is None or depth > MAX_HANDLER_DEPTH:
+        return None, ()
+    if node.type in FUNCTION_TYPES:
+        return node, ()
+    if node.type == "identifier":
+        return resolve_handler(root, declared_value(root, node_text(node)), depth + 1)
+    if node.type != "call_expression" or callee(node) in ("require", "import"):
+        return None, ()
+    for arg in reversed(arguments(node)):
+        inner, wrappers = resolve_handler(root, arg, depth + 1)
+        if inner is not None and inner.type in FUNCTION_TYPES:
+            return inner, (callee(node), *wrappers)
+    return node, (callee(node),)
+
+
+def exported_handlers(tree: JsTree) -> dict[str, tuple[Node, tuple[str, ...]]]:
+    """Exported names mapped to (handler node, wrapper callees)."""
+    found: dict[str, tuple[Node, tuple[str, ...]]] = {}
+    root = tree.root
+
+    def add(name: str, value: Node | None) -> None:
+        handler, wrappers = resolve_handler(root, value)
+        if handler is not None:
+            found[name] = (handler, wrappers)
+
+    for stmt in root.named_children:
         if stmt.type != "export_statement":
             continue
         is_default = any(c.type == "default" for c in stmt.children)
         decl = stmt.child_by_field_name("declaration")
-        named_function = ("function_declaration", "generator_function_declaration")
-        if decl is not None and decl.type in named_function:
-            found[node_text(decl.child_by_field_name("name"))] = decl
+        if decl is not None and decl.type in NAMED_FUNCTIONS:
+            found[node_text(decl.child_by_field_name("name"))] = (decl, ())
             if is_default:
-                found["default"] = decl
+                found["default"] = (decl, ())
         elif decl is not None and decl.type in ("lexical_declaration", "variable_declaration"):
             for item in decl.named_children:
-                value = unwrap(item.child_by_field_name("value"))
-                if item.type == "variable_declarator" and value is not None:
-                    if value.type in FUNCTION_TYPES:
-                        found[node_text(item.child_by_field_name("name"))] = value
+                if item.type == "variable_declarator":
+                    add(
+                        node_text(item.child_by_field_name("name")),
+                        item.child_by_field_name("value"),
+                    )
         elif is_default:
-            value = unwrap(stmt.child_by_field_name("value"))
-            if value is not None and value.type in FUNCTION_TYPES:
-                found["default"] = value
-            elif value is not None and value.type == "identifier":
-                target = _top_level_function(tree.root, node_text(value))
-                if target is not None:
-                    found["default"] = target
+            add("default", stmt.child_by_field_name("value"))
+        elif stmt.child_by_field_name("source") is None:
+            for clause in stmt.named_children:
+                for spec in clause.named_children if clause.type == "export_clause" else []:
+                    local = spec.child_by_field_name("name")
+                    alias = spec.child_by_field_name("alias") or local
+                    if spec.type == "export_specifier" and local is not None:
+                        add(node_text(alias), local)
     return found
+
+
+def exported_functions(tree: JsTree) -> dict[str, Node]:
+    return {
+        name: node
+        for name, (node, _) in exported_handlers(tree).items()
+        if node.type in FUNCTION_TYPES
+    }
 
 
 def resolve_identifier(ident: Node) -> Node | None:

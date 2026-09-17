@@ -16,6 +16,10 @@ SERVER_CALL = re.compile(
 )
 SERVER_HINT = re.compile(r"\.(?:get|post|put|patch|delete|all)\(\s*['\"`]/")
 PAGES_METHOD = re.compile(r"""req\.method\s*[!=]==?\s*['"]([A-Z]+)['"]""")
+FASTIFY_HOOKS = ("onRequest", "preParsing", "preValidation", "preHandler")
+SERVER_HANDLER_TYPES = jsts.FUNCTION_TYPES | {"identifier", "member_expression", "call_expression"}
+RESPONSE_ROOTS = frozenset({"res", "reply", "NextResponse", "Response"})
+RESPONSE_METHODS = frozenset({"json", "send"})
 
 
 def segments_to_path(segments: list[str]) -> str:
@@ -42,7 +46,7 @@ def next_app_routes(index: RepoIndex) -> list[Route]:
             continue
         path = segments_to_path(match.group(1).strip("/").split("/"))
         for tree in jsts.parse_file(index, entry.rel):
-            for name, fn in jsts.exported_functions(tree).items():
+            for name, (fn, wrappers) in jsts.exported_handlers(tree).items():
                 if name in HTTP_METHODS:
                     routes.append(
                         Route(
@@ -51,6 +55,7 @@ def next_app_routes(index: RepoIndex) -> list[Route]:
                             entry.rel,
                             jsts.line(tree, fn),
                             "next-app",
+                            wrappers=wrappers,
                             handler=fn,
                             tree=tree,
                         )
@@ -69,7 +74,7 @@ def next_pages_routes(index: RepoIndex) -> list[Route]:
             segments = segments[:-1]
         path = segments_to_path(["api", *segments])
         for tree in jsts.parse_file(index, entry.rel):
-            handler = jsts.exported_functions(tree).get("default")
+            handler, wrappers = jsts.exported_handlers(tree).get("default", (None, ()))
             if handler is None:
                 continue
             methods = sorted(set(PAGES_METHOD.findall(jsts.node_text(handler)))) or ["ANY"]
@@ -81,6 +86,7 @@ def next_pages_routes(index: RepoIndex) -> list[Route]:
                         entry.rel,
                         jsts.line(tree, handler),
                         "next-pages",
+                        wrappers=wrappers,
                         handler=handler,
                         tree=tree,
                     )
@@ -96,10 +102,13 @@ def server_actions(index: RepoIndex) -> list[Route]:
         for tree in jsts.parse_file(index, entry.rel):
             if not jsts.has_directive(tree):
                 continue
-            exported = jsts.exported_functions(tree)
+            exported = jsts.exported_handlers(tree)
             seen: set[int] = set()
-            for name, fn in exported.items():
-                if name == "default" or fn.start_byte in seen:
+            named = [(n, h) for n, h in exported.items() if n != "default"]
+            if "default" in exported:
+                named.append(("default", exported["default"]))
+            for name, (fn, wrappers) in named:
+                if fn.start_byte in seen:
                     continue
                 seen.add(fn.start_byte)
                 routes.append(
@@ -109,24 +118,35 @@ def server_actions(index: RepoIndex) -> list[Route]:
                         entry.rel,
                         jsts.line(tree, fn),
                         "next-action",
+                        wrappers=wrappers,
                         handler=fn,
                         tree=tree,
                     )
                 )
-            default = exported.get("default")
-            if default is not None and default.start_byte not in seen:
-                routes.append(
-                    Route(
-                        "ACTION",
-                        "action:default",
-                        entry.rel,
-                        jsts.line(tree, default),
-                        "next-action",
-                        handler=default,
-                        tree=tree,
-                    )
-                )
     return routes
+
+
+def _middleware_names(node) -> list[str]:
+    node = jsts.unwrap(node)
+    if node is None:
+        return []
+    if node.type in ("identifier", "shorthand_property_identifier", "member_expression"):
+        return [re.sub(r"\s+", "", jsts.node_text(node))]
+    if node.type == "call_expression":
+        return [jsts.callee(node)]
+    if node.type == "array":
+        return [name for item in node.named_children for name in _middleware_names(item)]
+    if node.type == "object":
+        pairs = jsts.object_pairs(node)
+        return [name for hook in FASTIFY_HOOKS for name in _middleware_names(pairs.get(hook))]
+    return []
+
+
+def _server_handler(tree: jsts.JsTree, node) -> tuple[object, tuple[str, ...]]:
+    handler, wrappers = jsts.resolve_handler(tree.root, node)
+    if handler is None:
+        return jsts.unwrap(node), ()
+    return handler, wrappers
 
 
 def server_routes(index: RepoIndex) -> list[Route]:
@@ -142,12 +162,10 @@ def server_routes(index: RepoIndex) -> list[Route]:
                 path = jsts.string_value(args[0]) if len(args) >= 2 else None
                 if path is None or not path.startswith("/"):
                     continue
-                handler = jsts.unwrap(args[-1])
-                if handler is not None and handler.type == "identifier":
-                    handler = _function_named(tree, jsts.node_text(handler)) or handler
-                allowed = jsts.FUNCTION_TYPES | {"identifier", "member_expression"}
-                if handler is None or handler.type not in allowed:
+                handler, wrappers = _server_handler(tree, args[-1])
+                if handler is None or handler.type not in SERVER_HANDLER_TYPES:
                     continue
+                middleware = [name for arg in args[1:-1] for name in _middleware_names(arg)]
                 method = jsts.callee(call).rsplit(".", 1)[1].upper()
                 routes.append(
                     Route(
@@ -156,6 +174,7 @@ def server_routes(index: RepoIndex) -> list[Route]:
                         entry.rel,
                         jsts.line(tree, call),
                         framework,
+                        wrappers=(*middleware, *wrappers),
                         handler=handler,
                         tree=tree,
                     )
@@ -163,13 +182,24 @@ def server_routes(index: RepoIndex) -> list[Route]:
     return routes
 
 
-def _function_named(tree: jsts.JsTree, name: str):
-    for node in jsts.walk(tree.root, {"function_declaration"}):
-        if jsts.node_text(node.child_by_field_name("name")) == name:
-            return node
-    for decl in jsts.walk(tree.root, {"variable_declarator"}):
-        value = jsts.unwrap(decl.child_by_field_name("value"))
-        if jsts.node_text(decl.child_by_field_name("name")) == name and value is not None:
-            if value.type in jsts.FUNCTION_TYPES:
-                return value
-    return None
+def is_response_call(call) -> bool:
+    """True for .json or .send at the end of a res, reply, NextResponse or Response chain.
+
+    A bare json(...) call (the Remix helper) also counts.
+    """
+    function = jsts.unwrap(call.child_by_field_name("function"))
+    if function is not None and function.type == "identifier":
+        return jsts.node_text(function) == "json"
+    if function is None or function.type != "member_expression":
+        return False
+    if jsts.node_text(function.child_by_field_name("property")) not in RESPONSE_METHODS:
+        return False
+    node = jsts.unwrap(function.child_by_field_name("object"))
+    while node is not None and node.type in ("call_expression", "member_expression"):
+        field = "function" if node.type == "call_expression" else "object"
+        node = jsts.unwrap(node.child_by_field_name(field))
+    return node is not None and node.type == "identifier" and jsts.node_text(node) in RESPONSE_ROOTS
+
+
+def response_calls(within) -> list:
+    return [c for c in jsts.walk(within, {"call_expression"}) if is_response_call(c)]

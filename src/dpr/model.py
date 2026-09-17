@@ -107,6 +107,7 @@ class Route:
     line: int
     framework: str
     is_public_form: bool = False
+    wrappers: tuple[str, ...] = ()
     handler: object = field(default=None, compare=False, repr=False, metadata=NO_JSON)
     tree: object = field(default=None, compare=False, repr=False, metadata=NO_JSON)
 
