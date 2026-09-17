@@ -115,7 +115,16 @@ def review(
         if section is None:
             continue
         sections[slug] = section
-        findings.extend(run_checks(slug, ctx))
+        found = run_checks(slug, ctx)
+        findings.extend(found)
+        finish = getattr(modules[slug], "finish", None)
+        if finish is not None:
+            try:
+                finish(ctx, section, found)
+            except Exception as exc:
+                if os.environ.get("DPR_STRICT") == "1":
+                    raise
+                ctx.not_covered.append(f"review {slug} failed: {type(exc).__name__}")
 
     for option, owner, note in SKIPPED_OPTIONS:
         if getattr(options, option) and owner not in sections:
