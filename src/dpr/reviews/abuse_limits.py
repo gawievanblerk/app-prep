@@ -43,13 +43,57 @@ def _strip_comment(line: str) -> str:
     return line
 
 
-def _live_lines(text: str) -> Iterator[tuple[int, str]]:
-    """Non-comment, non-blank lines, with trailing comments removed."""
-    for number, raw in enumerate(text.splitlines(), start=1):
-        stripped = raw.strip()
+def _continues(line: str) -> bool:
+    return line.rstrip().endswith("\\")
+
+
+def _unwrap_continuation(line: str) -> str:
+    stripped = line.rstrip()
+    return stripped[:-1] if stripped.endswith("\\") else line
+
+
+def _logical_lines(text: str) -> Iterator[list[tuple[int, str]]]:
+    """Physical lines grouped by trailing-backslash continuation.
+
+    Blank and comment lines are dropped, and never joined into a continuation: a comment line
+    where a continued shell command expected its next line ends that continuation.
+    """
+    physical = text.splitlines()
+    index = 0
+    total = len(physical)
+    while index < total:
+        stripped = physical[index].strip()
         if not stripped or stripped.startswith(("#", "//")):
+            index += 1
             continue
-        yield number, _strip_comment(raw)
+        group = [(index + 1, _strip_comment(physical[index]))]
+        index += 1
+        while _continues(group[-1][1]) and index < total:
+            next_stripped = physical[index].strip()
+            if not next_stripped or next_stripped.startswith(("#", "//")):
+                break
+            group.append((index + 1, _strip_comment(physical[index])))
+            index += 1
+        yield group
+
+
+def _worker_location(group: list[tuple[int, str]]) -> int | None:
+    """The physical line in a logical line whose worker flag or value is live evidence."""
+    whole = " ".join(_unwrap_continuation(text) for _, text in group)
+    for number, line in group:
+        match = WORKERS.search(line)
+        if match is None:
+            continue
+        groups = match.groups()
+        matched = next(i for i, g in enumerate(groups) if g is not None)
+        if matched == 0 and not RUNNER_NAMES.search(whole):
+            continue
+        if matched == 4 and not PM2_NAME.search(whole):
+            continue
+        value = groups[matched]
+        if value == "max" or int(value) > 1:
+            return number
+    return None
 
 
 def multi_process(ctx: Context, near: str = "") -> Location | None:
@@ -60,18 +104,9 @@ def multi_process(ctx: Context, near: str = "") -> Location | None:
     found = []
     for entry in ctx.index.named(*names):
         text = ctx.index.text(entry.rel)
-        for number, line in _live_lines(text):
-            match = WORKERS.search(line)
-            if match is None:
-                continue
-            groups = match.groups()
-            matched = next(i for i, g in enumerate(groups) if g is not None)
-            if matched == 0 and not RUNNER_NAMES.search(line):
-                continue
-            if matched == 4 and not PM2_NAME.search(line):
-                continue
-            value = groups[matched]
-            if value == "max" or int(value) > 1:
+        for group in _logical_lines(text):
+            number = _worker_location(group)
+            if number is not None:
                 found.append(Location(entry.rel, number))
                 break
     if not found:

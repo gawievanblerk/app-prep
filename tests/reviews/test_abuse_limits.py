@@ -119,3 +119,24 @@ def test_multi_process_ignores_comments_and_other_tools(tmp_path):
     write(pm2, "startup.sh", "pm2 start app.js -i max\n")
     [found] = findings_for(pm2, "abuse", "ABUSE-INMEMORY-LIMITER")
     assert str(found.locations[1]) == "startup.sh:1"
+
+
+def test_multi_process_joins_continued_shell_lines(tmp_path):
+    continued = tmp_path / "continued"
+    write(continued, "api/app/rate_limit.py", INMEMORY_LIMITER)
+    write(
+        continued,
+        "startup.sh",
+        'LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}" PYTHONPATH=/home/site/wwwroot gunicorn app.main:app \\\n'
+        "    --worker-class uvicorn.workers.UvicornWorker \\\n"
+        "    --workers 2 \\\n"
+        "    --bind 0.0.0.0:${PORT:-8000} \\\n"
+        "    --timeout 120\n",
+    )
+    [found] = findings_for(continued, "abuse", "ABUSE-INMEMORY-LIMITER")
+    assert str(found.locations[1]) == "startup.sh:3"
+
+    echo_only = tmp_path / "echo_only"
+    write(echo_only, "api/app/rate_limit.py", INMEMORY_LIMITER)
+    write(echo_only, "startup.sh", "echo starting \\\n--workers 4\n")
+    assert findings_for(echo_only, "abuse", "ABUSE-INMEMORY-LIMITER") == []
