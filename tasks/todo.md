@@ -20980,6 +20980,8 @@ Do not push. Do not merge into `develop`. Tell the owner the branch is ready and
 - Lint and format: `ruff check` and `ruff format --check` clean
 - CLI smoke run on fastapi-bad: 33 findings (critical 2, high 6, medium 9, low 16), exit code 1 with `--fail-on critical`, Markdown, JSON and SARIF written
 - Not done in this milestone: inventory and auth reviews, Semgrep and audit adapters, snapshot test, smoke runs on real repositories (Milestone 3)
+- Whole-branch review: 2 Critical and 7 Important issues (secret shapes in snippets, route access classification, paid SDK attribution, rule calibration) fixed in one fix wave and a follow-up (Task 52b with one fix round); every finding and every follow-up issue re-reviewed as addressed. Remaining minors are recorded for Milestone 3.
+- Tests after the fixes: 349 passed, 0 failed; `ruff check` and `ruff format --check` clean; CI green
 
 ---
 
