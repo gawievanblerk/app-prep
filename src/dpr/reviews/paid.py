@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import ast
 import re
-import sys
 from dataclasses import dataclass
 
 from dpr.data import load
@@ -18,12 +17,11 @@ from dpr.discovery.packages import (
     JS_IMPORT,
     PY_IMPORT,
     _js_package,
-    _manifest_packages,
     normalise,
 )
 from dpr.model import Route, SdkUse
 from dpr.parsing import imports, jsts, pyast
-from dpr.reviews.lookups import helper_index
+from dpr.reviews.paid_targets import declared_package, py_target
 from dpr.rules import Context
 from dpr.walk import line_of
 
@@ -160,124 +158,6 @@ def _js_function_index(ctx: Context) -> dict[str, list]:
     return ctx.index.cache[key]
 
 
-def _top_function(ctx: Context, rel: str | None, name: str) -> ast.AST | None:
-    tree = pyast.parse_file(ctx.index, rel) if rel else None
-    for node in tree.body if tree else []:
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == name:
-            return node
-    return None
-
-
-def _declared_package(ctx: Context, name: str) -> bool:
-    """True when a manifest (package.json, pyproject, requirements) or the standard library
-    provides the module or package name."""
-    key = ("manifest-packages", "")
-    if key not in ctx.index.cache:
-        ctx.index.cache[key] = _manifest_packages(ctx.index)
-    parts = name.split("/")
-    root = "/".join(parts[:2] if name.startswith("@") else parts[:1]).split(".")[0]
-    return normalise(root) in ctx.index.cache[key] or root in sys.stdlib_module_names
-
-
-def _by_name(ctx: Context, name: str) -> tuple[str, ast.AST] | None:
-    defs = [d for d in helper_index(ctx).get(name, []) if _top_function(ctx, d[0], name)]
-    return defs[0] if len(defs) == 1 else None
-
-
-def _class_method(
-    ctx: Context, rel: str, class_name: str, method: str
-) -> tuple[str, ast.AST] | None:
-    """A method of a class defined in `rel` or imported into it from a repository file."""
-    tree = pyast.parse_file(ctx.index, rel)
-    classes = {n.name: n for n in tree.body if isinstance(n, ast.ClassDef)} if tree else {}
-    if class_name not in classes:
-        file, attr, _module = imports.py_imports(ctx.index, rel, tree).get(
-            class_name, (None, "", "")
-        )
-        other = pyast.parse_file(ctx.index, file) if file and attr else None
-        classes = {n.name: n for n in other.body if isinstance(n, ast.ClassDef)} if other else {}
-        rel, class_name = file or rel, attr
-    for item in classes[class_name].body if class_name in classes else []:
-        if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef) and item.name == method:
-            return rel, item
-    return None
-
-
-def _instance_class(scope: list[ast.stmt], name: str) -> str | None:
-    """The class a name was built from (`name = Service(...)`) in the given statements."""
-    value = None
-    for node in (n for stmt in scope for n in ast.walk(stmt)):
-        if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == name for t in node.targets
-        ):
-            value = node.value
-    if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
-        return value.func.id
-    return None
-
-
-def _py_method_target(
-    ctx: Context, rel: str, call: ast.Call, fn: ast.AST | None
-) -> tuple[str, ast.AST, bool] | None:
-    """A method called on a module, on a service instance, or on a freshly built instance."""
-    func = call.func
-    if not isinstance(func, ast.Attribute):
-        return None
-    if isinstance(func.value, ast.Call) and isinstance(func.value.func, ast.Name):
-        found = _class_method(ctx, rel, func.value.func.id, func.attr)
-        return (*found, True) if found is not None else None
-    if not isinstance(func.value, ast.Name):
-        return None
-    receiver = func.value.id
-    tree = pyast.parse_file(ctx.index, rel)
-    names = imports.py_imports(ctx.index, rel, tree)
-    file, attr, _module = names.get(receiver, (None, "x", ""))
-    if file and not attr:
-        method = _top_function(ctx, file, func.attr)
-        return (file, method, True) if method is not None else None
-    if file and attr:
-        other = pyast.parse_file(ctx.index, file)
-        class_name = _instance_class(other.body if other else [], attr)
-        found = _class_method(ctx, file, class_name, func.attr) if class_name else None
-        return (*found, True) if found is not None else None
-    scope = [*(getattr(fn, "body", []) or []), *(tree.body if tree else [])]
-    class_name = _instance_class(scope, receiver)
-    found = _class_method(ctx, rel, class_name, func.attr) if class_name else None
-    return (*found, True) if found is not None else None
-
-
-def _py_target(
-    ctx: Context, rel: str, call: ast.Call, fn: ast.AST | None = None
-) -> tuple[str, ast.AST, bool] | None:
-    """The helper a call reaches through this file's definitions or imports: (file, fn, exact).
-
-    An imported name from a local module that cannot be read to its definition (a star
-    re-export, a module path that does not match the tree) is matched by name, not exactly.
-    """
-    names = imports.py_imports(ctx.index, rel, pyast.parse_file(ctx.index, rel))
-    func = call.func
-    if isinstance(func, ast.Name):
-        local = _top_function(ctx, rel, func.id)
-        if local is not None:
-            return rel, local, True
-        file, attr, module = names.get(func.id, (None, "", ""))
-        if not attr:
-            return None
-        found = _top_function(ctx, file, attr)
-        if found is None and file is not None:
-            tree = pyast.parse_file(ctx.index, file)
-            again = imports.py_imports(ctx.index, file, tree).get(attr, (None, "", ""))
-            found = _top_function(ctx, again[0], again[1]) if again[1] else None
-            file = again[0] if found is not None else file
-        if found is not None:
-            return file, found, True
-        if file is not None or not _declared_package(ctx, module.lstrip(".")):
-            hit = _by_name(ctx, attr)
-            return (hit[0], hit[1], False) if hit is not None else None
-        return None
-    return _py_method_target(ctx, rel, call, fn)
-
-
 def _py_paid(ctx: Context, rel: str, fn: ast.AST, depth: int) -> tuple[SdkUse, str, bool] | None:
     sdk = _uses(ast.unparse(fn), _file_names(ctx, rel))
     if sdk:
@@ -285,7 +165,7 @@ def _py_paid(ctx: Context, rel: str, fn: ast.AST, depth: int) -> tuple[SdkUse, s
     if depth >= MAX_DEPTH:
         return None
     for call in [n for n in ast.walk(fn) if isinstance(n, ast.Call)]:
-        target = _py_target(ctx, rel, call, fn)
+        target = py_target(ctx, rel, call, fn)
         if target is None or target[1] is fn:
             continue
         found = _py_paid(ctx, target[0], target[1], depth + 1)
@@ -338,7 +218,7 @@ def _js_target(ctx: Context, tree, call) -> tuple[object, object, bool] | None:
         found = _js_exported(ctx, file, exported)
         if found is not None:
             return found[0], found[1], True
-        local = file is not None or imports.is_local_spec(spec) or not _declared_package(ctx, spec)
+        local = file is not None or imports.is_local_spec(spec) or not declared_package(ctx, spec)
         candidates = _js_function_index(ctx).get(exported, []) if local else []
         if exported not in ("*", "default") and len(candidates) == 1:
             return candidates[0][0], candidates[0][1], False

@@ -10,7 +10,7 @@ from dpr.model import DataModel, Location, Route
 from dpr.parsing import jsts, pyast
 from dpr.parsing.schemas import find_model
 from dpr.reviews.access import Access, path_params
-from dpr.reviews.visibility import js_visible, py_visible
+from dpr.reviews.visibility import js_visible, js_written_after, py_visible, py_written_after
 from dpr.rules import Context
 
 PY_ORM = re.compile(
@@ -214,7 +214,8 @@ def py_lookups(
                     model,
                     bool(PY_PK.search(text)),
                     _target(stmt),
-                    visible=py_visible(value, model),
+                    visible=py_visible(value, model)
+                    and not py_written_after(fn, _target(stmt), stmt.lineno),
                 )
             )
             continue
@@ -245,7 +246,7 @@ def py_lookups(
                         item.by_primary_key,
                         _target(stmt),
                         via,
-                        item.visible,
+                        item.visible and not py_written_after(fn, _target(stmt), stmt.lineno),
                     )
                 )
             if inner:
@@ -321,7 +322,7 @@ def js_lookups(route: Route, subjects: tuple[str, ...]) -> list[Lookup]:
                 model,
                 pk,
                 target,
-                visible=js_visible(call),
+                visible=js_visible(call) and not js_written_after(handler, call, target),
             )
         )
     return found

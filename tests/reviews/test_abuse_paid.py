@@ -403,3 +403,34 @@ def test_paid_calls_through_imported_clients_and_service_instances(tmp_path):
         ("app/main.py:16", "CONFIRMED"),
         ("app/main.py:7", "CONFIRMED"),
     ]
+
+
+def test_instances_resolve_only_from_the_handler_or_module_level(tmp_path):
+    write(tmp_path, "requirements.txt", "fastapi\nopenai\n")
+    write(tmp_path, "app/__init__.py", "")
+    write(
+        tmp_path,
+        "app/deps.py",
+        "def get_current_user():\n    return None\ndef get_mailer():\n    return None\n",
+    )
+    write(
+        tmp_path,
+        "app/main.py",
+        "from fastapi import FastAPI, Depends\nfrom openai import OpenAI\n"
+        "from app.deps import get_current_user, get_mailer\napp = FastAPI()\nclient = OpenAI()\n"
+        "class WeatherTool:\n    def run(self, city):\n        return {'city': city}\n"
+        "class LLMTool:\n    def run(self, prompt):\n"
+        "        return client.chat.completions.create(model='x', messages=[])\n"
+        "class Summariser:\n    def send(self, text):\n"
+        "        return client.chat.completions.create(model='x', messages=[])\n"
+        "@app.get('/weather')\ndef weather(city: str):\n    tool = WeatherTool()\n    return tool.run(city)\n"
+        "@app.post('/generate')\ndef generate(prompt: str, user=Depends(get_current_user)):\n"
+        "    tool = LLMTool()\n    return tool.run(prompt)\n"
+        "def nightly_job():\n    service = Summariser()\n    return service.send('digest')\n"
+        "@app.post('/contact')\ndef contact(text: str, service=Depends(get_mailer)):\n"
+        "    return service.send(text)\n"
+        "@app.post('/late')\ndef late(text: str):\n    helper.run(text)\n    helper = LLMTool()\n    return None\n",
+    )
+    assert findings_for(tmp_path, "abuse", "ABUSE-PAID-UNAUTH") == []
+    unlimited = findings_for(tmp_path, "abuse", "ABUSE-PAID-UNLIMITED")
+    assert [str(f.locations[0]) for f in unlimited] == ["app/main.py:20"]
