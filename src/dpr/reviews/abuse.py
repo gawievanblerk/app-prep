@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dpr.reviews.abuse_paid  # noqa: F401  (registers rules)
 from dpr.model import Part, ReviewSection
 from dpr.rules import Context
 

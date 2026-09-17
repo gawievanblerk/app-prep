@@ -1,0 +1,13 @@
+# Starting limits per paid category, taken from the skill's example table. Not measured traffic.
+llm: {note: "tokens per call, priced per model", per_user: 20, per_ip: 40, window: "1 h"}
+email: {note: "email quota and sender reputation", per_user: 3, per_ip: 10, window: "1 h"}
+sms: {note: "per message, varies by country", per_user: 3, per_ip: 5, window: "1 h"}
+storage: {note: "storage and egress", per_user: 10, per_ip: 20, window: "1 h"}
+image: {note: "per transform or render", per_user: 30, per_ip: 60, window: "1 h"}
+browser: {note: "headless browser minutes", per_user: 10, per_ip: 20, window: "1 h"}
+maps: {note: "per request to the maps API", per_user: 60, per_ip: 120, window: "1 h"}
+payments: {note: "provider fees and card testing", per_user: 10, per_ip: 20, window: "1 h"}
+ml: {note: "per document or media minute", per_user: 10, per_ip: 20, window: "1 h"}
+search: {note: "per search operation", per_user: 120, per_ip: 240, window: "1 h"}
+login: {note: "password hashing CPU and credential stuffing", per_user: 10, per_ip: 20, window: "15 min"}
+form: {note: "a stored row and often an email per submission", per_user: 5, per_ip: 10, window: "1 h"}
