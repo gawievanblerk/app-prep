@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from dpr.model import ScanError
+from dpr.redact import redact
 
 TIMEOUT_SECONDS = 10.0
 USER_AGENT = "dpr header read (owner-confirmed host)"
@@ -44,8 +45,13 @@ def urllib_open(url: str, follow: bool, timeout: float) -> tuple[int, dict[str, 
 def targets(url: str, login_path: str) -> list[tuple[str, str, bool]]:
     parts = urlsplit(url if "://" in url else f"https://{url}")
     if not parts.hostname:
-        raise ScanError(f"not a usable URL for a header read: {url}")
-    host = parts.netloc
+        raise ScanError(f"not a usable URL for a header read: {redact(url)}")
+    try:
+        port = parts.port
+    except ValueError as exc:
+        raise ScanError(f"not a usable URL for a header read: {redact(url)}") from exc
+    hostname = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
+    host = f"{hostname}:{port}" if port else hostname
     login = "/" + login_path.lstrip("/")
     return [
         ("https root", f"https://{host}/", True),
@@ -67,7 +73,11 @@ def read_headers(
             status, headers, final = open_url(target, follow, timeout)
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             reason = getattr(exc, "reason", None) or type(exc).__name__
-            reads.append(HeaderRead(label, target, error=str(reason)))
+            reads.append(HeaderRead(label, target, error=redact(str(reason))))
+            continue
+        except Exception as exc:  # last resort: a bad target must never raise past this point
+            reason = str(exc) or type(exc).__name__
+            reads.append(HeaderRead(label, target, error=redact(reason)))
             continue
         lowered = {k.lower(): v for k, v in headers.items()}
         reads.append(HeaderRead(label, target, status, lowered, final))

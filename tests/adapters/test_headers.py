@@ -1,3 +1,4 @@
+import http.client
 import urllib.error
 
 import pytest
@@ -79,3 +80,44 @@ def test_urllib_open_sends_head_without_following(monkeypatch):
     assert (status, got, final) == (200, {"Server": "nginx"}, "http://app.example.com/")
     assert seen["method"] == "HEAD" and seen["timeout"] == 10.0
     assert seen["handlers"] == ["_NoRedirect"]
+
+
+def test_targets_drops_url_credentials():
+    password = "pw" + "123"
+    result = targets(f"https://user:{password}@app.example.com/x", "/login")
+    for _, url, _ in result:
+        assert "@" not in url
+        assert password not in url
+    assert [url for _, url, _ in result] == [
+        "https://app.example.com/",
+        "https://app.example.com/login",
+        "http://app.example.com/",
+    ]
+
+
+def test_targets_scan_error_does_not_leak_password_when_host_is_missing():
+    password = "pw" + "123"
+    with pytest.raises(ScanError) as excinfo:
+        targets(f"https://user:{password}@", "/login")
+    assert password not in str(excinfo.value)
+
+
+def test_targets_raises_scan_error_for_non_numeric_port():
+    with pytest.raises(ScanError):
+        targets("app.example.com:8o80", "/login")
+
+
+def test_targets_keeps_ipv6_brackets_and_port():
+    result = targets("https://[::1]:8443", "/login")
+    for _, url, _ in result:
+        assert "[::1]:8443" in url
+
+
+def test_read_headers_turns_any_exception_into_an_error_result():
+    class RaisingOpener:
+        def __call__(self, url, follow, timeout):
+            raise http.client.InvalidURL("bad")
+
+    reads = read_headers("https://app.example.com", opener=RaisingOpener())
+    assert len(reads) == 3
+    assert all(read.error is not None for read in reads)
