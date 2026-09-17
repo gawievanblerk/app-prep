@@ -43,3 +43,18 @@ def test_clean_and_dirty_repo(tmp_path):
     (tmp_path / "b.txt").write_text("b")
     assert git_info(tmp_path).revision == f"{sha} (with uncommitted changes)"
     assert tracked_files(tmp_path) == ["a.txt"]
+
+
+def test_run_git_takes_no_optional_locks_and_never_fetches(tmp_path, monkeypatch):
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"], seen["env"] = command, kwargs["env"]
+        return subprocess.CompletedProcess(command, 0, stdout="true\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert run_git(tmp_path, "status", "--porcelain") == "true\n"
+    assert seen["command"][:2] == ["git", "--no-optional-locks"]
+    assert seen["command"][-2:] == ["status", "--porcelain"]
+    assert seen["env"]["GIT_OPTIONAL_LOCKS"] == "0"
+    assert seen["env"]["GIT_NO_LAZY_FETCH"] == "1"

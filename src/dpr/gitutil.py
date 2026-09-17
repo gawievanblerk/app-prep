@@ -1,7 +1,15 @@
-"""Run git without letting repository config execute commands."""
+"""Run git read-only commands for the scan.
+
+Each call passes --no-optional-locks and sets GIT_OPTIONAL_LOCKS=0, so commands such as
+git status do not refresh or rewrite .git/index. GIT_NO_LAZY_FETCH=1 stops a partial clone
+from fetching missing objects. core.fsmonitor is turned off so no monitor hook starts.
+Repository config can still run other programs, such as clean filters, so only scan
+repositories you trust.
+"""
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -12,10 +20,11 @@ from dpr.model import GitInfo
 def run_git(root: Path, *args: str, timeout: int = 30) -> str | None:
     if shutil.which("git") is None:
         return None
-    command = ["git", "-c", "core.fsmonitor=false", "-C", str(root), *args]
+    command = ["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", str(root), *args]
+    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_LAZY_FETCH": "1"}
     try:
         result = subprocess.run(
-            command, capture_output=True, text=True, timeout=timeout, check=False
+            command, capture_output=True, text=True, timeout=timeout, check=False, env=env
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

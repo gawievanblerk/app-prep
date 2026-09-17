@@ -1,3 +1,4 @@
+import hashlib
 import socket
 import subprocess
 from pathlib import Path
@@ -55,28 +56,34 @@ def test_report_has_no_legal_verdicts_or_em_dashes(bad):
     assert chr(0x2014) not in text
 
 
+def _index_state(root):
+    index = root / ".git" / "index"
+    return hashlib.sha256(index.read_bytes()).hexdigest(), index.stat().st_mtime_ns
+
+
+def _status(root):
+    return subprocess.run(
+        ["git", "--no-optional-locks", "-C", str(root), "status", "--porcelain", "--ignored"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+def _listing(root):
+    return sorted(
+        p.relative_to(root).as_posix() for p in root.rglob("*") if ".git/" not in p.as_posix()
+    )
+
+
 def test_review_does_not_change_the_repository(bad):
-    before = subprocess.run(
-        ["git", "-C", str(bad), "status", "--porcelain", "--ignored"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    listing = sorted(
-        p.relative_to(bad).as_posix() for p in bad.rglob("*") if ".git/" not in p.as_posix()
-    )
+    before = _status(bad)
+    index_before = _index_state(bad)
+    listing = _listing(bad)
     review(bad)
-    after = subprocess.run(
-        ["git", "-C", str(bad), "status", "--porcelain", "--ignored"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    assert after == before
-    assert (
-        sorted(p.relative_to(bad).as_posix() for p in bad.rglob("*") if ".git/" not in p.as_posix())
-        == listing
-    )
+    assert _index_state(bad) == index_before
+    assert _status(bad) == before
+    assert _listing(bad) == listing
 
 
 def test_no_em_dash_characters_in_source_or_tests():
