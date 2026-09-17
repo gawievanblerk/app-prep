@@ -265,6 +265,8 @@ def test_env_tracked_with_unparseable_contents_stays_critical(tmp_path):
         ".env.local:1": "critical",
         ".env.production:1": "critical",
     }
+    assert "contents could not be checked" in found[".env.local:1"].detail
+    assert "contents could not be checked" in found[".env.production:1"].detail
 
 
 def test_logged_pii_walks_each_module_a_fixed_number_of_times(tmp_path, monkeypatch):

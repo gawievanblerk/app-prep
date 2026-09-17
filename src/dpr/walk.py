@@ -112,7 +112,12 @@ class RepoIndex:
                 if name in BUILD_DIR_NAMES:
                     self._walk_build(sub)
                 elif name == ".next":
-                    if (sub / "static").is_dir():
+                    try:
+                        has_static = (sub / "static").is_dir()
+                    except OSError:
+                        self._skip_dir(sub)
+                        continue
+                    if has_static:
                         self._walk_build(sub / "static")
                 elif name not in SKIP_DIRS:
                     try:
