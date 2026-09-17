@@ -1,0 +1,49 @@
+BASE-COOKIE-HTTPONLY:
+  title: Cookie ${name} is readable by page scripts
+  effort_minutes: 2
+  detail: The HttpOnly flag is ${now} where ${name} is set, so any script running on the page can read the cookie.
+  attack: Find one cross-site scripting bug, read document.cookie, and replay the value from another browser.
+  blast: The account behind the cookie, when it carries a session.
+  fix: Set httpOnly true (httponly=True in Python, SESSION_COOKIE_HTTPONLY = True in Django) where the cookie is set.
+  verify: Log in, then run document.cookie in the browser console and confirm the cookie is not listed.
+BASE-COOKIE-SECURE:
+  title: Cookie ${name} can travel over plain HTTP
+  effort_minutes: 2
+  detail: The Secure flag is ${now} where ${name} is set, so the browser also sends it over unencrypted connections.
+  attack: On a shared or hostile network, trigger one plain HTTP request to the site and read the cookie from the traffic.
+  blast: The account behind the cookie, when it carries a session.
+  fix: Set secure true (secure=True in Python, SESSION_COOKIE_SECURE = True and CSRF_COOKIE_SECURE = True in Django) for every deployed environment.
+  verify: curl -sSI against the login response and confirm the Set-Cookie line includes Secure.
+BASE-COOKIE-SAMESITE:
+  title: Cookie ${name} has a weak SameSite setting
+  effort_minutes: 2
+  detail: SameSite is ${now} where ${name} is set, so other sites can make the browser send it with their requests.
+  attack: Host a page that submits a form or request to this site; the browser attaches the cookie and the action runs as the signed-in user.
+  blast: Every state-changing action the cookie authorises.
+  fix: Set sameSite to lax (strict for cookies only used on this site). If None is required for a cross-site frontend, pair it with a CSRF token or an Origin check on every state-changing route.
+  verify: curl -sSI against the response that sets the cookie and confirm SameSite=Lax or Strict.
+BASE-DEBUG-ON:
+  title: Debug mode may be on in production
+  effort_minutes: 5
+  detail: ${what}
+  proof_needed: Check the value the production environment actually sets for debug.
+  attack: Trigger an error and read the debug page, stack trace, settings and SQL it shows.
+  blast: Source paths, settings, environment details and sometimes secrets shown on error pages.
+  fix: Default debug to False in code and turn it on only through a local environment variable.
+  verify: Request a URL that raises an error on the deployed site and confirm a generic error page.
+BASE-WEAK-HASH:
+  title: Passwords hashed with ${algorithm}
+  effort_minutes: 60
+  detail: ${algorithm} is a fast general-purpose hash. A stolen table of these hashes can be cracked at billions of guesses per second.
+  proof_needed: Confirm this hash is used to store or compare user passwords.
+  attack: Take a database dump or backup and crack the hashes offline with a GPU.
+  blast: Every password stored with this hash, and every other site where users reused them.
+  fix: Use Argon2id, scrypt or bcrypt through the framework's password hasher (Django PBKDF2 or Argon2 first in PASSWORD_HASHERS), and rehash on next login.
+  verify: Create a user and confirm the stored hash starts with an Argon2, bcrypt or PBKDF2 prefix.
+BASE-MIXED-CONTENT:
+  title: Page loads assets over plain HTTP
+  effort_minutes: 5
+  detail: ${count} src or href value(s) start with http://, so browsers block them or load them without encryption on an HTTPS page.
+  proof_needed: Check whether these URLs reach the deployed pages.
+  fix: Change the URLs to https:// or to relative paths.
+  verify: Open the deployed page with the browser console open and confirm no mixed content warnings.
