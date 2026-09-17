@@ -85,7 +85,7 @@ def test_questions_and_not_covered():
 def test_no_triple_newlines_legal_phrases_or_em_dashes():
     text = render_markdown(report())
     assert "\n\n\n" not in text
-    assert "—" not in text
+    assert "\u2014" not in text
     assert not any(p in text.lower() for p in BANNED_PHRASES)
 
 
