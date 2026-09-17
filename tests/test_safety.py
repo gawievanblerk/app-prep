@@ -71,7 +71,11 @@ def test_no_em_dash_characters_in_source_or_tests():
     offenders = []
     for folder in ("src", "tests"):
         for path in (root / folder).rglob("*"):
-            if path.is_file() and path.suffix in {".py", ".yaml", ".j2", ".md", ".ts", ".js", ".sql", ".json", ".prisma"}:
-                if chr(0x2014) in path.read_text(encoding="utf-8", errors="replace"):
-                    offenders.append(str(path.relative_to(root)))
+            if not path.is_file() or "__pycache__" in path.parts:
+                continue
+            data = path.read_bytes()
+            if b"\0" in data[:8192]:
+                continue
+            if chr(0x2014) in data.decode("utf-8", errors="ignore"):
+                offenders.append(str(path.relative_to(root)))
     assert offenders == []
