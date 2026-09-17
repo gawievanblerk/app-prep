@@ -6,7 +6,7 @@ from dpr.api import review
 from dpr.discovery.detect import detect
 from dpr.reviews import baseline, baseline_headers
 from dpr.reviews.baseline_headers import weak_csp_reason
-from dpr.reviews.headers_static import surfaces
+from dpr.reviews.headers_static import csp_values, surfaces
 from dpr.walk import RepoIndex
 from tests.reviews.helpers import findings_for, write
 
@@ -202,6 +202,59 @@ def test_section_tables_and_failures(tmp_path, live, monkeypatch):
     table = next(p for p in section.parts if p.title == "Live header read")
     assert table.rows[0][2:] == ("failed", "timed out")
     assert "Live header read of https://app.example.com/ failed: timed out" in ctx.not_covered
+
+
+def test_root_app_does_not_take_headers_from_nested_app(tmp_path):
+    root = tmp_path
+    write(root, "package.json", "{}")
+    write(root, "next.config.js", "module.exports = { reactStrictMode: true }\n")
+    write(root, "api/requirements.txt", "fastapi\n")
+    write(
+        root,
+        "api/app/main.py",
+        "from fastapi import FastAPI\napp = FastAPI()\n"
+        "@app.middleware('http')\nasync def headers(request, call_next):\n"
+        "    response = await call_next(request)\n"
+        "    response.headers['Strict-Transport-Security'] = 'max-age=31536000'\n"
+        "    response.headers['X-Content-Type-Options'] = 'nosniff'\n"
+        "    return response\n",
+    )
+    found = {s.name: s for s in surfaces(context(root))}
+    assert found["next.config.js"].headers == frozenset()
+    assert found["api/app/main.py"].headers == {
+        "strict-transport-security",
+        "x-content-type-options",
+    }
+    [hsts] = findings_for(root, "baseline", "BASE-HEADER-MISSING-HSTS")
+    assert [str(loc) for loc in hsts.locations] == ["next.config.js:1"]
+
+
+def test_test_files_and_comments_do_not_count(tmp_path):
+    root = tmp_path
+    write(root, "site/package.json", "{}")
+    write(
+        root,
+        "site/next.config.js",
+        "module.exports = { async headers() { return [{ source: '/(.*)', headers: [\n"
+        "  { key: 'Strict-Transport-Security', value: 'max-age=31536000' },\n"
+        "] }] } }\n",
+    )
+    write(
+        root,
+        "site/tests/security.test.js",
+        "test('has frame protection', () => {\n"
+        "  expect(headers['x-frame-options']).toBe('DENY')\n"
+        "  const csp = \"default-src *; script-src 'unsafe-inline'\"\n"
+        "})\n",
+    )
+    write(
+        root,
+        "site/src/notes.js",
+        "// TODO set 'Content-Security-Policy'\n/* 'referrer-policy' */\nexport {}\n",
+    )
+    [surface] = surfaces(context(root))
+    assert surface.headers == {"strict-transport-security"}
+    assert not any("unsafe-inline" in policy for policy, _ in csp_values(context(root)))
 
 
 def test_default_review_never_reads_headers(tmp_path, monkeypatch):

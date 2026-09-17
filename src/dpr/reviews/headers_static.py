@@ -9,6 +9,7 @@ from pathlib import PurePosixPath
 
 from dpr.model import Location
 from dpr.parsing import jsts, pyast
+from dpr.reviews.paths import is_test
 from dpr.rules import Context
 from dpr.walk import line_of
 
@@ -30,6 +31,13 @@ HEADER_LITERAL = re.compile(
 )
 STRING_LITERAL = re.compile(r""""(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`""")
 PLATFORM_HSTS = {"vercel.json", "netlify.toml"}
+# Matches a string literal (kept verbatim) or a //, /* */ or # comment (masked to blanks), so
+# header names and CSP policies written inside comments are never mistaken for real code.
+COMMENT_MASK = re.compile(
+    r"""(?P<string>"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)"""
+    r"""|//[^\n]*|/\*.*?\*/|\#[^\n]*""",
+    re.DOTALL,
+)
 
 
 @dataclass(frozen=True)
@@ -41,8 +49,15 @@ class Surface:
     root: str
 
 
+def _file_names(ctx: Context) -> frozenset[str]:
+    """All indexed file paths, cached once per run so app_root() stays cheap per call."""
+    if "header_file_names" not in ctx.facts:
+        ctx.facts["header_file_names"] = frozenset(f.rel for f in ctx.index.files)
+    return ctx.facts["header_file_names"]
+
+
 def app_root(ctx: Context, rel: str) -> str:
-    names = {f.rel for f in ctx.index.files}
+    names = _file_names(ctx)
     folder = PurePosixPath(rel).parent
     while True:
         prefix = "" if str(folder) == "." else f"{folder}/"
@@ -53,16 +68,23 @@ def app_root(ctx: Context, rel: str) -> str:
         folder = folder.parent
 
 
-def _under(rel: str, root: str) -> bool:
-    return not root or rel.startswith(root + "/")
+def _mask_comments(text: str) -> str:
+    """Blank out comments (keeping newlines and string literals intact) before scanning."""
+
+    def repl(match: re.Match[str]) -> str:
+        if match.group("string") is not None:
+            return match.group(0)
+        return "".join(ch if ch == "\n" else " " for ch in match.group(0))
+
+    return COMMENT_MASK.sub(repl, text)
 
 
 def _code_headers(ctx: Context, root: str) -> frozenset[str]:
     found: set[str] = set()
     for entry in [*ctx.index.js_files, *ctx.index.py_files]:
-        if not _under(entry.rel, root):
+        if is_test(entry.rel) or app_root(ctx, entry.rel) != root:
             continue
-        text = ctx.index.text(entry.rel)
+        text = _mask_comments(ctx.index.text(entry.rel))
         found.update(m.group(1).lower() for m in HEADER_LITERAL.finditer(text))
         if "frame-ancestors" in text:
             found.add("x-frame-options")
@@ -193,10 +215,10 @@ def csp_values(ctx: Context) -> list[tuple[str, Location]]:
     candidates += [
         f.rel
         for f in [*ctx.index.js_files, *ctx.index.py_files]
-        if any(_under(f.rel, root) for root in roots)
+        if not is_test(f.rel) and app_root(ctx, f.rel) in roots
     ]
     for rel in dict.fromkeys(candidates):
-        text = ctx.index.text(rel)
+        text = _mask_comments(ctx.index.text(rel))
         for match in STRING_LITERAL.finditer(text):
             policy = match.group(0)[1:-1]
             if "default-src" in policy or "script-src" in policy:
