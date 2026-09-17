@@ -332,3 +332,74 @@ def test_next_and_django_global_guards_make_paid_unauth_inferred(tmp_path):
     [django_finding] = findings_for(django, "abuse", "ABUSE-PAID-UNAUTH")
     assert django_finding.tag.value == "INFERRED"
     assert "TokenAuthMiddleware" in django_finding.proof_needed
+
+
+def test_paid_calls_through_imported_clients_and_service_instances(tmp_path):
+    write(tmp_path, "requirements.txt", "fastapi\nopenai\n")
+    write(tmp_path, "app/__init__.py", "")
+    write(tmp_path, "app/services/__init__.py", "")
+    write(
+        tmp_path,
+        "app/services/ai.py",
+        "from openai import OpenAI\n_client = OpenAI()\n"
+        "class AIService:\n    def complete(self, prompt):\n"
+        "        return _client.chat.completions.create(model='x', messages=[])\n"
+        "class Plain:\n    def complete(self, prompt):\n        return prompt\n"
+        "ai_service = AIService()\nplain = Plain()\n",
+    )
+    write(
+        tmp_path,
+        "app/clients.py",
+        "from openai import OpenAI\nclient = OpenAI()\nlabel = 'openai'\n",
+    )
+    write(
+        tmp_path,
+        "app/main.py",
+        "from fastapi import FastAPI\nfrom app.services.ai import AIService, ai_service, plain\n"
+        "from app.clients import client, label\nfrom app import clients\napp = FastAPI()\n"
+        "@app.post('/service')\ndef service(prompt: str):\n    return ai_service.complete(prompt)\n"
+        "@app.post('/client')\ndef direct(prompt: str):\n"
+        "    return client.chat.completions.create(model='x', messages=[])\n"
+        "@app.post('/module-client')\ndef module_client(prompt: str):\n"
+        "    return clients.client.chat.completions.create(model='x', messages=[])\n"
+        "@app.post('/constructed')\ndef constructed(prompt: str):\n"
+        "    svc = AIService()\n    return svc.complete(prompt)\n"
+        "@app.post('/plain')\ndef plain_route(prompt: str):\n    return plain.complete(label.upper())\n",
+    )
+    write(tmp_path, "package.json", '{"dependencies": {"next": "14", "openai": "4"}}')
+    write(
+        tmp_path,
+        "lib/openai.ts",
+        "import OpenAI from 'openai'\nexport const openai = new OpenAI()\nexport const cache = new Map()\n",
+    )
+    route = "{imports}\nexport async function POST(req: Request) {{\n  return Response.json(await {call})\n}}\n"
+    write(
+        tmp_path,
+        "app/api/named/route.ts",
+        route.format(
+            imports="import { openai } from '@/lib/openai'",
+            call="openai.chat.completions.create({ model: 'x', messages: [] })",
+        ),
+    )
+    write(
+        tmp_path,
+        "app/api/alias/route.ts",
+        route.format(
+            imports="import { openai as ai } from '@/lib/openai'",
+            call="ai.chat.completions.create({ model: 'x', messages: [] })",
+        ),
+    )
+    write(
+        tmp_path,
+        "app/api/cache/route.ts",
+        route.format(imports="import { cache } from '@/lib/openai'", call="cache.get('x')"),
+    )
+    found = findings_for(tmp_path, "abuse", "ABUSE-PAID-UNAUTH")
+    assert sorted((str(f.locations[0]), f.tag.value) for f in found) == [
+        ("app/api/alias/route.ts:2", "CONFIRMED"),
+        ("app/api/named/route.ts:2", "CONFIRMED"),
+        ("app/main.py:10", "CONFIRMED"),
+        ("app/main.py:13", "CONFIRMED"),
+        ("app/main.py:16", "CONFIRMED"),
+        ("app/main.py:7", "CONFIRMED"),
+    ]
