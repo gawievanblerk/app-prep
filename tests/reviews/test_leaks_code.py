@@ -223,3 +223,31 @@ def test_broad_response_through_wrappers_and_chained_status(tmp_path):
         "app/api/me/route.ts:3",
         "server.js:3",
     ]
+
+
+def test_env_tracked_severity_follows_the_names_in_the_file(tmp_path):
+    git(tmp_path, "init", "-q")
+    write(tmp_path, ".env.production", "NEXT_PUBLIC_SITE_NAME=Example Shop\n")
+    write(tmp_path, ".env", "NEXT_PUBLIC_SITE_NAME=x\nDATABASE_URL=postgres://localhost/app\n")
+    write(tmp_path, ".env.development", "NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=\n")
+    write(tmp_path, "web/.env.staging", "NEXT_PUBLIC_A=1\n")
+    write(tmp_path, "a.py", "x = 1\n")
+    git(tmp_path, "add", "-A")
+    git(tmp_path, "commit", "-q", "-m", "envs")
+    (tmp_path / "web/.env.staging").unlink()
+    found = {str(f.locations[0]): f for f in findings_for(tmp_path, "leaks", "LEAK-ENV-TRACKED")}
+    assert {loc: f.severity.value for loc, f in found.items()} == {
+        ".env.development:1": "critical",
+        ".env.production:1": "low",
+        ".env:1": "critical",
+        "web/.env.staging:1": "critical",
+    }
+    low = found[".env.production:1"]
+    assert low.detail == (
+        "Only public-prefixed, non-secret names are tracked; "
+        "frameworks such as Next.js commit these on purpose."
+    )
+    assert "Rotate" not in low.fix
+    assert "Rotate" in found[".env:1"].fix
+    text = repr(list(found.values()))
+    assert "Example Shop" not in text and "postgres://localhost/app" not in text

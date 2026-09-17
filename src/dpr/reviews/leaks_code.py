@@ -13,8 +13,9 @@ from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
 from dpr.parsing.routes_js import response_calls
 from dpr.parsing.schemas import find_model
-from dpr.redact import snippet
+from dpr.redact import is_secret_name, public_prefix, snippet
 from dpr.rules import Context, make_finding, rule
+from dpr.walk import SourceFile
 
 ENV_NAME = re.compile(r"^\.env(\..+)?$")
 ENV_EXAMPLE = re.compile(r"\.(example|sample|template)$")
@@ -41,11 +42,36 @@ OBJECT_LOGGED = "A request, user, token or database error object is written to t
 TRACEBACK_LOGGED = "A full traceback, with local values in the message, is printed to the log."
 JS_DB = re.compile(r"prisma\.|supabase\.|\bdb\.|\.query\(|\.execute\(|knex|sequelize|mongoose")
 PY_DB = re.compile(r"\.objects\.|session\.|cursor\.|\.execute\(|\.query\(")
+PUBLIC_ENV_DETAIL = (
+    "Only public-prefixed, non-secret names are tracked; "
+    "frameworks such as Next.js commit these on purpose."
+)
+PUBLIC_ENV_FIX = (
+    "Keep {path} for public values only. Put any secret in an untracked file such as "
+    ".env.local and list that file in .gitignore."
+)
+PUBLIC_ENV_BLAST = "Values that already ship to the browser."
 
 
 def _is_real_env(path: str) -> bool:
     name = PurePosixPath(path).name
     return bool(ENV_NAME.match(name)) and not ENV_EXAMPLE.search(name)
+
+
+def _only_public_names(ctx: Context, path: str) -> bool:
+    """True when every variable name in the file is public-prefixed and not secret-like.
+
+    Names only; values are never read. A file that cannot be read counts as not public.
+    """
+    full = ctx.index.root / path
+    if full.is_symlink() or not full.is_file():
+        return False
+    entry = next((e for e in ctx.index.env_files if e.rel == path), None)
+    try:
+        names = [name for name, _ in ctx.index.env_names(entry or SourceFile(path, full, 0))]
+    except OSError:
+        return False
+    return not any(public_prefix(n) is None or is_secret_name(n) for n in names)
 
 
 @rule("LEAK-ENV-TRACKED", review="leaks", severity="critical", exploitability="high")
@@ -55,10 +81,19 @@ def env_tracked(ctx: Context) -> Iterator[Finding]:
         ctx.not_covered.append("git checks skipped: not a git repository or git is unavailable")
         return
     for path in tracked:
-        if _is_real_env(path):
-            yield make_finding(
-                "LEAK-ENV-TRACKED", tag=Tag.CONFIRMED, locations=[Location(path, 1)], path=path
-            )
+        if not _is_real_env(path):
+            continue
+        public = _only_public_names(ctx, path)
+        yield make_finding(
+            "LEAK-ENV-TRACKED",
+            tag=Tag.CONFIRMED,
+            locations=[Location(path, 1)],
+            severity="low" if public else None,
+            detail=PUBLIC_ENV_DETAIL if public else None,
+            fix=PUBLIC_ENV_FIX.format(path=path) if public else None,
+            blast=PUBLIC_ENV_BLAST if public else None,
+            path=path,
+        )
 
 
 @rule("LEAK-ENV-IN-HISTORY", review="leaks", severity="high", exploitability="medium")
