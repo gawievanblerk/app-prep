@@ -127,6 +127,33 @@ def test_unreadable_files_are_skipped(tmp_path):
     ]
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can read files without permission")
+def test_unreadable_directory_is_skipped_not_raised(tmp_path):
+    write(tmp_path, "a.py")
+    locked_dir = write(tmp_path, "locked/b.py").parent
+    locked_dir.chmod(0)
+    try:
+        index = RepoIndex(tmp_path)
+    finally:
+        locked_dir.chmod(0o755)
+    assert rels(index.files) == ["a.py"]
+    assert index.skipped == ["locked/: directory could not be read"]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can read files without permission")
+def test_unreadable_directory_inside_build_folder_is_skipped(tmp_path):
+    write(tmp_path, "a.py")
+    locked_dir = write(tmp_path, "dist/locked/b.js").parent
+    locked_dir.chmod(0)
+    try:
+        index = RepoIndex(tmp_path)
+    finally:
+        locked_dir.chmod(0o755)
+    assert rels(index.files) == ["a.py"]
+    assert index.build_files == []
+    assert index.skipped == ["dist/locked/: directory could not be read"]
+
+
 def test_named_pipes_are_skipped_without_blocking(tmp_path):
     write(tmp_path, "a.py")
     os.mkfifo(tmp_path / "pipe.py")

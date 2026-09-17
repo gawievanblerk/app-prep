@@ -51,6 +51,10 @@ PUBLIC_ENV_FIX = (
     ".env.local and list that file in .gitignore."
 )
 PUBLIC_ENV_BLAST = "Values that already ship to the browser."
+UNREADABLE_ENV_DETAIL = (
+    "This file's contents could not be checked (empty, unreadable, or not NAME=value "
+    "lines), so it is treated as critical until it is reviewed by hand."
+)
 
 
 def _is_real_env(path: str) -> bool:
@@ -58,19 +62,21 @@ def _is_real_env(path: str) -> bool:
     return bool(ENV_NAME.match(name)) and not ENV_EXAMPLE.search(name)
 
 
-def _only_public_names(ctx: Context, path: str) -> bool:
-    """True when every variable name in the file is public-prefixed and not secret-like.
-
-    Names only; values are never read. A file that cannot be read counts as not public.
-    """
+def _env_names(ctx: Context, path: str) -> list[str] | None:
+    """Parsed NAME=value names, or None when the file's contents could not be checked."""
     full = ctx.index.root / path
     if full.is_symlink() or not full.is_file():
-        return False
+        return None
     entry = next((e for e in ctx.index.env_files if e.rel == path), None)
     try:
         names = [name for name, _ in ctx.index.env_names(entry or SourceFile(path, full, 0))]
     except OSError:
-        return False
+        return None
+    return names or None
+
+
+def _only_public_names(names: list[str]) -> bool:
+    """True when every variable name in the file is public-prefixed and not secret-like."""
     return not any(public_prefix(n) is None or is_secret_name(n) for n in names)
 
 
@@ -83,13 +89,17 @@ def env_tracked(ctx: Context) -> Iterator[Finding]:
     for path in tracked:
         if not _is_real_env(path):
             continue
-        public = _only_public_names(ctx, path)
+        names = _env_names(ctx, path)
+        public = names is not None and _only_public_names(names)
+        detail = PUBLIC_ENV_DETAIL if public else None
+        if detail is None and names is None:
+            detail = UNREADABLE_ENV_DETAIL
         yield make_finding(
             "LEAK-ENV-TRACKED",
             tag=Tag.CONFIRMED,
             locations=[Location(path, 1)],
             severity="low" if public else None,
-            detail=PUBLIC_ENV_DETAIL if public else None,
+            detail=detail,
             fix=PUBLIC_ENV_FIX.format(path=path) if public else None,
             blast=PUBLIC_ENV_BLAST if public else None,
             path=path,

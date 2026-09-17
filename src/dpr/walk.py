@@ -100,7 +100,9 @@ class RepoIndex:
         return path.relative_to(self.root).as_posix()
 
     def _walk(self) -> None:
-        for dirpath, dirnames, filenames in os.walk(self.root, followlinks=False):
+        for dirpath, dirnames, filenames in os.walk(
+            self.root, followlinks=False, onerror=self._on_walk_error
+        ):
             current = Path(dirpath)
             keep: list[str] = []
             for name in sorted(dirnames):
@@ -112,14 +114,29 @@ class RepoIndex:
                 elif name == ".next":
                     if (sub / "static").is_dir():
                         self._walk_build(sub / "static")
-                elif name not in SKIP_DIRS and not _is_virtualenv(sub, name):
-                    keep.append(name)
+                elif name not in SKIP_DIRS:
+                    try:
+                        virtualenv = _is_virtualenv(sub, name)
+                    except OSError:
+                        self._skip_dir(sub)
+                        continue
+                    if not virtualenv:
+                        keep.append(name)
             dirnames[:] = keep
             for name in sorted(filenames):
                 self._add(current / name)
 
     def _unreadable(self, path: Path, exc: OSError) -> None:
         self.skipped.append(f"{self._rel(path)}: could not be read ({type(exc).__name__})")
+
+    def _skip_dir(self, path: Path) -> None:
+        message = f"{self._rel(path)}/: directory could not be read"
+        if message not in self.skipped:
+            self.skipped.append(message)
+
+    def _on_walk_error(self, exc: OSError) -> None:
+        if exc.filename:
+            self._skip_dir(Path(exc.filename))
 
     def _regular_size(self, path: Path) -> int | None:
         """Size of a regular file. Symlinks, pipes, sockets and devices give None."""
@@ -153,7 +170,9 @@ class RepoIndex:
         self.files.append(entry)
 
     def _walk_build(self, top: Path) -> None:
-        for dirpath, dirnames, filenames in os.walk(top, followlinks=False):
+        for dirpath, dirnames, filenames in os.walk(
+            top, followlinks=False, onerror=self._on_walk_error
+        ):
             current = Path(dirpath)
             dirnames[:] = sorted(
                 d for d in dirnames if d != "node_modules" and not (current / d).is_symlink()

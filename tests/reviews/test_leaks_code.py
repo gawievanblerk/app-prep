@@ -253,6 +253,20 @@ def test_env_tracked_severity_follows_the_names_in_the_file(tmp_path):
     assert "Example Shop" not in text and "postgres://localhost/app" not in text
 
 
+def test_env_tracked_with_unparseable_contents_stays_critical(tmp_path):
+    git(tmp_path, "init", "-q")
+    write(tmp_path, ".env.local", "")
+    write(tmp_path, ".env.production", "site: demo\n")
+    write(tmp_path, "a.py", "x = 1\n")
+    git(tmp_path, "add", "-A")
+    git(tmp_path, "commit", "-q", "-m", "envs")
+    found = {str(f.locations[0]): f for f in findings_for(tmp_path, "leaks", "LEAK-ENV-TRACKED")}
+    assert {loc: f.severity.value for loc, f in found.items()} == {
+        ".env.local:1": "critical",
+        ".env.production:1": "critical",
+    }
+
+
 def test_logged_pii_walks_each_module_a_fixed_number_of_times(tmp_path, monkeypatch):
     import ast
 
