@@ -6,6 +6,8 @@
     "@supabase/supabase-js": "2.45.0",
     "@prisma/client": "5.18.0",
     "@sentry/nextjs": "8.20.0",
-    "stripe": "16.0.0"
+    "stripe": "16.0.0",
+    "openai": "4.56.0",
+    "@upstash/ratelimit": "2.0.0"
   }
 }

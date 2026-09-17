@@ -31,6 +31,12 @@ def git(root: Path, *args: str) -> None:
     )
 
 
+def _commit(root: Path) -> None:
+    git(root, "init", "-q")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "initial")
+
+
 def _bad_extras(root: Path) -> None:
     (root / "lib/stripe.ts").write_text(
         'import Stripe from "stripe"\n\nexport const stripe = new Stripe("' + LIVE_STRIPE + '")\n'
@@ -55,16 +61,17 @@ def _good_extras(root: Path) -> None:
         'import Stripe from "stripe"\n\nexport const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)\n'
     )
     (root / ".env").write_text(f"STRIPE_SECRET_KEY={ENV_VALUE}\n")
-    git(root, "init", "-q")
-    git(root, "add", "-A")
-    git(root, "commit", "-q", "-m", "initial")
+    _commit(root)
+
+
+EXTRAS = {
+    "next-supabase-bad": _bad_extras,
+    "next-supabase-good": _good_extras,
+}
 
 
 def build(name: str, tmp_path: Path) -> Path:
     root = tmp_path / name
     shutil.copytree(FIXTURES / name, root)
-    if name == "next-supabase-bad":
-        _bad_extras(root)
-    else:
-        _good_extras(root)
+    EXTRAS[name](root)
     return root

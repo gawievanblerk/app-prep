@@ -1,24 +1,46 @@
 # Every finding the scan must report, and nothing else.
 findings:
-  - {rule: LEAK-PUBLIC-SECRET, file: .env.example, line: 3, tag: CONFIRMED}
+  - {rule: ABUSE-CORS-REFLECT, file: "app/api/invoices/[id]/route.ts", line: 12, tag: CONFIRMED}
+  - {rule: ABUSE-FORM-NO-CHALLENGE, file: app/api/signup/route.ts, line: 5, tag: INFERRED}
+  - {rule: ABUSE-NO-KILL-SWITCH, file: app/api/generate/route.ts, line: 6, tag: INFERRED}
+  - {rule: ABUSE-PAID-UNAUTH, file: app/api/generate/route.ts, line: 6, tag: CONFIRMED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: app/api/generate/route.ts, line: 6, tag: INFERRED}
+  - {rule: BASE-COOKIE-HTTPONLY, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+  - {rule: BASE-COOKIE-SAMESITE, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+  - {rule: BASE-COOKIE-SECURE, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+  - {rule: BASE-HEADER-MISSING-CSP, file: next.config.js, line: 1, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-FRAME, file: next.config.js, line: 1, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: next.config.js, line: 1, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-PERMISSIONS, file: next.config.js, line: 1, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-REFERRER, file: next.config.js, line: 1, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: next.config.js, line: 1, tag: UNVERIFIED}
+  - {rule: BASE-VERSION-DISCLOSURE, file: next.config.js, line: 1, tag: INFERRED}
+  - {rule: LEAK-BROAD-RESPONSE, file: "app/api/users/[id]/route.ts", line: 6, tag: INFERRED}
+  - {rule: LEAK-ENV-IN-HISTORY, file: .env.production, line: 1, tag: CONFIRMED}
+  - {rule: LEAK-ENV-TRACKED, file: .env, line: 1, tag: CONFIRMED}
   - {rule: LEAK-HARDCODED-KEY, file: lib/stripe.ts, line: 3, tag: CONFIRMED}
   - {rule: LEAK-KEY-IN-BUILD, file: .next/static/chunks/main.js, line: 1, tag: CONFIRMED}
-  - {rule: LEAK-ENV-TRACKED, file: .env, line: 1, tag: CONFIRMED}
-  - {rule: LEAK-ENV-IN-HISTORY, file: .env.production, line: 1, tag: CONFIRMED}
+  - {rule: LEAK-LOGGED-PII, file: app/api/signup/route.ts, line: 11, tag: INFERRED}
+  - {rule: LEAK-PUBLIC-SECRET, file: .env.example, line: 3, tag: CONFIRMED}
+  - {rule: LEAK-SENTRY-PII, file: sentry.client.config.ts, line: 5, tag: CONFIRMED}
   - {rule: LEAK-SOURCEMAP, file: .next/static/chunks/main.js.map, line: 1, tag: CONFIRMED}
   - {rule: LEAK-SOURCEMAP, file: next.config.js, line: 2, tag: CONFIRMED}
-  - {rule: LEAK-SENTRY-PII, file: sentry.client.config.ts, line: 5, tag: CONFIRMED}
-  - {rule: LEAK-BROAD-RESPONSE, file: "app/api/users/[id]/route.ts", line: 6, tag: INFERRED}
-  - {rule: LEAK-LOGGED-PII, file: app/api/signup/route.ts, line: 9, tag: INFERRED}
-  - {rule: RLS-WEAK-WITH-CHECK, file: supabase/migrations/20240101000000_init.sql, line: 3, tag: CONFIRMED}
-  - {rule: RLS-CLIENT-OWNER, file: supabase/migrations/20240101000000_init.sql, line: 4, tag: CONFIRMED}
-  - {rule: RLS-POLICY-TRUE, file: supabase/migrations/20240101000000_init.sql, line: 7, tag: CONFIRMED}
+  - {rule: OWASP-A01-GUESSABLE-ID, file: "app/api/invoices/[id]/route.ts", line: 7, tag: CONFIRMED}
+  - {rule: OWASP-A01-GUESSABLE-ID, file: "app/api/users/[id]/route.ts", line: 5, tag: CONFIRMED}
+  - {rule: OWASP-A01-MASS-ASSIGNMENT, file: app/api/signup/route.ts, line: 8, tag: INFERRED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: "app/api/invoices/[id]/route.ts", line: 7, tag: CONFIRMED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: "app/api/users/[id]/route.ts", line: 5, tag: CONFIRMED}
+  - {rule: OWASP-A03-XSS-SINK, file: components/Bio.tsx, line: 2, tag: INFERRED}
+  - {rule: OWASP-A08-UNPINNED-DEPS, file: package.json, line: 1, tag: CONFIRMED}
   - {rule: RLS-AUTHENTICATED-NOT-OWNER, file: supabase/migrations/20240101000000_init.sql, line: 8, tag: CONFIRMED}
-  - {rule: RLS-WRONG-ROLE, file: supabase/migrations/20240101000000_init.sql, line: 9, tag: CONFIRMED}
-  - {rule: RLS-TABLE-OFF, file: supabase/migrations/20240101000000_init.sql, line: 10, tag: CONFIRMED}
-  - {rule: RLS-VIEW-BYPASS, file: supabase/migrations/20240101000000_init.sql, line: 11, tag: CONFIRMED}
-  - {rule: RLS-NO-POLICIES, file: supabase/migrations/20240101000000_init.sql, line: 13, tag: CONFIRMED}
-  - {rule: RLS-SELECT-ONLY, file: supabase/migrations/20240101000000_init.sql, line: 16, tag: CONFIRMED}
-  - {rule: RLS-TENANT-UNBOUND, file: supabase/migrations/20240101000000_init.sql, line: 16, tag: INFERRED}
+  - {rule: RLS-CLIENT-OWNER, file: supabase/migrations/20240101000000_init.sql, line: 4, tag: CONFIRMED}
   - {rule: RLS-DEFINER-FUNCTION, file: supabase/migrations/20240101000000_init.sql, line: 17, tag: CONFIRMED}
+  - {rule: RLS-NO-POLICIES, file: supabase/migrations/20240101000000_init.sql, line: 13, tag: CONFIRMED}
+  - {rule: RLS-POLICY-TRUE, file: supabase/migrations/20240101000000_init.sql, line: 7, tag: CONFIRMED}
   - {rule: RLS-PUBLIC-BUCKET, file: supabase/migrations/20240101000000_init.sql, line: 18, tag: CONFIRMED}
+  - {rule: RLS-SELECT-ONLY, file: supabase/migrations/20240101000000_init.sql, line: 16, tag: CONFIRMED}
+  - {rule: RLS-TABLE-OFF, file: supabase/migrations/20240101000000_init.sql, line: 10, tag: CONFIRMED}
+  - {rule: RLS-TENANT-UNBOUND, file: supabase/migrations/20240101000000_init.sql, line: 16, tag: INFERRED}
+  - {rule: RLS-VIEW-BYPASS, file: supabase/migrations/20240101000000_init.sql, line: 11, tag: CONFIRMED}
+  - {rule: RLS-WEAK-WITH-CHECK, file: supabase/migrations/20240101000000_init.sql, line: 3, tag: CONFIRMED}
+  - {rule: RLS-WRONG-ROLE, file: supabase/migrations/20240101000000_init.sql, line: 9, tag: CONFIRMED}
