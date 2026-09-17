@@ -20971,3 +20971,20398 @@ git commit -m "Check output safety across every bad fixture and record the Miles
 ```
 
 Do not push. Do not merge into `develop`. Tell the owner the branch is ready and wait for the instruction to push and open a pull request.
+
+---
+
+## Milestone 3
+
+> Steps use checkbox (`- [ ]`) syntax for tracking. Task numbers continue from Milestone 2 (Tasks 30 to 52).
+
+**Goal:** Make `dpr`'s report comparable to the `data-protection-review` skill's report on the same repository. After this milestone dpr runs all seven reviews with the skill's section structure (review 1 inventory, review 3 failure path test plan and review 2 at reduced relevance for server-only databases are new), matches every Critical and High finding the skill reported on the comparison repository, keeps its own Critical and High findings real, and either reports or explicitly lists as not covered everything else the comparison judge found missing. Still no LLM, and still no network in a default run.
+
+**Architecture:** The pipeline keeps its shape: review modules with `run(ctx)` and optional `finish(ctx, section, findings)`, rule modules registered with `@rule`, and one rule text YAML per task. Four shared analyses are added and cached per run. App roots (`discovery/approots.py`) split a repository into its apps and mark each deployed or not from deploy and CI files, so evidence is never combined across apps and findings in undeployed apps drop one severity step. Account flows (`reviews/auth_flows.py`) find login, logout, refresh, register, reset, verification and self-update routes and follow each handler into its services; review 3's rules read these flows and each of its twelve cases is decided by a finding (FAILS), a recorded pass with evidence (PASSES), a live-only proof (UNVERIFIED) or no flow (UNKNOWN). The personal data classifier (`reviews/personal.py`) sorts model fields into the skill's categories by whole name words; review 1 combines it with collection points, SDK recipients, deletion paths and retention signals into the data map. Facts that several reviews read (Sentry init sites, logged personal data, cost rows) come from memoized providers (`dpr.facts.fact`), never from side effects of another rule. On the report side, findings are grouped into a register of distinct issues (`report/register.py`) that drives the summary counts and the top three fixes, open questions are filtered by detection, and "What this review did not cover" is built from what the repository contains (`report/coverage.py`).
+
+**Tech Stack:** unchanged from Milestones 1 and 2. No new dependency.
+
+**Spec:** `docs/superpowers/specs/2026-09-16-dpr-design.md`, sections 10.2, 10.3 and 10.7, plus the comparison judge's result on the private comparison repository (blocking gaps 1 to 10 and the false-positive fixes). Where the spec sketched `AUTH-CASE-n` rule ids, this plan uses named `AUTH-*` rule ids (one per defect), and each case block names the rules that decide it.
+
+**Assumes Milestone 1 after the whole-branch review fixes, and Milestone 2 as planned.** The real repository receives these Milestone 1 changes before Milestone 2 starts, and this plan relies on them:
+
+1. `Route` gains `wrappers: tuple[str, ...] = ()`; route extraction unwraps handlers wrapped in calls (`withAuth(...)`, `asyncHandler(...)`) and follows `export { handler as GET }`; `leaks_code` uses one shared response-call matcher that also matches `res.status(200).json(x)`.
+2. RLS: policies granted only to `service_role`, `postgres` or `supabase_admin`, and restrictive policies, are skipped by the granting-policy rules; helper-function predicates make `RLS-AUTHENTICATED-NOT-OWNER` and `RLS-TENANT-UNBOUND` INFERRED; table renames are handled; `RLS-WEAK-WITH-CHECK` is low only when every permissive select policy is owner-scoped.
+3. `LEAK-ENV-TRACKED` is low when a tracked env file holds only public, non-secret names.
+4. The walker skips folders containing `pyvenv.cfg` or `site-packages`; the sanity check fails only when a manifest exists and no supported source file was indexed.
+5. `review()` guards each review's `run()` the same way as rules.
+6. git runs with `--no-optional-locks`.
+
+Every task that edits a file the fix wave also changes (`gitutil.py`, `walk.py`, `pyast.py`, `packages.py`, `cli.py`, `jsts.py`, `routes_js.py`, `routes_py.py`, `leaks_code.py`, `rls_policies.py`, `sqlschema.py`, `api.py`, `model.py`, `redact.py`, `markdown.py`) states each edit's intent in a list above Step 1. The replacement blocks are exact against the Milestone 2 code; when the fixed file's text differs, apply the stated intent to the fixed file. None of the Milestone 3 edits depends on the old behaviour the fix wave removes.
+
+This milestone also closes the items deferred from the Milestone 1 review: memoized fact providers so facts do not depend on which reviews were selected or whether a rule crashed (Task 72), secret-word false alarms such as `ADMIN` and `SMTP` making `NEXT_PUBLIC_ADMIN_EMAIL` critical, whole-token sensitive-column matching, URL passwords containing `@`, a not-covered note when a git command times out, dbmate and goose down sections, and Drizzle's default `drizzle/` folder (Task 73), and location-less findings in `dedupe` and in the fixture test helper (Task 72).
+
+### Scope: judge gaps, tasks and rule ids
+
+| Judge gap | What closes it | Tasks | Rule ids and report parts |
+|---|---|---|---|
+| 1. Review 3 (auth) missing | Account flow discovery, twelve case blocks with a result every time, enumeration, token, session and account rules | 63 to 67 | `AUTH-ENUM-SIGNUP-MESSAGE`, `AUTH-ENUM-RESET-MESSAGE`, `AUTH-ENUM-LOCKOUT-STATUS`, `AUTH-ENUM-TIMING`, `AUTH-TOKEN-PLAINTEXT`, `AUTH-VERIFY-NO-EXPIRY`, `AUTH-RESET-NO-EXPIRY`, `AUTH-RESET-TRUSTS-EMAIL`, `AUTH-VERIFY-REUSABLE`, `AUTH-LOGOUT-NO-REVOKE`, `AUTH-REFRESH-NO-ABSOLUTE-CAP`, `AUTH-NO-LOCKOUT`, `AUTH-EMAIL-CHANGE-UNVERIFIED`, `AUTH-EMAIL-NOT-UNIQUE`, `AUTH-SIGNUP-NO-UI`, `AUTH-NO-MFA`; parts How to read the cases, Flows read, Cases, Findings, Executable tests |
+| 2. Review 1 (inventory) missing | Classifier, collection points, SDK recipients, deletion and retention, readers, data map, flows, answers | 68 to 72 | `INV-SPECIAL-CATEGORY`, `INV-CHILDREN-SIGNAL`, `INV-CATCHALL-JSON`, `INV-SDK-RECEIVES-PII`, `INV-NO-DELETION-PATH`, `INV-UNUSED-FIELD`, `INV-PII-FILE-IN-REPO`; parts Personal data map, Categories checked, Data flows, Collected with no clear reason, Not covered by this repo; answered questions |
+| 3. Review 2 applicability gate wrong | ORM models and migration folders count as a database layer; reduced-relevance section; GRANT parsing | 61, 62 | parts Relevance, Table protection status, Policy defects, Database exposure and privilege (`BASE-DB-NETWORK-OPEN`, `BASE-DB-ADMIN-LOGIN` cross-referenced), Missing policies (runnable SQL), How to confirm from outside the app |
+| 4. Report structure | Lawyer section, grouped register, checks that pass, place summaries, questions filtered by detection, richer not-covered list, answered questions | 71, 74, 75, 76 | parts Findings register, For the data protection lawyer, Checks that pass, Place 1 public variables reviewed, Place 1 keys, env files and git history, Place 2 over-broad responses, Place 3 logs |
+| 5. Detection accuracy | SDKs from manifests, modules and HTML links; hosting from IaC and static host config; weak Procfile; CI files; custom JWT; app roots and deployment | 53, 54 | Detection rows CI and App roots; findings in undeployed roots one severity lower |
+| 6. Cost surface completeness | Handler to service to SDK tracing three calls deep, mount prefixes, app labels, bulk fan-out | 58, 78, 79 | `ABUSE-BULK-UNBOUNDED`; Cost surface table with App and caller columns |
+| 7. Committed personal data | Tracked documents, spreadsheets, databases and screenshots; real-looking emails in tests and docs | 78 | `LEAK-COMMITTED-DATA-FILE` |
+| 8. Read and export audit trail | Export and download routes with no audit write | 77 | `OWASP-A09-NO-READ-AUDIT` |
+| 9. Paid route role gate and API schema | Paid route open to every signed-in role; schema served with docs off | 77 | `ABUSE-PAID-ANY-ROLE`, `BASE-OPENAPI-ALWAYS-ON` |
+| 10. Severity calibration and grouping | Seed severity by environment, merged and dev-only passwords, HSTS low unless cookies lack Secure, document headers on HTML surfaces only, issues grouped in the register | 55, 56, 60, 74 | `BASE-SEED-ON-START`, `BASE-LITERAL-PASSWORD-HASH`, `BASE-HEADER-MISSING-*` |
+
+False-positive fixes from the judge:
+
+| Rule | Fix | Task |
+|---|---|---|
+| `BASE-DEBUG-ON` | Only a flag that reaches the app, `app.run` or `app.debug` in the same app root; docs-only gating is low; production validators and all-false deploy settings suppress | 55 |
+| `BASE-LITERAL-PASSWORD-HASH` | One finding per literal (by digest) with every site; unreferenced dev scripts low | 56 |
+| `BASE-SEED-ON-START` | Staging, preview, demo or development start is high; secret-store fallback is medium INFERRED with the secret reference | 55, 74 |
+| `LEAK-LOGGED-PII` | Whole-word personal names, no ids or counts, whole objects, `extra=` keys, no `SELECT 1`, operator console bucket, log destination named, grouped per file | 57 |
+| `ABUSE-INMEMORY-LIMITER`, `ABUSE-LIMITER-PROXY-IP` | Evidence from one app root only; undeployed roots skipped for proxy keys | 58 |
+| `LEAK-SOURCEMAP` | Config twins in one folder are one finding naming the loaded file | 59 |
+| `OWASP-A03-HTML-EMAIL` | Escaped names (to a fixpoint), joined generators, numeric parameters are safe | 59 |
+| `BASE-HEADER-MISSING-FRAME`, `-PERMISSIONS`, `-REFERRER`, `-CSP` | Not asked of API-only surfaces | 60 |
+| `ABUSE-FORM-NO-CHALLENGE` | Title says "have rate limits but no bot challenge" when every form is limited | 58 |
+| `OWASP-A01-UNSCOPED-QUERY` attack text | Names the least privileged role the dependency admits | 60 |
+| `OWASP-A08-UNPINNED-INSTALL` | Stops at `&&`, `;`, `\|` and comments | 59 |
+| Cost surface limit column | Mount prefixes resolved before "none found" | 58 |
+| Legacy app scope | Undeployed app roots lower severity and are listed as not covered | 54 |
+
+### Scope: rules stay general
+
+Every rule id in this plan has positive and negative unit tests on small synthetic repositories, and the fixture apps prove each review end to end (`express-prisma` is the new ORM-only, reduced-relevance fixture). Every rule is general: nothing matches a name, path or string from the comparison repository. The per-finding comparison against the skill's report is kept outside this repository.
+
+### How this plan was checked
+
+Every code block in this plan was built and run in a scratch copy of the Milestone 2 code (the Milestone 2 planner's verified work tree) before the plan was handed over. The scratch copy did not have the Milestone 1 fix wave; the fix wave was checked separately (last bullet).
+
+- Tests: 440 passed (243 from Milestones 1 and 2, 197 new). `uv run ruff format` left all 195 files unchanged; `uv run ruff check` and `uv run ruff format --check` were clean.
+- Plan text: all 28 tasks were extracted from this document into a fresh copy of the Milestone 2 code, one replay per task (53 to 80). Every intermediate state passed ruff and its tests with the count shown in that task's Step 4 (256 after Task 53, rising to 440 after Task 80), and the final extraction matched the scratch copy file for file. For every task, the Step 2 command was run on the state after that task's Step 1 and failed as the plan describes.
+- A scan of the private comparison repository after Task 80 exits 0 and leaves that repository unchanged. The comparability bar was checked outside this repository.
+- Fixtures after Task 80: `next-supabase-bad` 53 findings, `django-bad` 21, `fastapi-bad` 52, `express-prisma` 26, each exactly as its `expected.yaml`; `next-supabase-good` and `fastapi-good` report none of their `must_not_report` rule ids (they keep three and one INFERRED inventory observations: an LLM SDK receiving user text, fields no code reads, no deletion path).
+- Fix wave: the Milestone 2 plan and then this plan were applied to a copy of the real repository after the Milestone 1 fix wave. Every exact replacement in this plan applied except four, all in files the fix wave changed and all covered by the intent notes: two in `src/dpr/reviews/leaks_code.py` (Task 57, where the fix wave added an except-handler cache used only by the log rule) and two in `src/dpr/gitutil.py` (Task 73, where the fix wave added `--no-optional-locks` and a git environment).
+
+### Global Constraints
+
+Milestone 1 and Milestone 2 constraints still hold (Python 3.12 with `uv`, the fixed dependency list, no network in a default run, no secret values in any output, evidence tag rules, no legal verdict phrases, no em dash characters, ruff line length 100, modules under about 400 lines, `DPR_STRICT=1` in tests, plain imperative commit messages with no AI attribution, key-shaped test strings built at runtime).
+
+New in Milestone 3:
+
+- Evidence never crosses app roots. A rule that combines two pieces of evidence (a limiter and a worker count, a debug flag and a sink, a paid route and a role dependency) compares `root_of(ctx.detection.app_roots, file)` for both.
+- Facts shared between reviews come from providers built with `dpr.facts.fact(ctx, key, compute)`. A rule never records a fact another review reads as a side effect.
+- Review 3 case results: FAILS only through a finding, PASSES only through `record_pass(...)` with a location, UNVERIFIED when only a live test can prove the case, UNKNOWN when no flow exists. Case blocks 1 to 10 are always emitted.
+- Personal values found in a repository (email addresses, names in data files) are treated like secrets: reported by count and location, never printed. Tests build such values at runtime or use obviously fictional ones and assert they are absent from every output format.
+- Files under `tests/fixtures/` that look like tests are not named `test_*.py`, so pytest does not collect them.
+- One rule text YAML per task that adds rules; tasks that only change behaviour edit the existing YAML.
+- In tests, an em dash is written as the escape `\u2014`, never as the character.
+
+### File map
+
+New files:
+
+| File | Responsibility |
+|---|---|
+| `src/dpr/discovery/approots.py` | App roots, deployment evidence, severity lowering for undeployed roots (54) |
+| `src/dpr/facts.py` | `fact()` memoized provider helper (72) |
+| `src/dpr/parsing/mounts.py` | FastAPI and Express router mount prefixes and mounted limiters (58) |
+| `src/dpr/parsing/sqlgrants.py` | `GRANT` and `REVOKE` parsing (61) |
+| `src/dpr/parsing/pymigrations.py` | Migration folders and SQL inside Alembic and Django migrations (61) |
+| `src/dpr/reviews/deploy_env.py` | Deploy and CI settings, secret references, start command stage (55) |
+| `src/dpr/reviews/baseline_debug.py` | `BASE-DEBUG-ON` (55), `BASE-OPENAPI-ALWAYS-ON` (77) |
+| `src/dpr/reviews/baseline_literals.py` | `BASE-LITERAL-PASSWORD-HASH` merged by digest (56) |
+| `src/dpr/reviews/baseline_passes.py` | Review 4 "Checks that pass" (76) |
+| `src/dpr/reviews/leaks_logs.py` | `LEAK-LOGGED-PII` and the logged-data provider (57, 72) |
+| `src/dpr/reviews/leaks_summary.py` | Review 6 place summaries (76) |
+| `src/dpr/reviews/leaks_files.py` | `LEAK-COMMITTED-DATA-FILE` (78) |
+| `src/dpr/reviews/rls_server.py` | Review 2 reduced-relevance section (62) |
+| `src/dpr/reviews/auth.py` | Review 3 module and case blocks (63) |
+| `src/dpr/reviews/auth_flows.py` | Account flows, followed code, `record_pass`, `route_code` (63, 64, 79) |
+| `src/dpr/reviews/auth_code.py` | Code shape helpers for auth rules (64) |
+| `src/dpr/reviews/auth_enum.py` | Enumeration rules (64) |
+| `src/dpr/reviews/auth_tokens.py` | Token rules (65) |
+| `src/dpr/reviews/auth_sessions.py` | Logout, refresh and lockout rules (66) |
+| `src/dpr/reviews/auth_account.py` | Email change, unique email, signup UI and MFA rules (67) |
+| `src/dpr/reviews/personal.py` | Personal data classifier and person models (68) |
+| `src/dpr/reviews/inventory.py` | Review 1 module (68, 71) |
+| `src/dpr/reviews/inventory_fields.py` | Special category, children and catch-all JSON rules (68) |
+| `src/dpr/reviews/inventory_sources.py` | Collection points and SDK recipients (69) |
+| `src/dpr/reviews/inventory_retention.py` | Deletion paths, retention and readers (70) |
+| `src/dpr/reviews/inventory_files.py` | Unused personal fields and committed data files (70) |
+| `src/dpr/reviews/inventory_map.py` | Data map rows and flows (71) |
+| `src/dpr/reviews/inventory_answers.py` | Answers the code settles (71) |
+| `src/dpr/reviews/abuse_roles.py` | `ABUSE-PAID-ANY-ROLE` (77) |
+| `src/dpr/reviews/abuse_bulk.py` | `ABUSE-BULK-UNBOUNDED` (78) |
+| `src/dpr/reviews/owasp_audit.py` | `OWASP-A09-NO-READ-AUDIT` (77) |
+| `src/dpr/reviews/cost_trace.py` | Cost surface tracing (79) |
+| `src/dpr/report/register.py` | Findings register (74) |
+| `src/dpr/report/coverage.py` | Repository-dependent not-covered lines (75, 77, 78, 80) |
+| `src/dpr/questions/lawyer.py` | Lawyer questions from the catalogue and the findings (75) |
+| `src/dpr/data/auth_cases.yaml`, `src/dpr/data/register.yaml` | Case catalogue (63) and register chains (74) |
+| `src/dpr/data/rule_text/auth_enum.yaml`, `auth_tokens.yaml`, `auth_sessions.yaml`, `auth_account.yaml`, `inventory_fields.yaml`, `inventory_sources.yaml`, `inventory_retention.yaml`, `inventory_files.yaml`, `roles_audit.yaml`, `bulk_files.yaml` | Rule text |
+| `tests/fixtures/express-prisma/` | ORM-only Express and Prisma fixture (62, 64) |
+
+Modified Milestone 1 and 2 files: `api.py`, `cli.py`, `gitutil.py`, `model.py`, `rank.py`, `redact.py`, `discovery/detect.py`, `parsing/pyvalues.py`, `parsing/routes.py`, `parsing/sqlschema.py`, `questions/catalogue.py`, `report/markdown.py`, `report/templates/report.md.j2`, `reviews/__init__.py`, `reviews/abuse.py`, `reviews/abuse_limits.py`, `reviews/abuse_paid.py`, `reviews/baseline.py`, `reviews/baseline_accounts.py`, `reviews/baseline_config.py`, `reviews/baseline_headers.py`, `reviews/headers_static.py`, `reviews/leaks.py`, `reviews/leaks_code.py`, `reviews/lookups.py`, `reviews/owasp.py`, `reviews/owasp_a01.py`, `reviews/owasp_inject.py`, `reviews/owasp_integrity.py`, `reviews/rls.py`, and the data files `costs.yaml`, `pii_terms.yaml`, `questions.yaml`, `sdks.yaml`, `secrets.yaml`, `stack.yaml`, `rule_text/abuse_paid.yaml`, `rule_text/owasp_a01.yaml`. Each task lists its own files.
+
+---
+
+
+### Task 53: Detect hosting from IaC, CI files, SDK import modules and custom JWT auth
+
+Judge gap 5 (detection accuracy). Hosting is read from Terraform resource types and platform config files, a Procfile no longer means Heroku when a real platform is also configured, CI pipelines are listed from their files, SDKs are found from Python import modules and HTML links as well as manifests, and an app that signs its own JWTs with a password hasher is recorded as `custom-jwt` unless a managed provider is present. Everything later in Milestone 3 (app roots, cost tracing, inventory recipients, questions filtered by detection) reads these fields.
+
+**Files:**
+- Modify: `src/dpr/data/sdks.yaml` (new vendors, `modules` and `html` signals)
+- Modify: `src/dpr/data/stack.yaml` (IaC hosting types, weak and tooling hosts, CI files, custom JWT)
+- Modify: `src/dpr/discovery/detect.py` (IaC matching, weak hosts, CI files, module and HTML SDK sites)
+- Test: `tests/discovery/test_detect_stack.py`
+
+**Interfaces:**
+- Consumes: `Detection`, `RepoIndex`, `packages` and `stack.yaml` loading from Milestone 1
+- Produces:
+  - `stack.yaml` gains `iac` (regex over `resource "type"` lines in `.tf` files), `weak` and `tooling` flags on hosting entries, `all_packages` groups and `unless` on auth providers, and a top-level `ci_files` list; `sdks.yaml` entries may carry `modules` (Python import paths) and `html` (link patterns). `Detection.ci` lists CI files. New SDK entries: `azure-communication-email`, `azure-communication-sms`, `azure-storage-blob`, `azure-monitor`, `opentelemetry-exporter`, `google-cloud-storage`, `slack`, `chromadb`, `weasyprint` (not paid) and `google-fonts`.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/discovery/test_detect_stack.py`:
+
+```python
+from dpr.discovery.detect import detect
+from dpr.walk import RepoIndex
+from tests.reviews.helpers import write
+
+
+def test_ci_from_azure_gitlab_and_github(tmp_path):
+    write(tmp_path, "azure-pipelines.yml", "trigger: [main]\n")
+    write(tmp_path, ".gitlab-ci.yml", "stages: [test]\n")
+    write(tmp_path, ".github/workflows/ci.yml", "on: push\n")
+    write(tmp_path, "docs/azure-pipelines.yml", "copied example\n")
+    d = detect(RepoIndex(tmp_path))
+    assert d.ci == [".github/workflows/ci.yml", ".gitlab-ci.yml", "azure-pipelines.yml"]
+
+
+def test_no_ci_files(tmp_path):
+    write(tmp_path, "app.py", "x = 1\n")
+    assert detect(RepoIndex(tmp_path)).ci == []
+
+
+def test_hosting_from_terraform_resource_types(tmp_path):
+    write(
+        tmp_path,
+        "infra/main.tf",
+        'resource "azurerm_linux_web_app" "api" {\n}\n'
+        'resource "azurerm_static_web_app" "web" {\n}\n'
+        'resource "aws_lambda_function" "job" {\n}\n',
+    )
+    d = detect(RepoIndex(tmp_path))
+    assert d.hosting == ["azure-app-service", "azure-static-web-apps", "aws-lambda", "terraform"]
+    assert d.serverless is True
+
+
+def test_resource_names_in_comments_or_data_blocks_do_not_count(tmp_path):
+    write(
+        tmp_path,
+        "infra/main.tf",
+        '# resource "azurerm_linux_web_app" was removed\ndata "aws_lambda_function" "x" {\n}\n',
+    )
+    assert detect(RepoIndex(tmp_path)).hosting == ["terraform"]
+
+
+def test_static_web_app_config_means_azure_static_web_apps(tmp_path):
+    write(tmp_path, "web/staticwebapp.config.json", "{}")
+    assert detect(RepoIndex(tmp_path)).hosting == ["azure-static-web-apps"]
+
+
+def test_procfile_is_not_heroku_when_another_platform_is_configured(tmp_path):
+    write(tmp_path, "api/Procfile", "web: gunicorn app:app\n")
+    write(tmp_path, "render.yaml", "services: []\n")
+    write(tmp_path, "api/Dockerfile", "FROM python\n")
+    assert detect(RepoIndex(tmp_path)).hosting == ["render", "docker"]
+
+
+def test_lone_procfile_still_means_heroku(tmp_path):
+    write(tmp_path, "Procfile", "web: gunicorn app:app\n")
+    write(tmp_path, "Dockerfile", "FROM python\n")
+    assert detect(RepoIndex(tmp_path)).hosting == ["heroku", "docker"]
+
+
+def test_custom_jwt_needs_a_token_library_and_a_password_hasher(tmp_path):
+    write(tmp_path, "requirements.txt", "fastapi\npython-jose[cryptography]\npasslib[bcrypt]\n")
+    write(tmp_path, "app/main.py", "x = 1\n")
+    assert detect(RepoIndex(tmp_path)).auth_providers == ["custom-jwt"]
+
+
+def test_token_library_alone_is_not_custom_jwt(tmp_path):
+    write(tmp_path, "requirements.txt", "fastapi\npyjwt\n")
+    write(tmp_path, "app/main.py", "x = 1\n")
+    assert detect(RepoIndex(tmp_path)).auth_providers == []
+
+
+def test_managed_provider_wins_over_custom_jwt(tmp_path):
+    write(
+        tmp_path,
+        "package.json",
+        '{"dependencies": {"@clerk/nextjs": "5", "jsonwebtoken": "9", "bcryptjs": "2"}}',
+    )
+    write(tmp_path, "app/page.tsx", "export default function P() { return null }\n")
+    assert detect(RepoIndex(tmp_path)).auth_providers == ["clerk"]
+
+
+def test_python_azure_sdks_are_catalogued_with_import_sites(tmp_path):
+    write(
+        tmp_path,
+        "requirements.txt",
+        "azure-communication-email>=1\nazure-storage-blob\nazure-monitor-opentelemetry\n"
+        "chromadb\nweasyprint\n",
+    )
+    write(
+        tmp_path,
+        "app/email.py",
+        "import logging\n\n\ndef client(conn):\n"
+        "    from azure.communication.email import EmailClient\n"
+        "    return EmailClient.from_connection_string(conn)\n",
+    )
+    write(
+        tmp_path, "app/main.py", "from azure.monitor.opentelemetry import configure_azure_monitor\n"
+    )
+    d = detect(RepoIndex(tmp_path))
+    by_name = {s.name: s for s in d.sdks}
+    assert set(by_name) == {
+        "azure-communication-email",
+        "azure-storage-blob",
+        "azure-monitor",
+        "chromadb",
+        "weasyprint",
+    }
+    email = by_name["azure-communication-email"]
+    assert (email.category, email.recipient, email.paid) == ("email", True, True)
+    assert [str(loc) for loc in email.locations] == ["app/email.py:5"]
+    assert [str(loc) for loc in by_name["azure-monitor"].locations] == ["app/main.py:1"]
+    assert by_name["weasyprint"].paid is False
+
+
+def test_google_fonts_link_in_html_is_a_browser_recipient(tmp_path):
+    write(
+        tmp_path,
+        "web/index.html",
+        "<html><head>\n"
+        '<link href="https://fonts.googleapis.com/css2?family=Inter" rel="stylesheet">\n'
+        "</head></html>\n",
+    )
+    write(tmp_path, "web/src/main.ts", "export {}\n")
+    [fonts] = detect(RepoIndex(tmp_path)).sdks
+    assert (fonts.name, fonts.recipient) == ("google-fonts", True)
+    assert [str(loc) for loc in fonts.locations] == ["web/index.html:2"]
+
+
+def test_self_hosted_fonts_are_not_google_fonts(tmp_path):
+    write(tmp_path, "web/index.html", '<link href="/fonts/inter.css" rel="stylesheet">\n')
+    assert detect(RepoIndex(tmp_path)).sdks == []
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/discovery/test_detect_stack.py`
+Expected: FAIL (pytest reports 7 failed, 6 passed)
+
+- [ ] **Step 3: Extend the stack and SDK data and the detector**
+
+Modify `src/dpr/data/sdks.yaml`, replace:
+
+```yaml
+- {name: google-maps, category: maps, recipient: true, paid: true, packages: ["@googlemaps/google-maps-services-js", "@react-google-maps/api", googlemaps]}
+- {name: puppeteer, category: browser, recipient: false, paid: true, packages: [puppeteer, puppeteer-core]}
+- {name: sharp, category: image, recipient: false, paid: true, packages: [sharp]}
+```
+
+with:
+
+```yaml
+- {name: google-maps, category: maps, recipient: true, paid: true, packages: ["@googlemaps/google-maps-services-js", "@react-google-maps/api", googlemaps]}
+- {name: puppeteer, category: browser, recipient: false, paid: true, packages: [puppeteer, puppeteer-core]}
+- {name: sharp, category: image, recipient: false, paid: true, packages: [sharp]}
+- {name: azure-communication-email, category: email, recipient: true, paid: true, packages: [azure-communication-email, "@azure/communication-email"], modules: [azure.communication.email]}
+- {name: azure-communication-sms, category: sms, recipient: true, paid: true, packages: [azure-communication-sms, "@azure/communication-sms"], modules: [azure.communication.sms]}
+- {name: azure-storage-blob, category: storage, recipient: true, paid: true, packages: [azure-storage-blob, "@azure/storage-blob"], modules: [azure.storage.blob]}
+- {name: azure-monitor, category: monitoring, recipient: true, paid: false, packages: [azure-monitor-opentelemetry, azure-monitor-opentelemetry-exporter, opencensus-ext-azure, applicationinsights, "@azure/monitor-opentelemetry"], modules: [azure.monitor.opentelemetry, opencensus.ext.azure]}
+- {name: opentelemetry-exporter, category: monitoring, recipient: true, paid: false, packages: [opentelemetry-exporter-otlp, opentelemetry-exporter-otlp-proto-http, opentelemetry-exporter-otlp-proto-grpc, "@opentelemetry/exporter-trace-otlp-http"], modules: [opentelemetry.exporter]}
+- {name: google-cloud-storage, category: storage, recipient: true, paid: true, packages: [google-cloud-storage, "@google-cloud/storage"], modules: [google.cloud.storage]}
+- {name: slack, category: messaging, recipient: true, paid: false, packages: [slack-sdk, "@slack/web-api"], modules: [slack_sdk]}
+- {name: chromadb, category: vector-store, recipient: false, paid: false, packages: [chromadb, chromadb-client]}
+- {name: weasyprint, category: pdf, recipient: false, paid: false, packages: [weasyprint]}
+- {name: google-fonts, category: fonts, recipient: true, paid: false, packages: [], html: ['fonts\.googleapis\.com', 'fonts\.gstatic\.com']}
+```
+
+Modify `src/dpr/data/stack.yaml`, replace:
+
+```yaml
+  django-auth: {text: 'django\.contrib\.auth'}
+  fastapi-security: {text: 'fastapi\.security'}
+  flask-login: {packages: [flask-login]}
+hosting:
+  vercel: {files: [vercel.json]}
+  netlify: {files: [netlify.toml]}
+```
+
+with:
+
+```yaml
+  django-auth: {text: 'django\.contrib\.auth'}
+  fastapi-security: {text: 'fastapi\.security'}
+  flask-login: {packages: [flask-login]}
+  custom-jwt:
+    all_packages:
+      - [python-jose, pyjwt, jsonwebtoken, jose, authlib, flask-jwt-extended, djangorestframework-simplejwt]
+      - [bcrypt, passlib, bcryptjs, argon2, argon2-cffi, "@node-rs/argon2", "@node-rs/bcrypt"]
+    unless: [supabase-auth, clerk, auth0, nextauth, firebase-auth, lucia, better-auth]
+hosting:
+  vercel: {files: [vercel.json]}
+  netlify: {files: [netlify.toml]}
+```
+
+Modify `src/dpr/data/stack.yaml`, replace:
+
+```yaml
+  render: {files: [render.yaml]}
+  railway: {files: [railway.json, railway.toml]}
+  app-engine: {files: [app.yaml]}
+  heroku: {files: [Procfile]}
+  docker: {files: [Dockerfile, docker-compose.yml, docker-compose.yaml, compose.yaml]}
+  serverless-framework: {files: [serverless.yml]}
+  terraform: {files: ["*.tf"]}
+logging:
+  winston: {packages: [winston]}
+  pino: {packages: [pino]}
+```
+
+with:
+
+```yaml
+  render: {files: [render.yaml]}
+  railway: {files: [railway.json, railway.toml]}
+  app-engine: {files: [app.yaml]}
+  azure-app-service: {iac: 'azurerm_(?:linux_|windows_)?web_app|azurerm_app_service'}
+  azure-static-web-apps: {files: [staticwebapp.config.json], iac: azurerm_static_web_app}
+  azure-functions: {iac: 'azurerm_(?:linux_|windows_)?function_app'}
+  azure-container-apps: {iac: azurerm_container_app}
+  aws-lambda: {iac: aws_lambda_function}
+  aws-ecs: {iac: aws_ecs_service}
+  aws-app-runner: {iac: aws_apprunner_service}
+  aws-elastic-beanstalk: {iac: aws_elastic_beanstalk_environment}
+  aws-amplify: {files: [amplify.yml], iac: aws_amplify_app}
+  google-cloud-run: {iac: 'google_cloud_run(?:_v2)?_service'}
+  heroku: {files: [Procfile], weak: true}
+  docker: {files: [Dockerfile, docker-compose.yml, docker-compose.yaml, compose.yaml], tooling: true}
+  serverless-framework: {files: [serverless.yml]}
+  terraform: {files: ["*.tf"], tooling: true}
+logging:
+  winston: {packages: [winston]}
+  pino: {packages: [pino]}
+```
+
+Modify `src/dpr/data/stack.yaml`, replace:
+
+```yaml
+header_config:
+  files: ["next.config.*", "middleware.[jt]s", nginx.conf, vercel.json, netlify.toml, _headers, settings.py, staticwebapp.config.json, firebase.json]
+  text: 'helmet|Content-Security-Policy|Strict-Transport-Security|X-Frame-Options|SECURE_HSTS|SECURE_CONTENT_TYPE_NOSNIFF'
+serverless_hosting: [vercel, netlify, serverless-framework]
+```
+
+with:
+
+```yaml
+header_config:
+  files: ["next.config.*", "middleware.[jt]s", nginx.conf, vercel.json, netlify.toml, _headers, settings.py, staticwebapp.config.json, firebase.json]
+  text: 'helmet|Content-Security-Policy|Strict-Transport-Security|X-Frame-Options|SECURE_HSTS|SECURE_CONTENT_TYPE_NOSNIFF'
+serverless_hosting: [vercel, netlify, serverless-framework, aws-lambda, azure-functions]
+ci_files: [azure-pipelines.yml, .gitlab-ci.yml, bitbucket-pipelines.yml, Jenkinsfile, .circleci/config.yml, cloudbuild.yaml, .travis.yml]
+```
+
+Modify `src/dpr/discovery/detect.py`, replace:
+
+```python
+from dpr.parsing.routes import extract_routes
+from dpr.parsing.schemas import extract_models
+from dpr.parsing.sqlschema import load_schema
+from dpr.walk import RepoIndex
+
+
+def _code_matches(index: RepoIndex, pattern: str) -> bool:
+```
+
+with:
+
+```python
+from dpr.parsing.routes import extract_routes
+from dpr.parsing.schemas import extract_models
+from dpr.parsing.sqlschema import load_schema
+from dpr.walk import RepoIndex, line_of
+
+
+def _code_matches(index: RepoIndex, pattern: str) -> bool:
+```
+
+Modify `src/dpr/discovery/detect.py`, replace:
+
+```python
+    return any(regex.search(index.text(f.rel)) for f in index.js_files + index.py_files)
+
+
+def _match(signals: dict, index: RepoIndex, packages: set[str]) -> list[str]:
+    found = []
+    for name, spec in signals.items():
+```
+
+with:
+
+```python
+    return any(regex.search(index.text(f.rel)) for f in index.js_files + index.py_files)
+
+
+def _iac_matches(index: RepoIndex, pattern: str) -> bool:
+    regex = re.compile(rf'^\s*resource\s+"(?:{pattern})"', re.MULTILINE)
+    return any(regex.search(index.text(f.rel)) for f in index.with_suffix(".tf"))
+
+
+def _all_groups(spec: dict, packages: set[str]) -> bool:
+    groups = spec.get("all_packages") or []
+    return bool(groups) and all(any(normalise(p) in packages for p in g) for g in groups)
+
+
+def _match(signals: dict, index: RepoIndex, packages: set[str]) -> list[str]:
+    found = []
+    for name, spec in signals.items():
+```
+
+Modify `src/dpr/discovery/detect.py`, replace:
+
+```python
+            any(normalise(p) in packages for p in spec.get("packages", []))
+            or any(index.named(pattern) for pattern in spec.get("files", []))
+            or (spec.get("text") and _code_matches(index, spec["text"]))
+        ):
+            found.append(name)
+    return found
+
+
+def _header_config(index: RepoIndex, spec: dict) -> list[str]:
+```
+
+with:
+
+```python
+            any(normalise(p) in packages for p in spec.get("packages", []))
+            or any(index.named(pattern) for pattern in spec.get("files", []))
+            or (spec.get("text") and _code_matches(index, spec["text"]))
+            or (spec.get("iac") and _iac_matches(index, spec["iac"]))
+            or _all_groups(spec, packages)
+        ):
+            found.append(name)
+    return [n for n in found if not set(signals[n].get("unless", [])) & set(found)]
+
+
+def _hosting(signals: dict, index: RepoIndex, packages: set[str]) -> list[str]:
+    """Hosts from config files and IaC; a weak signal is dropped when a platform is known."""
+    found = _match(signals, index, packages)
+    platforms = [n for n in found if not signals[n].get("weak") and not signals[n].get("tooling")]
+    return [n for n in found if not (signals[n].get("weak") and platforms)]
+
+
+def _ci(index: RepoIndex, names: list[str]) -> list[str]:
+    files = {f.rel for f in index.glob(".github/workflows/*")}
+    files |= {f.rel for f in index.files if f.rel in names}
+    return sorted(files)
+
+
+def _header_config(index: RepoIndex, spec: dict) -> list[str]:
+```
+
+Modify `src/dpr/discovery/detect.py`, replace:
+
+```python
+    return sorted(f.rel for f in index.named(*spec["files"]) if regex.search(index.text(f.rel)))
+
+
+def _sdks(packages: set[str], sites: dict[str, list[Location]]) -> list[SdkUse]:
+    found = []
+    for sdk in load("sdks.yaml"):
+        names = [normalise(p) for p in sdk["packages"]]
+        if not any(n in packages for n in names):
+            continue
+        locations = sorted(
+            {loc for n in names for loc in sites.get(n, [])}, key=lambda loc: (loc.file, loc.line)
+        )[:20]
+        found.append(
+            SdkUse(sdk["name"], sdk["category"], sdk["recipient"], sdk["paid"], tuple(locations))
+```
+
+with:
+
+```python
+    return sorted(f.rel for f in index.named(*spec["files"]) if regex.search(index.text(f.rel)))
+
+
+def _module_sites(index: RepoIndex, modules: list[str]) -> set[Location]:
+    found: set[Location] = set()
+    for module in modules:
+        name = re.escape(module)
+        regex = re.compile(rf"^\s*(?:from\s+{name}(?:\.\w+)*\s+import\b|import\s+{name}\b)", re.M)
+        for entry in index.py_files:
+            text = index.text(entry.rel)
+            if module.split(".")[0] in text:
+                found |= {
+                    Location(entry.rel, line_of(text, m.start())) for m in regex.finditer(text)
+                }
+    return found
+
+
+def _html_sites(index: RepoIndex, patterns: list[str]) -> set[Location]:
+    found: set[Location] = set()
+    for pattern in patterns:
+        regex = re.compile(pattern)
+        for entry in index.with_suffix(".html", ".htm"):
+            text = index.text(entry.rel)
+            found |= {Location(entry.rel, line_of(text, m.start())) for m in regex.finditer(text)}
+    return found
+
+
+def _sdks(index: RepoIndex, packages: set[str], sites: dict[str, list[Location]]) -> list[SdkUse]:
+    found = []
+    for sdk in load("sdks.yaml"):
+        names = [normalise(p) for p in sdk["packages"]]
+        html = _html_sites(index, sdk["html"]) if sdk.get("html") else set()
+        if not any(n in packages for n in names) and not html:
+            continue
+        extra = _module_sites(index, sdk["modules"]) if sdk.get("modules") else set()
+        locations = sorted(
+            {loc for n in names for loc in sites.get(n, [])} | extra | html,
+            key=lambda loc: (loc.file, loc.line),
+        )[:20]
+        found.append(
+            SdkUse(sdk["name"], sdk["category"], sdk["recipient"], sdk["paid"], tuple(locations))
+```
+
+Modify `src/dpr/discovery/detect.py`, replace:
+
+```python
+    packages, sites = collect_packages(index)
+    schema = load_schema(index)
+    env_vars = collect_env_vars(index)
+    hosting = _match(stack["hosting"], index, packages)
+    return Detection(
+        languages=index.language_counts(),
+        frameworks=_match(stack["frameworks"], index, packages),
+```
+
+with:
+
+```python
+    packages, sites = collect_packages(index)
+    schema = load_schema(index)
+    env_vars = collect_env_vars(index)
+    hosting = _hosting(stack["hosting"], index, packages)
+    return Detection(
+        languages=index.language_counts(),
+        frameworks=_match(stack["frameworks"], index, packages),
+```
+
+Modify `src/dpr/discovery/detect.py`, replace:
+
+```python
+        orms=_match(stack["orms"], index, packages),
+        auth_providers=_match(stack["auth_providers"], index, packages),
+        hosting=hosting,
+        ci=sorted(f.rel for f in index.glob(".github/workflows/*")),
+        logging=_match(stack["logging"], index, packages),
+        header_config=_header_config(index, stack["header_config"]),
+        rate_limiters=_match(stack["rate_limiters"], index, packages),
+        test_frameworks=_match(stack["test_frameworks"], index, packages),
+        env_vars=env_vars,
+        sdks=_sdks(packages, sites),
+        routes=extract_routes(index),
+        models=extract_models(index, schema),
+        git=git_info(index.root),
+```
+
+with:
+
+```python
+        orms=_match(stack["orms"], index, packages),
+        auth_providers=_match(stack["auth_providers"], index, packages),
+        hosting=hosting,
+        ci=_ci(index, stack["ci_files"]),
+        logging=_match(stack["logging"], index, packages),
+        header_config=_header_config(index, stack["header_config"]),
+        rate_limiters=_match(stack["rate_limiters"], index, packages),
+        test_frameworks=_match(stack["test_frameworks"], index, packages),
+        env_vars=env_vars,
+        sdks=_sdks(index, packages, sites),
+        routes=extract_routes(index),
+        models=extract_models(index, schema),
+        git=git_info(index.root),
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (256 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/sdks.yaml src/dpr/data/stack.yaml src/dpr/discovery/detect.py tests/discovery/test_detect_stack.py
+git commit -m "Detect hosting from IaC, CI files, SDK import modules and custom JWT auth"
+```
+
+---
+
+### Task 54: App roots and severity lowering for apps nothing deploys
+
+Judge gap 5, last bullet. A repository often holds several apps: a live API, a legacy API kept for reference, a static site. `app_roots()` finds each folder with its own manifest, marks it deployed when a deploy file or CI pipeline names it, not deployed when other roots are named and it is not, and unknown when nothing says either way. Findings in an app root that is not deployed are listed one severity step lower with a note, and the report says so in "What this review did not cover".
+
+**Files:**
+- Create: `src/dpr/discovery/approots.py`
+- Modify: `src/dpr/api.py` (lower findings in undeployed roots and add a not-covered line per root)
+- Modify: `src/dpr/discovery/detect.py` (compute routes and CI first, then app roots)
+- Modify: `src/dpr/model.py` (`AppRoot` and `Detection.app_roots`)
+- Test: `tests/discovery/test_approots.py`
+
+**Interfaces:**
+- Consumes: `Detection.ci` and the stack data (Task 53), `Route` and `RepoIndex` from Milestone 1
+- Produces:
+  - `dpr.discovery.approots`:
+
+```python
+def root_of(roots: list[AppRoot], rel: str) -> AppRoot | None: ...
+def app_roots(index: RepoIndex, routes: list[Route], ci: list[str]) -> list[AppRoot]: ...
+def undeployed(roots: list[AppRoot]) -> list[AppRoot]: ...
+def lower_undeployed(findings: list[Finding], roots: list[AppRoot]) -> list[Finding]: ...
+```
+
+  - `dpr.model`:
+
+```python
+@dataclass(frozen=True)
+class AppRoot:
+    path: str
+    kind: str
+    deployed: bool | None
+    evidence: str = ''
+@dataclass
+class Detection:
+    languages: dict[str, int] = field(default_factory=dict)
+    frameworks: list[str] = field(default_factory=list)
+    databases: list[str] = field(default_factory=list)
+    orms: list[str] = field(default_factory=list)
+    auth_providers: list[str] = field(default_factory=list)
+    hosting: list[str] = field(default_factory=list)
+    ci: list[str] = field(default_factory=list)
+    logging: list[str] = field(default_factory=list)
+    header_config: list[str] = field(default_factory=list)
+    rate_limiters: list[str] = field(default_factory=list)
+    test_frameworks: list[str] = field(default_factory=list)
+    env_vars: list[EnvVar] = field(default_factory=list)
+    sdks: list[SdkUse] = field(default_factory=list)
+    routes: list[Route] = field(default_factory=list)
+    models: list[DataModel] = field(default_factory=list)
+    git: GitInfo = field(default_factory=lambda: GitInfo(False, 'uncommitted working tree'))
+    serverless: bool = False
+    public_supabase_key: bool = False
+    app_roots: list[AppRoot] = field(default_factory=list)
+    packages: set[str] = field(default_factory=set, metadata=NO_JSON)
+    schema: object = field(default=None, metadata=NO_JSON)
+```
+
+
+**Edits to files the Milestone 1 fix wave also changes.** Apply each replacement below by its intent if the exact old text differs:
+
+- `src/dpr/api.py`: in `review()`, after all checks have run and before `dedupe` and `rank`, pass the findings through `lower_undeployed(findings, detection.app_roots)` and append one not-covered line per `undeployed(...)` root with the exact text shown. Keep the fix wave's per-review guard around `run()` as it is.
+- `src/dpr/model.py`: add the frozen `AppRoot` dataclass beside the other detection dataclasses and a new last field `app_roots: list[AppRoot] = field(default_factory=list)` on `Detection`. No existing field changes.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/discovery/test_approots.py`:
+
+```python
+from dpr.api import review
+from dpr.discovery.approots import lower_undeployed, root_of
+from dpr.discovery.detect import detect
+from dpr.model import AppRoot, Finding, Location
+from dpr.walk import RepoIndex
+from tests.reviews.helpers import write
+
+PIPELINE = (
+    "variables:\n  apiDir: '$(Build.SourcesDirectory)/apps/api-py'\n"
+    "steps:\n  - script: cd apps/web && npm ci && npm run build\n"
+)
+
+
+def monorepo(tmp_path):
+    write(tmp_path, "package.json", '{"workspaces": ["apps/*", "packages/*"]}')
+    write(tmp_path, "azure-pipelines.yml", PIPELINE)
+    write(tmp_path, "apps/api-py/requirements.txt", "fastapi\n")
+    write(
+        tmp_path,
+        "apps/api-py/app/main.py",
+        "from fastapi import FastAPI\napp = FastAPI()\n\n\n@app.get('/health')\ndef health():\n"
+        "    return {}\n",
+    )
+    write(tmp_path, "apps/web/package.json", '{"dependencies": {"react": "18"}}')
+    write(tmp_path, "apps/web/index.html", "<div id=root></div>\n")
+    write(tmp_path, "apps/web/src/main.tsx", "export {}\n")
+    write(tmp_path, "apps/api/package.json", '{"dependencies": {"express": "4"}}')
+    write(
+        tmp_path,
+        "apps/api/src/index.ts",
+        "import express from 'express'\nconst app = express()\n"
+        "app.get('/health', (req, res) => res.json({}))\n",
+    )
+    write(tmp_path, "packages/shared/package.json", '{"name": "shared"}')
+    write(tmp_path, "packages/shared/index.ts", "export const x = 1\n")
+    return tmp_path
+
+
+def test_roots_kinds_and_deployment(tmp_path):
+    roots = {r.path: r for r in detect(RepoIndex(monorepo(tmp_path))).app_roots}
+    assert set(roots) == {"", "apps/api", "apps/api-py", "apps/web", "packages/shared"}
+    assert (roots["apps/api-py"].kind, roots["apps/api-py"].deployed) == ("server", True)
+    assert roots["apps/api-py"].evidence == "named in azure-pipelines.yml"
+    assert (roots["apps/web"].kind, roots["apps/web"].deployed) == ("web", True)
+    assert (roots["apps/api"].kind, roots["apps/api"].deployed) == ("server", False)
+    assert (roots["packages/shared"].kind, roots["packages/shared"].deployed) == ("library", None)
+    assert roots[""].deployed is None
+
+
+def test_own_start_script_counts_as_deployed(tmp_path):
+    monorepo(tmp_path)
+    write(tmp_path, "apps/api/startup.sh", "node dist/index.js\n")
+    roots = {r.path: r for r in detect(RepoIndex(tmp_path)).app_roots}
+    assert roots["apps/api"].deployed is True
+
+
+def test_without_any_deploy_reference_nothing_is_marked_undeployed(tmp_path):
+    monorepo(tmp_path)
+    (tmp_path / "azure-pipelines.yml").unlink()
+    roots = detect(RepoIndex(tmp_path)).app_roots
+    assert all(r.deployed is None for r in roots)
+
+
+def test_root_of_picks_the_deepest_root():
+    roots = [AppRoot("", "library", None), AppRoot("apps/api", "server", False)]
+    assert root_of(roots, "apps/api/src/a.ts").path == "apps/api"
+    assert root_of(roots, "apps/api-py/a.py").path == ""
+    assert root_of([AppRoot("apps/api", "server", False)], "docs/x.md") is None
+
+
+def finding(severity, *files):
+    return Finding(
+        rule_id="R",
+        review="owasp",
+        title="t",
+        tag="CONFIRMED",
+        severity=severity,
+        exploitability="high",
+        effort_minutes=5,
+        locations=tuple(Location(f, 1) for f in files),
+        detail="Detail.",
+        fix="Fix.",
+    )
+
+
+def test_lower_undeployed_only_when_every_location_is_undeployed():
+    roots = [
+        AppRoot("", "library", None),
+        AppRoot("apps/api", "server", False),
+        AppRoot("apps/web", "web", True),
+    ]
+    items = [
+        finding("critical", "apps/api/a.ts", "apps/api/b.ts"),
+        finding("high", "apps/api/a.ts", "apps/web/a.ts"),
+        finding("low", "apps/api/a.ts"),
+    ]
+    lowered, mixed, low = lower_undeployed(items, roots)
+    assert lowered.severity.value == "high" and lowered.tag.value == "CONFIRMED"
+    assert lowered.detail.startswith("Detail. Every location is in apps/api, which no deploy")
+    assert mixed == items[1]
+    assert low == items[2]
+
+
+def test_review_lowers_findings_in_an_undeployed_app(tmp_path):
+    monorepo(tmp_path)
+    write(
+        tmp_path,
+        "apps/api/src/run.ts",
+        "import { exec } from 'child_process'\nexport function run(cmd: string) { exec(cmd) }\n",
+    )
+    report = review(tmp_path, reviews=["owasp"])
+    [command] = [f for f in report.findings if f.rule_id == "OWASP-A03-COMMAND"]
+    assert command.severity.value == "medium"
+    assert (
+        "App root apps/api is not named by any deploy or CI configuration; its findings are "
+        "listed one severity step lower"
+    ) in report.not_covered
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/discovery/test_approots.py`
+Expected: FAIL (pytest reports 1 error; collection stops at `ModuleNotFoundError: No module named 'dpr.discovery.approots'`)
+
+- [ ] **Step 3: Add app roots and wire them into detection and the pipeline**
+
+Modify `src/dpr/api.py`, replace:
+
+```python
+from collections.abc import Iterable
+from pathlib import Path
+
+from dpr.discovery.detect import detect
+from dpr.model import Detection, Finding, Report, ReportMeta, ReviewSection, ScanError
+from dpr.questions.catalogue import questions_for, resolve
+```
+
+with:
+
+```python
+from collections.abc import Iterable
+from pathlib import Path
+
+from dpr.discovery.approots import lower_undeployed, undeployed
+from dpr.discovery.detect import detect
+from dpr.model import Detection, Finding, Report, ReportMeta, ReviewSection, ScanError
+from dpr.questions.catalogue import questions_for, resolve
+```
+
+Modify `src/dpr/api.py`, replace:
+
+```python
+        if finish is not None:
+            finish(ctx, section, found)
+
+    for option, owner, note in SKIPPED_OPTIONS:
+        if getattr(options, option) and owner not in sections:
+            ctx.not_covered.append(note)
+```
+
+with:
+
+```python
+        if finish is not None:
+            finish(ctx, section, found)
+
+    findings = lower_undeployed(findings, detection.app_roots)
+    for root in undeployed(detection.app_roots):
+        ctx.not_covered.append(
+            f"App root {root.path} is not named by any deploy or CI configuration; its findings "
+            "are listed one severity step lower"
+        )
+
+    for option, owner, note in SKIPPED_OPTIONS:
+        if getattr(options, option) and owner not in sections:
+            ctx.not_covered.append(note)
+```
+
+`src/dpr/discovery/approots.py`:
+
+```python
+"""App roots: folders with their own manifest, and whether a deploy or CI config names them."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import replace
+from pathlib import PurePosixPath
+
+from dpr.model import AppRoot, Finding, Route, Severity
+from dpr.walk import RepoIndex
+
+MANIFESTS = ("package.json", "pyproject.toml", "requirements.txt", "manage.py")
+DEPLOY_FILES = (
+    "render.yaml",
+    "fly.toml",
+    "vercel.json",
+    "netlify.toml",
+    "app.yaml",
+    "serverless.yml",
+    "railway.json",
+    "railway.toml",
+    "amplify.yml",
+    "Procfile",
+)
+OWN_START = (
+    "Procfile",
+    "Dockerfile",
+    "startup.sh",
+    "start.sh",
+    "entrypoint.sh",
+    "docker-entrypoint.sh",
+    "render.yaml",
+    "fly.toml",
+    "vercel.json",
+    "netlify.toml",
+    "app.yaml",
+    "serverless.yml",
+    "railway.json",
+    "railway.toml",
+    "staticwebapp.config.json",
+)
+WEB_FILES = ("index.html", "vite.config.*", "next.config.*", "nuxt.config.*", "svelte.config.*")
+LOWER = {
+    Severity.CRITICAL: Severity.HIGH,
+    Severity.HIGH: Severity.MEDIUM,
+    Severity.MEDIUM: Severity.LOW,
+}
+
+
+def root_of(roots: list[AppRoot], rel: str) -> AppRoot | None:
+    """The deepest app root that contains a repository-relative path."""
+    best = None
+    for root in roots:
+        if (not root.path or rel.startswith(root.path + "/")) and (
+            best is None or len(root.path) > len(best.path)
+        ):
+            best = root
+    return best
+
+
+def _folders(index: RepoIndex) -> list[str]:
+    found = set()
+    for entry in index.named(*MANIFESTS):
+        folder = str(PurePosixPath(entry.rel).parent)
+        found.add("" if folder == "." else folder)
+    return sorted(found)
+
+
+def _kind(index: RepoIndex, folders: list[str], folder: str, routes: list[Route]) -> str:
+    prefix = f"{folder}/" if folder else ""
+    nested = {p for p in folders if p != folder and p.startswith(prefix)}
+
+    def own(rel: str) -> bool:
+        return rel.startswith(prefix) and not any(rel.startswith(n + "/") for n in nested)
+
+    if any(own(r.file) for r in routes):
+        return "server"
+    if any(own(f.rel) for f in index.named(*WEB_FILES)):
+        return "web"
+    return "library"
+
+
+def _reference(folder: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![\w.-])(?:\./)?{re.escape(folder)}(?![\w-])")
+
+
+def app_roots(index: RepoIndex, routes: list[Route], ci: list[str]) -> list[AppRoot]:
+    folders = _folders(index)
+    deploy = [
+        *ci,
+        *(f.rel for f in index.named(*DEPLOY_FILES)),
+        *(f.rel for f in index.with_suffix(".tf")),
+    ]
+    texts = {rel: index.text(rel) for rel in dict.fromkeys(deploy)}
+    roots = []
+    for folder in folders:
+        kind = _kind(index, folders, folder, routes)
+        refs = [rel for rel, text in texts.items() if folder and _reference(folder).search(text)]
+        own = [f.rel for f in index.named(*OWN_START) if str(PurePosixPath(f.rel).parent) == folder]
+        if refs:
+            roots.append(AppRoot(folder, kind, True, f"named in {refs[0]}"))
+        elif own:
+            roots.append(AppRoot(folder, kind, True, f"has its own start or host config {own[0]}"))
+        else:
+            roots.append(AppRoot(folder, kind, None, ""))
+    apps = [r for r in roots if r.path and r.kind != "library"]
+    if any(r.deployed for r in apps):
+        roots = [
+            replace(r, deployed=False, evidence="no deploy or CI configuration names it")
+            if r in apps and r.deployed is None
+            else r
+            for r in roots
+        ]
+    return roots
+
+
+def undeployed(roots: list[AppRoot]) -> list[AppRoot]:
+    return [r for r in roots if r.deployed is False]
+
+
+def lower_undeployed(findings: list[Finding], roots: list[AppRoot]) -> list[Finding]:
+    """Lower severity one step when every location sits in an app root nothing deploys."""
+    if not undeployed(roots):
+        return findings
+    adjusted = []
+    for finding in findings:
+        homes = [root_of(roots, loc.file) for loc in finding.locations]
+        if homes and all(h is not None and h.deployed is False for h in homes):
+            if finding.severity in LOWER:
+                note = (
+                    f" Every location is in {homes[0].path}, which no deploy or CI configuration "
+                    "names, so the severity is one step lower."
+                )
+                finding = replace(
+                    finding, severity=LOWER[finding.severity], detail=finding.detail + note
+                )
+        adjusted.append(finding)
+    return adjusted
+```
+
+Modify `src/dpr/discovery/detect.py`, replace:
+
+```python
+import re
+
+from dpr.data import load
+from dpr.discovery.packages import collect_env_vars, collect_packages, normalise
+from dpr.gitutil import git_info
+from dpr.model import Detection, Location, SdkUse
+```
+
+with:
+
+```python
+import re
+
+from dpr.data import load
+from dpr.discovery.approots import app_roots
+from dpr.discovery.packages import collect_env_vars, collect_packages, normalise
+from dpr.gitutil import git_info
+from dpr.model import Detection, Location, SdkUse
+```
+
+Modify `src/dpr/discovery/detect.py`, replace:
+
+```python
+    schema = load_schema(index)
+    env_vars = collect_env_vars(index)
+    hosting = _hosting(stack["hosting"], index, packages)
+    return Detection(
+        languages=index.language_counts(),
+        frameworks=_match(stack["frameworks"], index, packages),
+```
+
+with:
+
+```python
+    schema = load_schema(index)
+    env_vars = collect_env_vars(index)
+    hosting = _hosting(stack["hosting"], index, packages)
+    routes = extract_routes(index)
+    ci = _ci(index, stack["ci_files"])
+    return Detection(
+        languages=index.language_counts(),
+        frameworks=_match(stack["frameworks"], index, packages),
+```
+
+Modify `src/dpr/discovery/detect.py`, replace:
+
+```python
+        orms=_match(stack["orms"], index, packages),
+        auth_providers=_match(stack["auth_providers"], index, packages),
+        hosting=hosting,
+        ci=_ci(index, stack["ci_files"]),
+        logging=_match(stack["logging"], index, packages),
+        header_config=_header_config(index, stack["header_config"]),
+        rate_limiters=_match(stack["rate_limiters"], index, packages),
+        test_frameworks=_match(stack["test_frameworks"], index, packages),
+        env_vars=env_vars,
+        sdks=_sdks(index, packages, sites),
+        routes=extract_routes(index),
+        models=extract_models(index, schema),
+        git=git_info(index.root),
+        serverless=any(h in stack["serverless_hosting"] for h in hosting),
+        public_supabase_key=any(e.public and "SUPABASE" in e.name for e in env_vars),
+        packages=packages,
+        schema=schema,
+    )
+```
+
+with:
+
+```python
+        orms=_match(stack["orms"], index, packages),
+        auth_providers=_match(stack["auth_providers"], index, packages),
+        hosting=hosting,
+        ci=ci,
+        logging=_match(stack["logging"], index, packages),
+        header_config=_header_config(index, stack["header_config"]),
+        rate_limiters=_match(stack["rate_limiters"], index, packages),
+        test_frameworks=_match(stack["test_frameworks"], index, packages),
+        env_vars=env_vars,
+        sdks=_sdks(index, packages, sites),
+        routes=routes,
+        models=extract_models(index, schema),
+        git=git_info(index.root),
+        serverless=any(h in stack["serverless_hosting"] for h in hosting),
+        public_supabase_key=any(e.public and "SUPABASE" in e.name for e in env_vars),
+        app_roots=app_roots(index, routes, ci),
+        packages=packages,
+        schema=schema,
+    )
+```
+
+Modify `src/dpr/model.py`, replace:
+
+```python
+    locations: tuple[Location, ...]
+
+
+@dataclass(frozen=True)
+class GitInfo:
+    is_repo: bool
+```
+
+with:
+
+```python
+    locations: tuple[Location, ...]
+
+
+@dataclass(frozen=True)
+class AppRoot:
+    path: str  # "" for the repository root
+    kind: str  # "server" | "web" | "library"
+    deployed: bool | None  # None when no deploy or CI configuration says either way
+    evidence: str = ""
+
+
+@dataclass(frozen=True)
+class GitInfo:
+    is_repo: bool
+```
+
+Modify `src/dpr/model.py`, replace:
+
+```python
+    git: GitInfo = field(default_factory=lambda: GitInfo(False, "uncommitted working tree"))
+    serverless: bool = False
+    public_supabase_key: bool = False
+    packages: set[str] = field(default_factory=set, metadata=NO_JSON)
+    schema: object = field(default=None, metadata=NO_JSON)
+
+```
+
+with:
+
+```python
+    git: GitInfo = field(default_factory=lambda: GitInfo(False, "uncommitted working tree"))
+    serverless: bool = False
+    public_supabase_key: bool = False
+    app_roots: list[AppRoot] = field(default_factory=list)
+    packages: set[str] = field(default_factory=set, metadata=NO_JSON)
+    schema: object = field(default=None, metadata=NO_JSON)
+
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (262 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/api.py src/dpr/discovery/approots.py src/dpr/discovery/detect.py src/dpr/model.py tests/discovery/test_approots.py
+git commit -m "Find app roots and list findings in undeployed apps one severity lower"
+```
+
+---
+
+### Task 55: Debug flag reachability and seed-on-start severity by environment
+
+Judge FP fixes and severity calibration (gap 10). `BASE-DEBUG-ON` moves to its own module and now reports a settings class flag only when a non-constant debug value reaches the app constructor, `app.run` or an `app.debug` assignment in the same app root; a flag that only gates the docs URLs is low; a production validator that raises, or deploy settings that all set it false, suppress it. `BASE-SEED-ON-START` becomes critical only when a start command seeds committed passwords in an environment not named as staging, preview, demo or development; a seed that only falls back to a committed password while a secret store supplies the variable is medium and INFERRED, with the secret reference as a second location.
+
+**Files:**
+- Create: `src/dpr/reviews/baseline_debug.py`, `src/dpr/reviews/deploy_env.py`
+- Modify: `src/dpr/parsing/pyvalues.py` (record the environment variable name of a fallback literal)
+- Modify: `src/dpr/reviews/baseline.py` (import the new rule module)
+- Modify: `src/dpr/reviews/baseline_accounts.py` (seed severity from the start stage and secret references)
+- Modify: `src/dpr/reviews/baseline_config.py` (remove the old debug rule, now in `baseline_debug.py`)
+- Test: `tests/reviews/test_baseline_debug.py`, `tests/reviews/test_seed_stage.py`
+- Modify fixture: `tests/fixtures/fastapi-bad/api/app/main.py` (pass the settings flag to `FastAPI(debug=...)` so the planted defect is reachable)
+- Modify fixture: `tests/fixtures/fastapi-bad/expected.yaml` (line numbers shift by one in `main.py`)
+- Modify test: `tests/reviews/test_baseline_config.py` (the module-level `DEBUG = True` in a plain config file with no sink is no longer reported)
+
+**Interfaces:**
+- Consumes: `deploy_files` needs CI files (Task 53) and app roots (Task 54); `pyvalues.Literal` and `_seed_target` from Milestone 2 Task 37
+- Produces:
+  - `dpr.parsing.pyvalues`:
+
+```python
+@dataclass(frozen=True)
+class Literal:
+    value: str
+    env_fallback: bool = False
+    env_name: str = field(default='', compare=False)
+```
+
+  - `dpr.reviews.baseline_debug`:
+
+```python
+@rule('BASE-DEBUG-ON', review='baseline', severity='high', exploitability='medium', owasp='A05')
+def debug_on(ctx: Context) -> Iterator[Finding]: ...
+```
+
+  - `dpr.reviews.deploy_env`:
+
+```python
+@dataclass(frozen=True)
+class Setting:
+    name: str
+    value: str
+    location: Location
+    secret: bool
+def deploy_files(ctx: Context, ci: bool=True) -> list[str]: ...
+def settings_named(ctx: Context, name: str, ci: bool=True) -> list[Setting]: ...
+def secret_reference(ctx: Context, name: str) -> Location | None: ...
+def all_false(ctx: Context, name: str) -> list[Location]: ...
+def start_stage(ctx: Context, rel: str, line: int) -> str | None: ...
+def non_production(stage: str | None) -> bool: ...
+```
+
+  - `pyvalues.Literal` gains `env_name` (the variable an `os.environ.get(NAME, literal)` fallback reads), excluded from equality.
+
+**Earlier tests updated on purpose:** `tests/reviews/test_baseline_config.py` drops `api/config.py:3` from the expected debug locations, because a flag nothing passes to the app is no longer reported (the judge scored both debug findings on the comparison repository as false positives).
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/fixtures/fastapi-bad/api/app/main.py`, replace:
+
+```python
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from app.core.rate_limit import limiter
+from app.routes import auth, chat, files
+
+app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(
+```
+
+with:
+
+```python
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from app.config import settings
+from app.core.rate_limit import limiter
+from app.routes import auth, chat, files
+
+app = FastAPI(debug=settings.debug)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+# Every finding the scan must report, and nothing else.
+findings:
+  - {rule: ABUSE-ERROR-LEAK, file: api/app/main.py, line: 29, tag: CONFIRMED}
+  - {rule: ABUSE-FORM-NO-CHALLENGE, file: api/app/routes/auth.py, line: 13, tag: INFERRED}
+  - {rule: ABUSE-INMEMORY-LIMITER, file: api/app/core/rate_limit.py, line: 12, tag: INFERRED}
+  - {rule: ABUSE-LIMITER-NOT-APPLIED, file: api/app/core/rate_limit.py, line: 15, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+# Every finding the scan must report, and nothing else.
+findings:
+  - {rule: ABUSE-ERROR-LEAK, file: api/app/main.py, line: 30, tag: CONFIRMED}
+  - {rule: ABUSE-FORM-NO-CHALLENGE, file: api/app/routes/auth.py, line: 13, tag: INFERRED}
+  - {rule: ABUSE-INMEMORY-LIMITER, file: api/app/core/rate_limit.py, line: 12, tag: INFERRED}
+  - {rule: ABUSE-LIMITER-NOT-APPLIED, file: api/app/core/rate_limit.py, line: 15, tag: CONFIRMED}
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: BASE-DB-ADMIN-LOGIN, file: infra/main.tf, line: 9, tag: INFERRED}
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 1, tag: CONFIRMED}
+  - {rule: BASE-DEBUG-ON, file: api/app/config.py, line: 5, tag: INFERRED}
+  - {rule: BASE-HEADER-MISSING-CSP, file: api/app/main.py, line: 9, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-FRAME, file: api/app/main.py, line: 9, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: api/app/main.py, line: 9, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-PERMISSIONS, file: api/app/main.py, line: 9, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-REFERRER, file: api/app/main.py, line: 9, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: api/app/main.py, line: 9, tag: UNVERIFIED}
+  - {rule: BASE-HTTPS-NOT-ENFORCED, file: infra/main.tf, line: 12, tag: CONFIRMED}
+  - {rule: BASE-LITERAL-PASSWORD-HASH, file: api/app/db/seed.py, line: 8, tag: CONFIRMED}
+  - {rule: BASE-SAMESITE-NONE-NO-CSRF, file: infra/main.tf, line: 15, tag: INFERRED}
+```
+
+with:
+
+```yaml
+  - {rule: BASE-DB-ADMIN-LOGIN, file: infra/main.tf, line: 9, tag: INFERRED}
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 1, tag: CONFIRMED}
+  - {rule: BASE-DEBUG-ON, file: api/app/config.py, line: 5, tag: INFERRED}
+  - {rule: BASE-HEADER-MISSING-CSP, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-FRAME, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-PERMISSIONS, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-REFERRER, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HTTPS-NOT-ENFORCED, file: infra/main.tf, line: 12, tag: CONFIRMED}
+  - {rule: BASE-LITERAL-PASSWORD-HASH, file: api/app/db/seed.py, line: 8, tag: CONFIRMED}
+  - {rule: BASE-SAMESITE-NONE-NO-CSRF, file: infra/main.tf, line: 15, tag: INFERRED}
+```
+
+Modify `tests/reviews/test_baseline_config.py`, replace:
+
+```python
+    write(tmp_path, "notes.py", "DEBUG = True\n")
+    found = findings_for(tmp_path, "baseline", "BASE-DEBUG-ON")
+    assert sorted(str(f.locations[0]) for f in found) == [
+        "api/config.py:3",
+        "api/main.py:2",
+        "proj/settings.py:2",
+    ]
+```
+
+with:
+
+```python
+    write(tmp_path, "notes.py", "DEBUG = True\n")
+    found = findings_for(tmp_path, "baseline", "BASE-DEBUG-ON")
+    assert sorted(str(f.locations[0]) for f in found) == [
+        "api/main.py:2",
+        "proj/settings.py:2",
+    ]
+```
+
+`tests/reviews/test_baseline_debug.py`:
+
+```python
+from dpr.discovery.detect import detect
+from dpr.reviews import deploy_env
+from dpr.rules import Context
+from dpr.walk import RepoIndex
+from tests.reviews.helpers import findings_for, write
+
+SETTINGS = (
+    "from pydantic_settings import BaseSettings\n\n\n"
+    "class Settings(BaseSettings):\n    debug: bool = True\n    environment: str = 'dev'\n"
+)
+GUARDED = SETTINGS + (
+    "\n    def check(self):\n        if self.environment == 'production':\n"
+    "            if self.debug:\n                raise ValueError('DEBUG must be False')\n"
+)
+
+
+def api(root, settings=SETTINGS, main="from fastapi import FastAPI\napp = FastAPI()\n"):
+    write(root, "api/requirements.txt", "fastapi\n")
+    write(root, "api/app/config.py", settings)
+    write(root, "api/app/main.py", main)
+    return root
+
+
+def locs(found):
+    return sorted((str(f.locations[0]), f.severity.value) for f in found)
+
+
+def test_settings_flag_passed_to_the_app_is_reported(tmp_path):
+    api(tmp_path, main="from fastapi import FastAPI\napp = FastAPI(debug=settings.debug)\n")
+    found = findings_for(tmp_path, "baseline", "BASE-DEBUG-ON")
+    assert locs(found) == [("api/app/config.py:5", "high")]
+    assert "passed to the app" in found[0].detail
+
+
+def test_flag_assigned_to_app_debug_is_a_sink(tmp_path):
+    api(
+        tmp_path,
+        main="from flask import Flask\napp = Flask(__name__)\napp.debug = settings.debug\n",
+    )
+    assert locs(findings_for(tmp_path, "baseline", "BASE-DEBUG-ON")) == [
+        ("api/app/config.py:5", "high")
+    ]
+
+
+def test_flag_that_only_gates_docs_is_low(tmp_path):
+    main = (
+        "from fastapi import FastAPI\napp = FastAPI(docs_url='/docs' if settings.debug else None)\n"
+    )
+    api(tmp_path, main=main)
+    found = findings_for(tmp_path, "baseline", "BASE-DEBUG-ON")
+    assert locs(found) == [("api/app/config.py:5", "low")]
+    assert "API docs" in found[0].detail
+
+
+def test_unused_flag_is_not_reported(tmp_path):
+    api(tmp_path)
+    assert findings_for(tmp_path, "baseline", "BASE-DEBUG-ON") == []
+
+
+def test_production_validator_suppresses(tmp_path):
+    api(
+        tmp_path,
+        settings=GUARDED,
+        main="from fastapi import FastAPI\napp = FastAPI(debug=settings.debug)\n",
+    )
+    assert findings_for(tmp_path, "baseline", "BASE-DEBUG-ON") == []
+
+
+def test_every_deploy_config_setting_debug_false_suppresses(tmp_path):
+    api(tmp_path, main="from fastapi import FastAPI\napp = FastAPI(debug=settings.debug)\n")
+    write(
+        tmp_path,
+        "infra/main.tf",
+        'resource "azurerm_linux_web_app" "api" {\n  app_settings = {\n    DEBUG = "false"\n  }\n}\n',
+    )
+    write(
+        tmp_path,
+        "render.yaml",
+        'services:\n  - type: web\n    envVars:\n      - key: DEBUG\n        value: "false"\n',
+    )
+    write(tmp_path, ".gitlab-ci.yml", 'test:\n  variables:\n    DEBUG: "true"\n')
+    assert findings_for(tmp_path, "baseline", "BASE-DEBUG-ON") == []
+
+
+def test_one_deploy_config_turning_debug_on_keeps_the_finding(tmp_path):
+    api(tmp_path, main="from fastapi import FastAPI\napp = FastAPI(debug=settings.debug)\n")
+    write(tmp_path, "infra/main.tf", 'app_settings = {\n  DEBUG = "false"\n}\n')
+    write(tmp_path, "api/Dockerfile", "FROM python\nENV DEBUG=true\n")
+    assert len(findings_for(tmp_path, "baseline", "BASE-DEBUG-ON")) == 1
+
+
+def test_sink_in_another_app_root_does_not_count(tmp_path):
+    api(tmp_path)
+    write(tmp_path, "worker/requirements.txt", "flask\n")
+    write(tmp_path, "worker/app.py", "app = Flask(__name__)\napp.run(debug=config.debug)\n")
+    assert findings_for(tmp_path, "baseline", "BASE-DEBUG-ON") == []
+
+
+def ctx_for(root):
+    index = RepoIndex(root)
+    return Context(index=index, detection=detect(index))
+
+
+def test_secret_reference_and_stage(tmp_path):
+    write(
+        tmp_path,
+        "infra/main.tf",
+        "app_settings = {\n"
+        '  SEED_ADMIN_PASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.s.id})"\n'
+        '  PLAIN = "value"\n}\n',
+    )
+    write(
+        tmp_path,
+        "render.yaml",
+        "services:\n  - type: web\n    startCommand: python -m app.db.seed\n    envVars:\n"
+        '      - key: ENVIRONMENT\n        value: "staging"\n'
+        "      - key: TOKEN\n        sync: false\n"
+        "  - type: worker\n    startCommand: python worker.py\n",
+    )
+    ctx = ctx_for(tmp_path)
+    assert str(deploy_env.secret_reference(ctx, "SEED_ADMIN_PASSWORD")) == "infra/main.tf:2"
+    assert str(deploy_env.secret_reference(ctx, "TOKEN")) == "render.yaml:7"
+    assert deploy_env.secret_reference(ctx, "PLAIN") is None
+    assert deploy_env.start_stage(ctx, "render.yaml", 3) == "staging"
+    assert deploy_env.start_stage(ctx, "render.yaml", 10) is None
+    assert deploy_env.non_production("staging") and not deploy_env.non_production("production")
+```
+
+`tests/reviews/test_seed_stage.py`:
+
+```python
+from tests.reviews.helpers import findings_for, write
+
+PW = "Seed" + "Stage" + "#4410"
+
+
+def seeds(root):
+    write(root, "api/requirements.txt", "fastapi\n")
+    write(
+        root,
+        "api/app/db/seed.py",
+        "from app.core.security import get_password_hash\n"
+        f"ADMIN_PASSWORD = '{PW}'\n"
+        "def seed(db):\n    db.add(User(password_hash=get_password_hash(ADMIN_PASSWORD)))\n",
+    )
+    write(
+        root,
+        "api/app/db/admin_seed.py",
+        "import os\nfrom app.core.security import get_password_hash\n"
+        f"DEFAULT_PW = '{PW}x'\n"
+        "def seed(db):\n"
+        "    pw = os.environ.get('SEED_ADMIN_PASSWORD', DEFAULT_PW)\n"
+        "    db.add(User(password_hash=get_password_hash(pw)))\n",
+    )
+    return root
+
+
+def by_location(root):
+    return {str(f.locations[0]): f for f in findings_for(root, "baseline", "BASE-SEED-ON-START")}
+
+
+def test_staging_service_seed_with_committed_password_is_high(tmp_path):
+    seeds(tmp_path)
+    write(
+        tmp_path,
+        "render.yaml",
+        "services:\n  - type: web\n    rootDir: api\n"
+        "    startCommand: python -m app.db.seed && uvicorn app.main:app\n"
+        '    envVars:\n      - key: ENVIRONMENT\n        value: "staging"\n',
+    )
+    finding = by_location(tmp_path)["render.yaml:4"]
+    assert finding.severity.value == "high"
+    assert "staging environment setting" in finding.detail
+    assert finding.refs == ("BASE-LITERAL-PASSWORD-HASH",)
+
+
+def test_unknown_stage_with_committed_password_stays_critical(tmp_path):
+    seeds(tmp_path)
+    write(tmp_path, "api/startup.sh", "python -m app.db.seed\ngunicorn app.main:app\n")
+    assert by_location(tmp_path)["api/startup.sh:1"].severity.value == "critical"
+
+
+def test_env_password_from_a_secret_store_is_medium(tmp_path):
+    seeds(tmp_path)
+    write(tmp_path, "api/startup.sh", "python -m app.db.admin_seed\n")
+    write(
+        tmp_path,
+        "infra/main.tf",
+        'resource "azurerm_linux_web_app" "api" {\n  app_settings = {\n'
+        '    SEED_ADMIN_PASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.x.id})"\n'
+        "  }\n}\n",
+    )
+    finding = by_location(tmp_path)["api/startup.sh:1"]
+    assert (finding.severity.value, finding.tag.value) == ("medium", "INFERRED")
+    assert [str(loc) for loc in finding.locations] == ["api/startup.sh:1", "infra/main.tf:3"]
+    assert (
+        finding.proof_needed == "Check that the secret reference for SEED_ADMIN_PASSWORD resolves."
+    )
+
+
+def test_env_password_without_a_secret_store_stays_high(tmp_path):
+    seeds(tmp_path)
+    write(tmp_path, "api/startup.sh", "python -m app.db.admin_seed\n")
+    write(tmp_path, "infra/main.tf", "app_settings = {\n  SEED_ADMIN_PASSWORD = var.seed\n}\n")
+    assert by_location(tmp_path)["api/startup.sh:1"].severity.value == "high"
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_baseline_debug.py tests/reviews/test_seed_stage.py tests/reviews/test_baseline_config.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 1 error; collection stops at `ImportError: cannot import name 'deploy_env' from 'dpr.reviews'`)
+
+- [ ] **Step 3: Add the deploy settings reader, the debug module and the seed severity**
+
+Modify `src/dpr/parsing/pyvalues.py`, replace:
+
+```python
+from __future__ import annotations
+
+import ast
+from dataclasses import dataclass
+
+from dpr.parsing import pyast
+
+```
+
+with:
+
+```python
+from __future__ import annotations
+
+import ast
+from dataclasses import dataclass, field
+
+from dpr.parsing import pyast
+
+```
+
+Modify `src/dpr/parsing/pyvalues.py`, replace:
+
+```python
+class Literal:
+    value: str
+    env_fallback: bool = False
+
+
+def _assigned(body: list[ast.stmt], name: str, before: int) -> ast.expr | None:
+```
+
+with:
+
+```python
+class Literal:
+    value: str
+    env_fallback: bool = False
+    env_name: str = field(default="", compare=False)
+
+
+def _assigned(body: list[ast.stmt], name: str, before: int) -> ast.expr | None:
+```
+
+Modify `src/dpr/parsing/pyvalues.py`, replace:
+
+```python
+        return Literal(node.value)
+    if isinstance(node, ast.Call) and pyast.dotted(node.func) in ENV_GET and len(node.args) > 1:
+        inner = resolve(tree, node.args[1], line, depth + 1)
+        return Literal(inner.value, True) if inner else None
+    fn = pyast.function_at(tree, line)
+    if isinstance(node, ast.Name):
+        value = _assigned(fn.body, node.id, line) if fn is not None else None
+```
+
+with:
+
+```python
+        return Literal(node.value)
+    if isinstance(node, ast.Call) and pyast.dotted(node.func) in ENV_GET and len(node.args) > 1:
+        inner = resolve(tree, node.args[1], line, depth + 1)
+        name = pyast.constant(node.args[0], "")
+        return Literal(inner.value, True, name if isinstance(name, str) else "") if inner else None
+    fn = pyast.function_at(tree, line)
+    if isinstance(node, ast.Name):
+        value = _assigned(fn.body, node.id, line) if fn is not None else None
+```
+
+Modify `src/dpr/reviews/baseline.py`, replace:
+
+```python
+
+import dpr.reviews.baseline_accounts  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_config  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_infra  # noqa: F401  (registers rules)
+from dpr.model import Part, ReviewSection
+from dpr.reviews.baseline_headers import live_reads
+```
+
+with:
+
+```python
+
+import dpr.reviews.baseline_accounts  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_config  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_debug  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_infra  # noqa: F401  (registers rules)
+from dpr.model import Part, ReviewSection
+from dpr.reviews.baseline_headers import live_reads
+```
+
+Modify `src/dpr/reviews/baseline_accounts.py`, replace:
+
+```python
+from dpr.model import Finding, Location, Tag
+from dpr.parsing import jsts, pyast, pyvalues
+from dpr.redact import snippet
+from dpr.reviews.paths import is_test
+from dpr.rules import Context, make_finding, rule
+from dpr.walk import line_of
+```
+
+with:
+
+```python
+from dpr.model import Finding, Location, Tag
+from dpr.parsing import jsts, pyast, pyvalues
+from dpr.redact import snippet
+from dpr.reviews.deploy_env import non_production, secret_reference, start_stage
+from dpr.reviews.paths import is_test
+from dpr.rules import Context, make_finding, rule
+from dpr.walk import line_of
+```
+
+Modify `src/dpr/reviews/baseline_accounts.py`, replace:
+
+```python
+                continue
+            if not SEED_COMMAND.search(stripped):
+                continue
+            targets = _seed_target(ctx, entry.rel, stripped)
+            with_passwords = [
+                t for t in targets if any(not lit.env_fallback for _, lit in sites.get(t, []))
+            ]
+            detail = (
+                f" The seed file {with_passwords[0]} hashes passwords written in the repository."
+                if with_passwords
+                else ""
+            )
+            yield make_finding(
+                "BASE-SEED-ON-START",
+                tag=Tag.INFERRED,
+                locations=[Location(entry.rel, number)],
+                severity="critical" if with_passwords else "high",
+                snippet=snippet(text, number),
+                refs=("BASE-LITERAL-PASSWORD-HASH",) if with_passwords else (),
+                start=entry.rel,
+                extra=detail,
+            )
+
+
+def _py_short_minimums(tree: ast.Module) -> Iterator[tuple[int, int]]:
+```
+
+with:
+
+```python
+                continue
+            if not SEED_COMMAND.search(stripped):
+                continue
+            yield _seed_finding(ctx, entry.rel, number, text, sites)
+
+
+def _seed_finding(ctx: Context, rel: str, number: int, text: str, sites: dict) -> Finding:
+    targets = _seed_target(ctx, rel, text.splitlines()[number - 1].strip())
+    direct = [t for t in targets if any(not lit.env_fallback for _, lit in sites.get(t, []))]
+    fallback = [lit for t in targets for _, lit in sites.get(t, []) if lit.env_fallback]
+    stage = start_stage(ctx, rel, number)
+    severity, detail, proof, locations = "high", "", None, [Location(rel, number)]
+    if direct:
+        severity = "high" if non_production(stage) else "critical"
+        detail = f" The seed file {direct[0]} hashes passwords written in the repository."
+    elif fallback and fallback[0].env_name:
+        secret = secret_reference(ctx, fallback[0].env_name)
+        if secret is not None:
+            severity = "medium"
+            locations.append(secret)
+            detail = (
+                f" The seed falls back to a committed password only when "
+                f"{fallback[0].env_name} is unset, and {secret.file} supplies that variable "
+                "from a secret store."
+            )
+            proof = f"Check that the secret reference for {fallback[0].env_name} resolves."
+    if stage:
+        detail += f" This start command runs with the {stage} environment setting."
+    return make_finding(
+        "BASE-SEED-ON-START",
+        tag=Tag.INFERRED,
+        locations=locations,
+        severity=severity,
+        snippet=snippet(text, number),
+        proof_needed=proof,
+        refs=("BASE-LITERAL-PASSWORD-HASH",) if direct else (),
+        start=rel,
+        extra=detail,
+    )
+
+
+def _py_short_minimums(tree: ast.Module) -> Iterator[tuple[int, int]]:
+```
+
+Modify `src/dpr/reviews/baseline_config.py`, replace:
+
+```python
+"""Review 4, baseline: cookie flags, debug mode, weak password hashing, mixed content."""
+
+from __future__ import annotations
+
+```
+
+with:
+
+```python
+"""Review 4, baseline: cookie flags, weak password hashing, mixed content."""
+
+from __future__ import annotations
+
+```
+
+Modify `src/dpr/reviews/baseline_config.py`, replace:
+
+```python
+    )
+
+
+def _debug(ctx: Context, rel: str, line: int, what: str) -> Finding:
+    return make_finding(
+        "BASE-DEBUG-ON",
+        tag=Tag.INFERRED,
+        locations=[Location(rel, line)],
+        snippet=snippet(ctx.index.text(rel), line),
+        what=what,
+    )
+
+
+@rule("BASE-DEBUG-ON", review="baseline", severity="high", exploitability="medium", owasp="A05")
+def debug_on(ctx: Context) -> Iterator[Finding]:
+    for entry in ctx.index.py_files:
+        text = ctx.index.text(entry.rel)
+        if "debug" not in text.lower():
+            continue
+        tree = pyast.parse_file(ctx.index, entry.rel)
+        if tree is None:
+            continue
+        django = "INSTALLED_APPS" in text
+        for stmt in tree.body:
+            if (
+                django
+                and isinstance(stmt, ast.Assign)
+                and isinstance(stmt.targets[0], ast.Name)
+                and stmt.targets[0].id == "DEBUG"
+                and pyast.constant(stmt.value) is True
+            ):
+                yield _debug(ctx, entry.rel, stmt.lineno, "Django settings set DEBUG = True.")
+        for call in pyast.calls(tree, r"(?:\w+\.)?(?:FastAPI|Flask|run)"):
+            if pyast.constant(pyast.kwarg(call, "debug")) is True:
+                yield _debug(
+                    ctx, entry.rel, call.lineno, "The app is created or run with debug=True."
+                )
+        for cls in pyast.class_defs(tree):
+            if not any(b.endswith("Settings") for b in pyast.base_names(cls)):
+                continue
+            for stmt in cls.body:
+                if (
+                    isinstance(stmt, ast.AnnAssign)
+                    and isinstance(stmt.target, ast.Name)
+                    and stmt.target.id.lower() == "debug"
+                    and pyast.constant(stmt.value) is True
+                ):
+                    what = "The settings class turns debug on unless the environment sets it."
+                    yield _debug(ctx, entry.rel, stmt.lineno, what)
+
+
+def _password_context(call_text: str, fn: ast.AST | None) -> bool:
+    name = getattr(fn, "name", "") or ""
+    return bool(PASSWORD_WORD.search(call_text) or PASSWORD_WORD.search(name))
+```
+
+with:
+
+```python
+    )
+
+
+def _password_context(call_text: str, fn: ast.AST | None) -> bool:
+    name = getattr(fn, "name", "") or ""
+    return bool(PASSWORD_WORD.search(call_text) or PASSWORD_WORD.search(name))
+```
+
+`src/dpr/reviews/baseline_debug.py`:
+
+```python
+"""Review 4, baseline: debug mode that reaches a debug page, and API docs gated on the flag."""
+
+from __future__ import annotations
+
+import ast
+import re
+from collections.abc import Iterator
+
+from dpr.discovery.approots import root_of
+from dpr.model import Finding, Location, Tag
+from dpr.parsing import pyast
+from dpr.redact import snippet
+from dpr.reviews.deploy_env import all_false
+from dpr.reviews.paths import is_test
+from dpr.rules import Context, make_finding, rule
+
+APP_CALL = r"(?:\w+\.)?(?:FastAPI|Flask|Starlette|run)"
+DOCS_KEYWORDS = ("docs_url", "redoc_url", "openapi_url")
+SINK_TEXT = re.compile(r"\bdebug\b", re.IGNORECASE)
+
+
+def _debug(ctx: Context, rel: str, line: int, what: str, severity: str | None = None) -> Finding:
+    return make_finding(
+        "BASE-DEBUG-ON",
+        tag=Tag.INFERRED,
+        locations=[Location(rel, line)],
+        severity=severity,
+        snippet=snippet(ctx.index.text(rel), line),
+        what=what,
+    )
+
+
+def _same_root_files(ctx: Context, rel: str) -> list[str]:
+    home = root_of(ctx.detection.app_roots, rel)
+    prefix = f"{home.path}/" if home is not None and home.path else ""
+    return [f.rel for f in ctx.index.py_files if f.rel.startswith(prefix) and not is_test(f.rel)]
+
+
+def _uses(ctx: Context, rel: str) -> tuple[list[int], list[int]]:
+    """Lines where the settings flag reaches a debug sink, and lines where it only gates docs."""
+    sinks, docs = [], []
+    for other in _same_root_files(ctx, rel):
+        text = ctx.index.text(other)
+        if "debug" not in text:
+            continue
+        tree = pyast.parse_file(ctx.index, other)
+        for call in pyast.calls(tree, APP_CALL) if tree else []:
+            value = pyast.kwarg(call, "debug")
+            if value is not None and not isinstance(value, ast.Constant):
+                sinks.append(call.lineno)
+            for keyword in DOCS_KEYWORDS:
+                gate = pyast.kwarg(call, keyword)
+                if gate is not None and SINK_TEXT.search(ast.unparse(gate)):
+                    docs.append(call.lineno)
+        for node in ast.walk(tree) if tree else []:
+            if isinstance(node, ast.Assign) and any(
+                ast.unparse(t).endswith((".debug", "['DEBUG']", '["DEBUG"]')) for t in node.targets
+            ):
+                if not isinstance(node.value, ast.Constant):
+                    sinks.append(node.lineno)
+    return sinks, docs
+
+
+def _production_guard(cls: ast.ClassDef) -> bool:
+    """A validator in the settings class that raises when debug is on."""
+    for node in ast.walk(cls):
+        if isinstance(node, ast.If) and SINK_TEXT.search(ast.unparse(node.test)):
+            if any(isinstance(sub, ast.Raise) for stmt in node.body for sub in ast.walk(stmt)):
+                return True
+    return False
+
+
+def _settings_debug(ctx: Context, rel: str, tree: ast.Module) -> Iterator[Finding]:
+    for cls in pyast.class_defs(tree):
+        if not any(b.endswith("Settings") for b in pyast.base_names(cls)):
+            continue
+        for stmt in cls.body:
+            if not (
+                isinstance(stmt, ast.AnnAssign)
+                and isinstance(stmt.target, ast.Name)
+                and stmt.target.id.lower() == "debug"
+                and pyast.constant(stmt.value) is True
+            ):
+                continue
+            if _production_guard(cls) or all_false(ctx, "DEBUG"):
+                continue
+            sinks, docs = _uses(ctx, rel)
+            if sinks:
+                what = (
+                    "The settings class turns debug on unless the environment sets it, and the "
+                    "flag is passed to the app, so errors can render a debug page."
+                )
+                yield _debug(ctx, rel, stmt.lineno, what)
+            elif docs:
+                what = (
+                    "The settings class turns debug on unless the environment sets it. The flag "
+                    "only decides whether the interactive API docs are served, so an unset "
+                    "variable publishes the docs, not a debug page."
+                )
+                yield _debug(ctx, rel, stmt.lineno, what, severity="low")
+
+
+@rule("BASE-DEBUG-ON", review="baseline", severity="high", exploitability="medium", owasp="A05")
+def debug_on(ctx: Context) -> Iterator[Finding]:
+    for entry in ctx.index.py_files:
+        text = ctx.index.text(entry.rel)
+        if "debug" not in text.lower() or is_test(entry.rel):
+            continue
+        tree = pyast.parse_file(ctx.index, entry.rel)
+        if tree is None:
+            continue
+        if "INSTALLED_APPS" in text:
+            for stmt in tree.body:
+                if (
+                    isinstance(stmt, ast.Assign)
+                    and isinstance(stmt.targets[0], ast.Name)
+                    and stmt.targets[0].id == "DEBUG"
+                    and pyast.constant(stmt.value) is True
+                ):
+                    what = "Django settings set DEBUG = True."
+                    yield _debug(ctx, entry.rel, stmt.lineno, what)
+        for call in pyast.calls(tree, APP_CALL):
+            if pyast.constant(pyast.kwarg(call, "debug")) is True:
+                what = "The app is created or run with debug=True."
+                yield _debug(ctx, entry.rel, call.lineno, what)
+        yield from _settings_debug(ctx, entry.rel, tree)
+```
+
+`src/dpr/reviews/deploy_env.py`:
+
+```python
+"""Environment settings written in deploy configuration: values, secret references, stages."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from dpr.discovery.approots import DEPLOY_FILES
+from dpr.model import Location
+from dpr.rules import Context
+from dpr.walk import line_of
+
+SECRET_MARKERS = re.compile(
+    r"@Microsoft\.KeyVault|key_vault_secret|secretsmanager|ssm_parameter|secret_manager"
+    r"|secretKeyRef|valueFrom|\$\{\{\s*secrets\.|sync:\s*false|generateValue:\s*true",
+    re.IGNORECASE,
+)
+NON_PRODUCTION = re.compile(
+    r"^(?:staging|stage|preview|demo|dev|development|test|testing|qa|uat|sandbox|local)$",
+    re.IGNORECASE,
+)
+STAGE_NAMES = ("ENVIRONMENT", "APP_ENV", "NODE_ENV", "ENV", "RAILS_ENV", "FLASK_ENV", "STAGE")
+FALSE_WORDS = ("false", "0", "no", "off")
+
+
+@dataclass(frozen=True)
+class Setting:
+    name: str
+    value: str
+    location: Location
+    secret: bool
+
+
+def deploy_files(ctx: Context, ci: bool = True) -> list[str]:
+    """Files that configure a deployed environment. Local compose files are not included."""
+    names = [f.rel for f in ctx.index.named(*DEPLOY_FILES, "Dockerfile")]
+    names += [f.rel for f in ctx.index.with_suffix(".tf")]
+    names += list(ctx.detection.ci) if ci else []
+    return list(dict.fromkeys(names))
+
+
+def _assignment(name: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"""^\s*(?:-\s*)?(?:ENV\s+|export\s+)?["']?{re.escape(name)}["']?\s*[:= ]\s*(.*)$""",
+        re.MULTILINE,
+    )
+
+
+def _render_pairs(text: str, name: str) -> list[tuple[int, str, str]]:
+    """Render style `- key: NAME` followed by `value:`, `sync:` or `generateValue:` lines."""
+    found = []
+    lines = text.splitlines()
+    for number, line in enumerate(lines, start=1):
+        if not re.match(rf"""^\s*-\s*key:\s*["']?{re.escape(name)}["']?\s*$""", line):
+            continue
+        tail = " ".join(lines[number : number + 2])
+        value = re.search(r"""value:\s*["']?([^"'\s#]*)""", tail)
+        found.append((number, value.group(1) if value else "", tail))
+    return found
+
+
+def settings_named(ctx: Context, name: str, ci: bool = True) -> list[Setting]:
+    found = []
+    for rel in deploy_files(ctx, ci):
+        text = ctx.index.text(rel)
+        if name not in text:
+            continue
+        for number, value, tail in _render_pairs(text, name):
+            secret = bool(SECRET_MARKERS.search(tail))
+            found.append(Setting(name, value, Location(rel, number), secret))
+        for match in _assignment(name).finditer(text):
+            raw = match.group(1).strip()
+            if raw.startswith("-") or not raw:
+                continue
+            value = raw.strip().strip("\"'").split('"')[0].split("'")[0]
+            secret = bool(SECRET_MARKERS.search(raw))
+            found.append(Setting(name, value, Location(rel, line_of(text, match.start())), secret))
+    return found
+
+
+def secret_reference(ctx: Context, name: str) -> Location | None:
+    """Where a deploy config supplies the variable from a secret store, if it does."""
+    return next((s.location for s in settings_named(ctx, name) if s.secret), None)
+
+
+def all_false(ctx: Context, name: str) -> list[Location]:
+    """Locations when every deploy config (not CI) that sets the variable sets it false."""
+    values = settings_named(ctx, name, ci=False)
+    if values and all(s.value.lower() in FALSE_WORDS for s in values):
+        return [s.location for s in values]
+    return []
+
+
+def start_stage(ctx: Context, rel: str, line: int) -> str | None:
+    """The stage a start command runs in when its own file names one (render service blocks)."""
+    text = ctx.index.text(rel)
+    lines = text.splitlines()
+    start, end = 0, len(lines)
+    if rel.endswith((".yaml", ".yml")):
+        heads = [i for i, raw in enumerate(lines) if re.match(r"^\s*-\s*type:", raw)]
+        start = max([i for i in heads if i < line] or [0])
+        end = min([i for i in heads if i >= line] or [len(lines)])
+    block = "\n".join(lines[start:end])
+    for name in STAGE_NAMES:
+        for _number, value, _tail in _render_pairs(block, name):
+            if value:
+                return value
+        match = re.search(rf"""\b{name}\s*=\s*["']?(\w+)""", block)
+        if match:
+            return match.group(1)
+    return None
+
+
+def non_production(stage: str | None) -> bool:
+    return bool(stage and NON_PRODUCTION.match(stage))
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (275 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/parsing/pyvalues.py src/dpr/reviews/baseline.py src/dpr/reviews/baseline_accounts.py src/dpr/reviews/baseline_config.py src/dpr/reviews/baseline_debug.py src/dpr/reviews/deploy_env.py tests/fixtures/fastapi-bad/api/app/main.py tests/fixtures/fastapi-bad/expected.yaml tests/reviews/test_baseline_config.py tests/reviews/test_baseline_debug.py tests/reviews/test_seed_stage.py
+git commit -m "Report debug flags only when they reach the app and grade seed runs by environment"
+```
+
+---
+
+### Task 56: One committed-password finding per password, merged across files
+
+Severity calibration and grouping (gap 10). `BASE-LITERAL-PASSWORD-HASH` moves to `baseline_literals.py` and groups hashing sites by the SHA-256 digest of the literal, so the same password hashed in a seed script, a migration and a test helper is one finding with every site as a location (sites first, then copies found elsewhere). A script whose name says seed, demo, sample, fixture, fake, dummy, example or mock and that no start command, deploy file or CI job runs is low, not critical.
+
+**Files:**
+- Create: `src/dpr/reviews/baseline_literals.py`
+- Modify: `src/dpr/reviews/baseline.py` (import the new rule module)
+- Modify: `src/dpr/reviews/baseline_accounts.py` (remove the old per-file rule, keep the shared helpers)
+- Test: `tests/reviews/test_baseline_literals.py`
+- Modify test: `tests/reviews/test_baseline_accounts.py` (the two files that hash the same text are one finding)
+
+**Interfaces:**
+- Consumes: `literal_password_sites`, `_copies`, `_digest`, `_masked` and `START_FILES` from Milestone 2 Task 37; `deploy_files` (Task 55)
+- Produces:
+  - `dpr.reviews.baseline_literals`:
+
+```python
+@rule('BASE-LITERAL-PASSWORD-HASH', review='baseline', severity='critical', exploitability='high', owasp='A07')
+def literal_password_hash(ctx: Context) -> Iterator[Finding]: ...
+```
+
+
+**Earlier tests updated on purpose:** `tests/reviews/test_baseline_accounts.py` now expects `api/scripts/users.py` and `api/app/db/seed.py`, which hash the same text, as one finding with `api/scripts/users.py:4` and `api/app/db/seed.py:4` as locations and the detail "The same text is hashed in 2 files."
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/reviews/test_baseline_accounts.py`, replace:
+
+```python
+    }
+    assert set(found) == {
+        "api/app/db/demo_seed.py",
+        "api/app/db/seed.py",
+        "api/scripts/migrate.py",
+        "api/scripts/users.py",
+        "web/lib/users.js",
+    }
+    seed = found["api/app/db/seed.py"]
+    assert (seed.tag.value, seed.severity.value) == ("CONFIRMED", "critical")
+    assert [str(loc) for loc in seed.locations] == [
+        "api/app/db/seed.py:4",
+        "README.md:3",
+        "api/scripts/users.py:1",
+    ]
+    assert "module level" in found["api/scripts/migrate.py"].detail
+    fallback = found["api/app/db/demo_seed.py"]
+    assert (fallback.tag.value, fallback.severity.value) == ("INFERRED", "high")
+```
+
+with:
+
+```python
+    }
+    assert set(found) == {
+        "api/app/db/demo_seed.py",
+        "api/scripts/migrate.py",
+        "api/scripts/users.py",
+        "web/lib/users.js",
+    }
+    seed = found["api/scripts/users.py"]
+    assert (seed.tag.value, seed.severity.value) == ("CONFIRMED", "critical")
+    assert [str(loc) for loc in seed.locations] == [
+        "api/scripts/users.py:4",
+        "api/app/db/seed.py:4",
+        "README.md:3",
+    ]
+    assert "The same text is hashed in 2 files." in seed.detail
+    assert "module level" in found["api/scripts/migrate.py"].detail
+    fallback = found["api/app/db/demo_seed.py"]
+    assert (fallback.tag.value, fallback.severity.value) == ("INFERRED", "high")
+```
+
+`tests/reviews/test_baseline_literals.py`:
+
+```python
+from dpr.api import review
+from dpr.report.json_out import render_json
+from tests.reviews.helpers import findings_for, write
+
+ADMIN = "Adm1n" + "-Merge-" + "7713"
+OTHER = "Oth3r" + "-Merge-" + "7713"
+
+
+def hashing(root, rel, literal, fallback=False):
+    value = f"os.environ.get('SEED_ADMIN_PASSWORD', '{literal}')" if fallback else f"'{literal}'"
+    write(
+        root,
+        rel,
+        "import os\nfrom app.core.security import get_password_hash\n"
+        f"def seed(db):\n    db.add(User(password_hash=get_password_hash({value})))\n",
+    )
+
+
+def found(root):
+    return {
+        f.locations[0].file: f for f in findings_for(root, "baseline", "BASE-LITERAL-PASSWORD-HASH")
+    }
+
+
+def test_files_hashing_the_same_text_become_one_finding(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    hashing(tmp_path, "api/app/services/bootstrap.py", ADMIN)
+    hashing(tmp_path, "api/scripts/seed_data.py", ADMIN)
+    hashing(tmp_path, "worker/app/db/seed.py", ADMIN, fallback=True)
+    hashing(tmp_path, "api/app/services/other.py", OTHER)
+    write(tmp_path, "README.md", f"Sign in with {ADMIN}\n")
+    result = found(tmp_path)
+    assert set(result) == {"api/app/services/bootstrap.py", "api/app/services/other.py"}
+    merged = result["api/app/services/bootstrap.py"]
+    assert (merged.tag.value, merged.severity.value) == ("CONFIRMED", "critical")
+    assert [str(loc) for loc in merged.locations] == [
+        "api/app/services/bootstrap.py:4",
+        "api/scripts/seed_data.py:4",
+        "worker/app/db/seed.py:4",
+        "README.md:1",
+    ]
+    assert "The same text is hashed in 3 files." in merged.detail
+    assert "worker/app/db/seed.py it is the fallback" in merged.detail
+
+
+def test_unreferenced_seed_script_alone_is_low(tmp_path):
+    hashing(tmp_path, "scripts/seed_data.py", ADMIN)
+    [finding] = found(tmp_path).values()
+    assert (finding.tag.value, finding.severity.value) == ("CONFIRMED", "low")
+    assert "Only scripts that no start command" in finding.detail
+
+
+def test_seed_script_run_at_start_is_critical(tmp_path):
+    hashing(tmp_path, "api/app/db/seed.py", ADMIN)
+    write(tmp_path, "api/startup.sh", "python -m app.db.seed\n")
+    [finding] = found(tmp_path).values()
+    assert finding.severity.value == "critical"
+
+
+def test_seed_script_run_in_ci_is_critical(tmp_path):
+    hashing(tmp_path, "scripts/seed_demo.py", ADMIN)
+    write(
+        tmp_path,
+        ".github/workflows/deploy.yml",
+        "jobs:\n  x:\n    steps:\n      - run: python scripts/seed_demo.py\n",
+    )
+    [finding] = found(tmp_path).values()
+    assert finding.severity.value == "critical"
+
+
+def test_merged_output_never_contains_the_text(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    hashing(tmp_path, "api/app/services/bootstrap.py", ADMIN)
+    hashing(tmp_path, "api/scripts/seed_data.py", ADMIN)
+    report = review(tmp_path, reviews=["baseline"])
+    assert ADMIN not in render_json(report)
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_baseline_literals.py tests/reviews/test_baseline_accounts.py`
+Expected: FAIL (pytest reports 3 failed, 7 passed)
+
+- [ ] **Step 3: Move the rule and merge by digest**
+
+Modify `src/dpr/reviews/baseline.py`, replace:
+
+```python
+import dpr.reviews.baseline_config  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_debug  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_infra  # noqa: F401  (registers rules)
+from dpr.model import Part, ReviewSection
+from dpr.reviews.baseline_headers import live_reads
+from dpr.reviews.headers_static import HEADERS, surfaces
+```
+
+with:
+
+```python
+import dpr.reviews.baseline_config  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_debug  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_infra  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_literals  # noqa: F401  (registers rules)
+from dpr.model import Part, ReviewSection
+from dpr.reviews.baseline_headers import live_reads
+from dpr.reviews.headers_static import HEADERS, surfaces
+```
+
+Modify `src/dpr/reviews/baseline_accounts.py`, replace:
+
+```python
+    return value
+
+
+@rule(
+    "BASE-LITERAL-PASSWORD-HASH",
+    review="baseline",
+    severity="critical",
+    exploitability="high",
+    owasp="A07",
+)
+def literal_password_hash(ctx: Context) -> Iterator[Finding]:
+    for rel, sites in sorted(literal_password_sites(ctx).items()):
+        literals = [lit for _, lit in sites]
+        direct = [line for line, lit in sites if not lit.env_fallback]
+        copies = _copies(ctx, rel, literals)
+        lines = sorted({line for line, _ in sites})
+        text = ctx.index.text(rel)
+        shared = ""
+        if rel.endswith(".py"):
+            tree = pyast.parse_file(ctx.index, rel)
+            if any(pyast.function_at(tree, line) is None for line in lines):
+                shared = " The hash is computed once at module level and reused for every account."
+        where = f" The same text also appears in {len(copies)} other place(s)." if copies else ""
+        yield make_finding(
+            "BASE-LITERAL-PASSWORD-HASH",
+            tag=Tag.CONFIRMED if direct else Tag.INFERRED,
+            locations=[*(Location(rel, n) for n in lines), *copies][:10],
+            severity="critical" if direct else "high",
+            snippet=_masked(text, lines[0], literals),
+            proof_needed=None
+            if direct
+            else "Check that the environment variable is set in every deployed environment.",
+            file=rel,
+            count=len(lines),
+            extra=shared + where,
+        )
+
+
+def _seed_target(ctx: Context, start: str, line: str) -> list[str]:
+    module = re.search(r"-m\s+([\w.]*seed\w*)", line)
+    script = re.search(r"([\w./-]*seed\w*\.(?:py|js|ts|mjs))", line)
+```
+
+with:
+
+```python
+    return value
+
+
+def _seed_target(ctx: Context, start: str, line: str) -> list[str]:
+    module = re.search(r"-m\s+([\w.]*seed\w*)", line)
+    script = re.search(r"([\w./-]*seed\w*\.(?:py|js|ts|mjs))", line)
+```
+
+`src/dpr/reviews/baseline_literals.py`:
+
+```python
+"""Review 4, baseline: one finding per committed password, merged across every file that uses it."""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Iterator
+from pathlib import PurePosixPath
+
+from dpr.model import Finding, Location, Tag
+from dpr.parsing import pyast, pyvalues
+from dpr.reviews.baseline_accounts import (
+    START_FILES,
+    _copies,
+    _digest,
+    _masked,
+    literal_password_sites,
+)
+from dpr.reviews.deploy_env import deploy_files
+from dpr.rules import Context, make_finding, rule
+
+DEV_SCRIPT = re.compile(r"(?i)seed|demo|sample|fixture|fake|dummy|example|mock")
+Site = tuple[str, int, pyvalues.Literal]
+
+
+def _groups(sites: dict[str, list[tuple[int, pyvalues.Literal]]]) -> list[list[Site]]:
+    """Files joined when they hash the same text, found by digest, in first-seen order."""
+    groups: list[tuple[set[str], list[Site]]] = []
+    for rel, items in sorted(sites.items()):
+        digests = {_digest(lit.value) for _, lit in items}
+        rows = [(rel, line, lit) for line, lit in items]
+        joined = [g for g in groups if g[0] & digests]
+        for group in joined:
+            groups.remove(group)
+            digests |= group[0]
+            rows = [*group[1], *rows]
+        groups.append((digests, rows))
+    return [rows for _, rows in groups]
+
+
+def _referenced(ctx: Context, rel: str) -> bool:
+    """A start command, deploy config or CI file names the file or its module."""
+    path = PurePosixPath(rel)
+    parts = path.with_suffix("").parts
+    names = {path.name, *(".".join(parts[i:]) for i in range(len(parts) - 1))}
+    commands = [f.rel for f in ctx.index.named(*START_FILES)] + deploy_files(ctx)
+    for other in dict.fromkeys(commands):
+        text = ctx.index.text(other)
+        if any(re.search(rf"(?<![\w.]){re.escape(n)}\b", text) for n in names):
+            return True
+    return False
+
+
+def _dev_only(ctx: Context, rel: str) -> bool:
+    return bool(DEV_SCRIPT.search(PurePosixPath(rel).stem)) and not _referenced(ctx, rel)
+
+
+def _module_level(ctx: Context, rel: str, lines: list[int]) -> bool:
+    if not rel.endswith(".py"):
+        return False
+    tree = pyast.parse_file(ctx.index, rel)
+    return tree is not None and any(pyast.function_at(tree, line) is None for line in lines)
+
+
+def _finding(ctx: Context, rows: list[Site]) -> Finding:
+    direct = [(rel, line) for rel, line, lit in rows if not lit.env_fallback]
+    live = [(rel, line) for rel, line in direct if not _dev_only(ctx, rel)]
+    files = list(dict.fromkeys(rel for rel, _, _ in rows))
+    first = live[0][0] if live else (direct[0][0] if direct else files[0])
+    hashing = sorted({(rel, line) for rel, line, _ in rows}, key=lambda s: (s[0] != first, s))
+    copies = [
+        loc
+        for rel in files
+        for loc in _copies(ctx, rel, [lit for r, _, lit in rows if r == rel])
+        if loc.file not in files
+    ]
+    extra = ""
+    if _module_level(ctx, first, [line for rel, line in hashing if rel == first]):
+        extra += " The hash is computed once at module level and reused for every account."
+    if len(files) > 1:
+        extra += f" The same text is hashed in {len(files)} files."
+    fallbacks = sorted({rel for rel, _, lit in rows if lit.env_fallback})
+    if fallbacks and direct:
+        extra += (
+            f" In {', '.join(fallbacks)} it is the fallback when an environment variable is unset."
+        )
+    unique_copies = list(dict.fromkeys(copies))
+    if unique_copies:
+        extra += f" The same text also appears in {len(unique_copies)} other place(s)."
+    if direct and not live:
+        severity = "low"
+        extra += " Only scripts that no start command, deploy config or CI job runs hash it."
+    else:
+        severity = "critical" if direct else "high"
+    literals = [lit for _, _, lit in rows]
+    locations = [Location(rel, line) for rel, line in hashing] + unique_copies
+    return make_finding(
+        "BASE-LITERAL-PASSWORD-HASH",
+        tag=Tag.CONFIRMED if direct else Tag.INFERRED,
+        locations=locations[:10],
+        severity=severity,
+        snippet=_masked(ctx.index.text(first), hashing[0][1], literals),
+        proof_needed=None
+        if direct
+        else "Check that the environment variable is set in every deployed environment.",
+        file=first,
+        count=sum(rel == first for rel, _ in hashing),
+        extra=extra,
+    )
+
+
+@rule(
+    "BASE-LITERAL-PASSWORD-HASH",
+    review="baseline",
+    severity="critical",
+    exploitability="high",
+    owasp="A07",
+)
+def literal_password_hash(ctx: Context) -> Iterator[Finding]:
+    for rows in _groups(literal_password_sites(ctx)):
+        yield _finding(ctx, rows)
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (280 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/reviews/baseline.py src/dpr/reviews/baseline_accounts.py src/dpr/reviews/baseline_literals.py tests/reviews/test_baseline_accounts.py tests/reviews/test_baseline_literals.py
+git commit -m "Merge committed password findings by digest across files"
+```
+
+---
+
+### Task 57: Logged personal data: whole-word names, objects and destinations
+
+Judge FP fixes plus part of the logged personal data gap. `LEAK-LOGGED-PII` moves out of `leaks_code.py` into `leaks_logs.py` and is rebuilt: a logged value is personal when its last name word is a personal word (`to_email`, `client_ip`, `firstName`) or when a bare `name` hangs off a person object; ids, counts and configuration roots (`settings.email_from_address`) are not. Whole request, user and token objects, `extra={...}` keys, database errors (except a health check `SELECT 1`), tracebacks in catch-all handlers and Express error middleware are reported. Findings are grouped per file. `print` in operator scripts is low with a console note, and when the app root exports logs (Azure Monitor, OpenTelemetry) the destination is named.
+
+**Files:**
+- Create: `src/dpr/reviews/leaks_logs.py`
+- Modify: `src/dpr/reviews/leaks.py` (import the new rule module)
+- Modify: `src/dpr/reviews/leaks_code.py` (remove the old rule and its helpers)
+- Test: `tests/reviews/test_leaks_logs.py`
+- Modify test: `tests/reviews/test_leaks_code.py` (findings are grouped per file)
+
+**Interfaces:**
+- Consumes: `jsts` and `pyast` helpers from Milestone 1, app roots (Task 54), SDK detection (Task 53)
+- Produces:
+  - `dpr.reviews.leaks_logs`:
+
+```python
+def words(name: str) -> list[str]: ...
+def personal_name(name: str, root: str | None=None) -> bool: ...
+def destinations(ctx: Context, rel: str) -> list[str]: ...
+@rule('LEAK-LOGGED-PII', review='leaks', severity='medium', exploitability='low')
+def logged_pii(ctx: Context) -> Iterator[Finding]: ...
+```
+
+
+**Edits to files the Milestone 1 fix wave also changes.** Apply each replacement below by its intent if the exact old text differs:
+
+- `src/dpr/reviews/leaks_code.py`: delete the `LEAK-LOGGED-PII` rule function (`logged_pii`) and every helper and constant only it uses: `LOG_CALL`, `PY_LOG_CALL`, `SENSITIVE_ROOTS`, `ERROR_NAMES`, `OBJECT_LOGGED`, `TRACEBACK_LOGGED`, `JS_DB`, `PY_DB`, `_catch_has_db`, `_js_sensitive`, `_py_sensitive`, `_logged` and, where the fix wave added it, the per-file except-handler cache `_except_handlers`, and change the module docstring to name only git history and over-broad responses. Leave `LEAK-ENV-TRACKED`, the env history check, `LEAK-BROAD-RESPONSE` and the fix wave's shared response-call helper untouched. If the fix wave renamed a removed helper, remove it by that role; ruff's unused-import check then shows any import to drop.
+
+**Earlier tests updated on purpose:** `tests/reviews/test_leaks_code.py` now expects one finding per file with all its log lines as locations, instead of one finding per line.
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/reviews/test_leaks_code.py`, replace:
+
+```python
+        "    except Exception as e:\n        print(e)\n        traceback.print_exc()\n"
+        "    try:\n        parse()\n    except ValueError as e:\n        print(e)\n",
+    )
+    assert locs(findings_for(tmp_path, "leaks", "LEAK-LOGGED-PII")) == [
+        "app/api/signup/route.ts:11",
+        "app/api/signup/route.ts:6",
+        "app/api/signup/route.ts:7",
+        "svc/views.py:10",
+        "svc/views.py:5",
+        "svc/views.py:9",
+    ]
+```
+
+with:
+
+```python
+        "    except Exception as e:\n        print(e)\n        traceback.print_exc()\n"
+        "    try:\n        parse()\n    except ValueError as e:\n        print(e)\n",
+    )
+    found = findings_for(tmp_path, "leaks", "LEAK-LOGGED-PII")
+    assert sorted([str(loc) for loc in f.locations] for f in found) == [
+        ["app/api/signup/route.ts:6", "app/api/signup/route.ts:7", "app/api/signup/route.ts:11"],
+        ["svc/views.py:5", "svc/views.py:9", "svc/views.py:10"],
+    ]
+```
+
+`tests/reviews/test_leaks_logs.py`:
+
+```python
+from dpr.reviews.leaks_logs import personal_name, words
+from tests.reviews.helpers import findings_for, write
+
+
+def found(root):
+    return {str(f.locations[0]): f for f in findings_for(root, "leaks", "LEAK-LOGGED-PII")}
+
+
+def lines(root):
+    found_all = findings_for(root, "leaks", "LEAK-LOGGED-PII")
+    return sorted(str(loc) for f in found_all for loc in f.locations)
+
+
+def test_words_and_personal_names():
+    assert words("toEmail") == ["to", "email"]
+    assert words("client_ip") == ["client", "ip"]
+    assert personal_name("to_email") and personal_name("firstName") and personal_name("client_ip")
+    assert personal_name("name", "client") and not personal_name("name", "file")
+    assert not personal_name("email_template") and not personal_name("user_id")
+    assert not personal_name("email_from_address", "self._settings")
+
+
+def test_python_identifiers_and_counts_are_not_personal_data(tmp_path):
+    write(
+        tmp_path,
+        "app/services/portal.py",
+        "import logging\nlogger = logging.getLogger(__name__)\n\n"
+        "def pick(user, clients, payload, current_user):\n"
+        "    logger.warning('%d records for user %s', len(clients), user.id)\n"
+        "    logger.info('truncated %s of %s for %s', len(payload['rows']), payload['total'], current_user.id)\n"
+        "    logger.info('request %s created for insured %s', request.id, insured.id)\n"
+        "    logger.info('sender %s', settings.email_from_address)\n"
+        "    logger.info('app %s', settings.app_name)\n",
+    )
+    assert found(tmp_path) == {}
+
+
+def test_python_personal_values_and_objects_are_reported(tmp_path):
+    write(
+        tmp_path,
+        "app/services/mail.py",
+        "import logging\nlogger = logging.getLogger(__name__)\n\n"
+        "def send(to_email, client, user, request):\n"
+        "    logger.info('Email sent: to=%s', to_email)\n"
+        "    logger.info('notified %s', client.name)\n"
+        "    logger.warning('FAIL %s', user.email)\n"
+        "    logger.warning('failed login', extra={'client_ip': request.client.host if request.client else 'x'})\n"
+        "    logger.debug(f'body {request.json}')\n",
+    )
+    [finding] = found(tmp_path).values()
+    assert [str(loc) for loc in finding.locations] == [
+        "app/services/mail.py:5",
+        "app/services/mail.py:6",
+        "app/services/mail.py:7",
+        "app/services/mail.py:8",
+        "app/services/mail.py:9",
+    ]
+    assert finding.detail.startswith("5 log calls in this file. A personal value")
+    assert "A request, user, token" in finding.detail
+    assert finding.severity.value == "medium"
+
+
+def test_health_check_query_errors_are_not_reported(tmp_path):
+    write(
+        tmp_path,
+        "app/main.py",
+        "async def health():\n    try:\n        await session.execute(text('SELECT 1'))\n"
+        "    except Exception as e:\n        logger.error(f'Health check DB error: {e}')\n",
+    )
+    assert found(tmp_path) == {}
+
+
+def test_database_errors_and_global_handlers_with_tracebacks_are_reported(tmp_path):
+    write(
+        tmp_path,
+        "app/main.py",
+        "@app.exception_handler(Exception)\n"
+        "async def handler(request, exc):\n"
+        "    logger.error('Unhandled on %s: %s', request.url.path, exc, exc_info=True)\n\n"
+        "async def save(db, row):\n    try:\n        db.add(row)\n        await db.commit()\n"
+        "    except Exception as e:\n        logger.error(f'save failed: {str(e)}')\n\n"
+        "def parse(raw):\n    try:\n        return int(raw)\n"
+        "    except ValueError as e:\n        logger.error('bad %s', e, exc_info=True)\n",
+    )
+    assert lines(tmp_path) == ["app/main.py:10", "app/main.py:3"]
+
+
+def test_print_in_operator_scripts_is_low_with_a_console_note(tmp_path):
+    write(
+        tmp_path,
+        "api/scripts/send_resets.py",
+        "def main(users):\n    for user in users:\n        print(user.email)\n"
+        "        logger.info('sent %s', user.email)\n",
+    )
+    console, logged = sorted(
+        findings_for(tmp_path, "leaks", "LEAK-LOGGED-PII"), key=lambda f: f.severity.value
+    )
+    assert [str(loc) for loc in console.locations] == ["api/scripts/send_resets.py:3"]
+    assert console.severity.value == "low"
+    assert console.detail.endswith("It goes to the console of whoever runs this script.")
+    assert [str(loc) for loc in logged.locations] == ["api/scripts/send_resets.py:4"]
+    assert logged.severity.value == "medium"
+
+
+def test_destination_is_named_when_the_app_exports_logs(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\nazure-monitor-opentelemetry\n")
+    write(
+        tmp_path,
+        "api/app/main.py",
+        "from azure.monitor.opentelemetry import configure_azure_monitor\nconfigure_azure_monitor()\n",
+    )
+    write(tmp_path, "api/app/mail.py", "def send(to_email):\n    logger.info('to %s', to_email)\n")
+    write(tmp_path, "worker/requirements.txt", "celery\n")
+    write(tmp_path, "worker/job.py", "def run(to_email):\n    logger.info('to %s', to_email)\n")
+    result = found(tmp_path)
+    assert result["api/app/mail.py:2"].detail.endswith(
+        "Log records from this app are exported to azure-monitor."
+    )
+    assert "exported" not in result["worker/job.py:2"].detail
+
+
+def test_javascript_selected_fields_are_not_reported(tmp_path):
+    write(
+        tmp_path,
+        "src/middleware/requestLogger.ts",
+        "export const requestLogger = (req, res, next) => {\n"
+        "  logger.info({ method: req.method, path: req.path, statusCode: res.statusCode,\n"
+        "    userAgent: req.get('user-agent'), userId: req.user?.id })\n"
+        "  next()\n}\n",
+    )
+    assert found(tmp_path) == {}
+
+
+def test_javascript_error_middleware_and_personal_values_are_reported(tmp_path):
+    write(
+        tmp_path,
+        "src/middleware/errorHandler.ts",
+        "export const errorHandler = (err, req, res, _next) => {\n"
+        "  logger.error({ err, path: req.path })\n}\n"
+        "export function notify(user) {\n  console.log(`mailing ${user.email}`)\n"
+        "  console.log('recipient', { email: user.email })\n}\n",
+    )
+    assert lines(tmp_path) == [
+        "src/middleware/errorHandler.ts:2",
+        "src/middleware/errorHandler.ts:5",
+        "src/middleware/errorHandler.ts:6",
+    ]
+
+
+def test_test_files_are_skipped(tmp_path):
+    write(tmp_path, "tests/test_mail.py", "def test_x(user):\n    print(user.email)\n")
+    assert found(tmp_path) == {}
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_leaks_logs.py tests/reviews/test_leaks_code.py`
+Expected: FAIL (pytest reports 1 error; collection stops at `ModuleNotFoundError: No module named 'dpr.reviews.leaks_logs'`)
+
+- [ ] **Step 3: Write the log rule module**
+
+Modify `src/dpr/reviews/leaks.py`, replace:
+
+```python
+from collections.abc import Iterator
+
+import dpr.reviews.leaks_creds  # noqa: F401  (registers rules)
+from dpr.model import Finding, Location, Part, ReviewSection, Tag
+from dpr.parsing import jsts, pyast
+from dpr.redact import find_keys, is_secret_name, public_prefix, snippet
+```
+
+with:
+
+```python
+from collections.abc import Iterator
+
+import dpr.reviews.leaks_creds  # noqa: F401  (registers rules)
+import dpr.reviews.leaks_logs  # noqa: F401  (registers rules)
+from dpr.model import Finding, Location, Part, ReviewSection, Tag
+from dpr.parsing import jsts, pyast
+from dpr.redact import find_keys, is_secret_name, public_prefix, snippet
+```
+
+Modify `src/dpr/reviews/leaks_code.py`, replace:
+
+```python
+"""Review 6, leak hunt: git history, over-broad responses and personal data in logs."""
+
+from __future__ import annotations
+
+```
+
+with:
+
+```python
+"""Review 6, leak hunt: git history and over-broad responses."""
+
+from __future__ import annotations
+
+```
+
+Modify `src/dpr/reviews/leaks_code.py`, replace:
+
+```python
+SELECT_STAR = re.compile(r"select\s+\*", re.IGNORECASE)
+JS_ROUTE_FRAMEWORKS = ("next-app", "next-pages", "next-action", "express", "fastify")
+PY_ROUTE_FRAMEWORKS = ("django", "drf", "fastapi", "flask")
+LOG_CALL = re.compile(
+    r"console\.(?:log|error|warn|info|debug)|(?:logger|log)\.(?:info|error|warn|debug|log|fatal)"
+)
+PY_LOG_CALL = re.compile(
+    r"print|logging\.(?:debug|info|warning|error|exception|critical)"
+    r"|(?:logger|log|LOGGER)\.(?:debug|info|warning|error|exception|critical)"
+)
+SENSITIVE_ROOTS = frozenset(
+    {"req", "request", "body", "user", "token", "payload", "headers", "session", "password"}
+)
+ERROR_NAMES = frozenset({"err", "error", "e", "exc"})
+OBJECT_LOGGED = "A request, user, token or database error object is written to the log."
+TRACEBACK_LOGGED = "A full traceback, with local values in the message, is printed to the log."
+JS_DB = re.compile(r"prisma\.|supabase\.|\bdb\.|\.query\(|\.execute\(|knex|sequelize|mongoose")
+PY_DB = re.compile(r"\.objects\.|session\.|cursor\.|\.execute\(|\.query\(")
+
+
+def _is_real_env(path: str) -> bool:
+```
+
+with:
+
+```python
+SELECT_STAR = re.compile(r"select\s+\*", re.IGNORECASE)
+JS_ROUTE_FRAMEWORKS = ("next-app", "next-pages", "next-action", "express", "fastify")
+PY_ROUTE_FRAMEWORKS = ("django", "drf", "fastapi", "flask")
+
+
+def _is_real_env(path: str) -> bool:
+```
+
+Modify `src/dpr/reviews/leaks_code.py`, replace:
+
+```python
+                                model,
+                                rule_id="LEAK-SSR-PROPS",
+                            )
+
+
+def _catch_has_db(ident) -> bool:
+    name = jsts.node_text(ident)
+    node = ident.parent
+    while node is not None:
+        if node.type == "catch_clause":
+            param = node.child_by_field_name("parameter")
+            if param is not None and jsts.node_text(param) == name:
+                body = node.parent.child_by_field_name("body") if node.parent else None
+                return body is not None and bool(JS_DB.search(jsts.node_text(body)))
+        node = node.parent
+    return False
+
+
+def _js_sensitive(arg) -> bool:
+    arg = jsts.unwrap(arg)
+    if arg is None:
+        return False
+    if arg.type == "shorthand_property_identifier":
+        return jsts.node_text(arg) in SENSITIVE_ROOTS
+    if arg.type in ("call_expression", "new_expression"):
+        return any(_js_sensitive(a) for a in jsts.arguments(arg))
+    if arg.type == "object":
+        return any(_js_sensitive(v) for v in jsts.object_pairs(arg).values())
+    if arg.type == "template_string":
+        return any(
+            _js_sensitive(s.named_children[0])
+            for s in arg.named_children
+            if s.type == "template_substitution" and s.named_children
+        )
+    root = jsts.member_root(arg)
+    if root in SENSITIVE_ROOTS:
+        return True
+    if root in ERROR_NAMES:
+        base = arg
+        while base.type in ("member_expression", "subscript_expression"):
+            base = jsts.unwrap(base.child_by_field_name("object"))
+        return _catch_has_db(base)
+    return False
+
+
+def _py_sensitive(node: ast.AST, tree: ast.Module, line: int) -> bool:
+    if isinstance(node, ast.JoinedStr):
+        return any(
+            _py_sensitive(v.value, tree, line)
+            for v in node.values
+            if isinstance(v, ast.FormattedValue)
+        )
+    if isinstance(node, ast.Call) and pyast.dotted(node.func) in ("json.dumps", "str", "repr"):
+        return any(_py_sensitive(a, tree, line) for a in node.args)
+    root = pyast.name_root(node)
+    if root in SENSITIVE_ROOTS:
+        return True
+    if root in ERROR_NAMES:
+        for block in ast.walk(tree):
+            if not isinstance(block, ast.Try):
+                continue
+            for handler in block.handlers:
+                inside = handler.lineno <= line <= (handler.end_lineno or handler.lineno)
+                if handler.name == root and inside:
+                    return bool(PY_DB.search("\n".join(ast.unparse(s) for s in block.body)))
+    return False
+
+
+def _logged(ctx: Context, rel: str, line: int, what: str) -> Finding:
+    ctx.facts.setdefault("logged_pii", []).append(Location(rel, line))
+    return make_finding(
+        "LEAK-LOGGED-PII",
+        tag=Tag.INFERRED,
+        locations=[Location(rel, line)],
+        snippet=snippet(ctx.index.text(rel), line),
+        what=what,
+    )
+
+
+@rule("LEAK-LOGGED-PII", review="leaks", severity="medium", exploitability="low")
+def logged_pii(ctx: Context) -> Iterator[Finding]:
+    for entry in ctx.index.js_files:
+        for tree in jsts.parse_file(ctx.index, entry.rel):
+            for call in jsts.calls(tree, LOG_CALL):
+                if any(_js_sensitive(a) for a in jsts.arguments(call)):
+                    yield _logged(ctx, entry.rel, jsts.line(tree, call), OBJECT_LOGGED)
+    for entry in ctx.index.py_files:
+        tree = pyast.parse_file(ctx.index, entry.rel)
+        if tree is None:
+            continue
+        for call in pyast.calls(tree, PY_LOG_CALL):
+            if any(_py_sensitive(a, tree, call.lineno) for a in call.args):
+                yield _logged(ctx, entry.rel, call.lineno, OBJECT_LOGGED)
+        for call in pyast.calls(tree, r"traceback\.print_exc"):
+            yield _logged(ctx, entry.rel, call.lineno, TRACEBACK_LOGGED)
+```
+
+with:
+
+```python
+                                model,
+                                rule_id="LEAK-SSR-PROPS",
+                            )
+```
+
+`src/dpr/reviews/leaks_logs.py`:
+
+```python
+"""Review 6, leak hunt: personal data written to logs, and where those logs go."""
+
+from __future__ import annotations
+
+import ast
+import re
+from collections.abc import Iterator
+from pathlib import PurePosixPath
+
+from dpr.discovery.approots import root_of
+from dpr.model import Finding, Location, Tag
+from dpr.parsing import jsts, pyast
+from dpr.redact import snippet
+from dpr.reviews.paths import is_test
+from dpr.rules import Context, make_finding, rule
+
+LOG_CALL = re.compile(
+    r"console\.(?:log|error|warn|info|debug)|(?:logger|log)\.(?:info|error|warn|debug|log|fatal)"
+)
+PY_LOG_CALL = re.compile(
+    r"print|logging\.(?:debug|info|warning|error|exception|critical)"
+    r"|(?:logger|log|LOGGER|\w+_logger)\.(?:debug|info|warning|error|exception|critical)"
+)
+WHOLE = frozenset(
+    {"req", "request", "body", "user", "current_user", "payload", "headers", "session", "token"}
+)
+WHOLE_ATTRS = frozenset(
+    {
+        "body",
+        "json",
+        "data",
+        "headers",
+        "cookies",
+        "form",
+        "query_params",
+        "POST",
+        "GET",
+        "__dict__",
+    }
+)
+PII_WORDS = frozenset(
+    {"email", "emails", "recipient", "recipients", "phone", "mobile", "address", "ip", "dob",
+     "birth", "password", "passwd", "ssn", "passport", "surname", "firstname", "lastname",
+     "fullname", "username", "addr"}
+)  # fmt: skip
+NAME_WORDS = frozenset({"name", "names"})
+PERSON_ROOTS = re.compile(
+    r"(?i)user|client|customer|member|contact|recipient|profile|account|person|owner|patient"
+    r"|student|employee|insured|producer|lead|subscriber|applicant|guest|staff|agent"
+)
+CONFIG_ROOTS = re.compile(r"(?i)settings|config|conf\b|environ|options")
+ERROR_NAMES = frozenset({"err", "error", "e", "exc", "exception", "ex"})
+JS_DB = re.compile(r"prisma\.|supabase\.|\bdb\.|\.query\(|\.execute\(|knex|sequelize|mongoose")
+PY_DB = re.compile(r"\.objects\.|session\.|cursor\.|\.execute\(|\.query\(|\bdb\.")
+HEALTH_QUERY = re.compile(r"(?i)select\s+1\b")
+SCRIPT_PATH = re.compile(
+    r"(?:^|/)(?:scripts?|bin|tools|management/commands)/|(?:^|/)(?:smoke|manage|cli)[\w-]*\.py$"
+)
+EXPORTERS = ("monitoring", "error-tracking", "session-replay")
+OBJECT_LOGGED = "A request, user, token or database error object is written to the log."
+VALUE_LOGGED = (
+    "A personal value such as an email address, name or IP address is written to the log."
+)
+TRACEBACK_LOGGED = "A full traceback, with local values in the message, is printed to the log."
+CONSOLE = " It goes to the console of whoever runs this script."
+
+
+def words(name: str) -> list[str]:
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name)
+    return [w for w in re.split(r"[^A-Za-z0-9]+", spaced.lower()) if w]
+
+
+def personal_name(name: str, root: str | None = None) -> bool:
+    parts = words(name)
+    if not parts or (root and CONFIG_ROOTS.search(root)):
+        return False
+    if parts[-1] in PII_WORDS or "".join(parts) in PII_WORDS:
+        return True
+    if parts[-1] in NAME_WORDS:
+        return bool(PERSON_ROOTS.search(root or name))
+    return False
+
+
+def _chain(node: ast.AST) -> list[str]:
+    parts = []
+    while isinstance(node, ast.Attribute | ast.Subscript):
+        if isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+        else:
+            key = pyast.constant(node.slice, None)
+            parts.append(key if isinstance(key, str) else "")
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+    return list(reversed(parts))
+
+
+def _py_kind(node: ast.AST) -> str | None:
+    """'object' for whole request or user objects, 'value' for personal values, else None."""
+    if isinstance(node, ast.JoinedStr):
+        kinds = [_py_kind(v.value) for v in node.values if isinstance(v, ast.FormattedValue)]
+        return next((k for k in kinds if k), None)
+    if isinstance(node, ast.Call):
+        name = pyast.dotted(node.func) or ""
+        if name in ("json.dumps", "str", "repr", "dict", "vars"):
+            return next((k for k in map(_py_kind, node.args) if k), None)
+        return None
+    if isinstance(node, ast.Dict):
+        for key, value in zip(node.keys, node.values, strict=True):
+            label = pyast.constant(key, None)
+            if isinstance(label, str) and personal_name(label):
+                return "value"
+            if _py_kind(value):
+                return _py_kind(value)
+        return None
+    chain = _chain(node)
+    if not chain:
+        return None
+    if len(chain) == 1:
+        if chain[0] in WHOLE:
+            return "object"
+        return "value" if personal_name(chain[0]) else None
+    if chain[-1] in WHOLE_ATTRS or chain[-2:] == ["client", "host"]:
+        return "object" if chain[-1] in WHOLE_ATTRS else "value"
+    leaf = chain[-1]
+    return "value" if personal_name(leaf, ".".join(chain[:-1])) else None
+
+
+def _handler_scope(tree: ast.Module, line: int) -> tuple[ast.ExceptHandler | None, ast.Try | None]:
+    for block in ast.walk(tree):
+        if isinstance(block, ast.Try):
+            for handler in block.handlers:
+                if handler.lineno <= line <= (handler.end_lineno or handler.lineno):
+                    return handler, block
+    return None, None
+
+
+def _catch_all(handler: ast.ExceptHandler | None) -> bool:
+    return handler is not None and (
+        handler.type is None or pyast.dotted(handler.type) in ("Exception", "BaseException")
+    )
+
+
+def _py_error(tree: ast.Module, call: ast.Call, arg: ast.AST) -> bool:
+    if isinstance(arg, ast.JoinedStr):
+        values = [v.value for v in arg.values if isinstance(v, ast.FormattedValue)]
+        return any(_py_error(tree, call, v) for v in values)
+    if isinstance(arg, ast.Call) and pyast.dotted(arg.func) in ("str", "repr") and arg.args:
+        return _py_error(tree, call, arg.args[0])
+    root = pyast.name_root(arg)
+    if root not in ERROR_NAMES:
+        return False
+    handler, block = _handler_scope(tree, call.lineno)
+    if handler is not None and handler.name == root:
+        body = "\n".join(ast.unparse(s) for s in block.body)
+        if PY_DB.search(body) and not HEALTH_QUERY.search(body):
+            return True
+    traced = pyast.constant(pyast.kwarg(call, "exc_info")) is True
+    fn = pyast.function_at(tree, call.lineno)
+    decorated = fn is not None and any(
+        "exception_handler" in ast.unparse(d) for d in fn.decorator_list
+    )
+    return traced and (decorated or (_catch_all(handler) and handler.name == root))
+
+
+Hit = tuple[int, str, bool]
+
+
+def _python(ctx: Context, rel: str) -> Iterator[Hit]:
+    tree = pyast.parse_file(ctx.index, rel)
+    if tree is None:
+        return
+    script = bool(SCRIPT_PATH.search(rel)) or "__main__" in ctx.index.text(rel)
+    for call in pyast.calls(tree, PY_LOG_CALL):
+        values = [*call.args, *(k.value for k in call.keywords if k.arg == "extra")]
+        kinds = [_py_kind(a) for a in values]
+        if any(_py_error(tree, call, a) for a in call.args):
+            kinds.append("object")
+        kind = "object" if "object" in kinds else ("value" if "value" in kinds else None)
+        if kind is None:
+            continue
+        console = script and pyast.dotted(call.func) == "print"
+        yield call.lineno, OBJECT_LOGGED if kind == "object" else VALUE_LOGGED, console
+    for call in pyast.calls(tree, r"traceback\.print_exc"):
+        yield call.lineno, TRACEBACK_LOGGED, script
+
+
+def _catch_has_db(ident) -> bool:
+    name = jsts.node_text(ident)
+    node = ident.parent
+    while node is not None:
+        if node.type == "catch_clause":
+            param = node.child_by_field_name("parameter")
+            if param is not None and jsts.node_text(param) == name:
+                body = node.parent.child_by_field_name("body") if node.parent else None
+                text = jsts.node_text(body)
+                return bool(JS_DB.search(text)) and not HEALTH_QUERY.search(text)
+        node = node.parent
+    return False
+
+
+def _error_middleware(ident) -> bool:
+    """The identifier is the first of four parameters of an Express error handler."""
+    fn = jsts.enclosing_function(ident)
+    params = fn.child_by_field_name("parameters") if fn is not None else None
+    names = [jsts.node_text(p) for p in params.named_children] if params is not None else []
+    return len(names) == 4 and names[0].split(":")[0].strip() == jsts.node_text(ident)
+
+
+def _js_kind(arg) -> str | None:
+    arg = jsts.unwrap(arg)
+    if arg is None:
+        return None
+    if arg.type in ("identifier", "shorthand_property_identifier"):
+        name = jsts.node_text(arg)
+        if name in WHOLE:
+            return "object"
+        if name in ERROR_NAMES and (_catch_has_db(arg) or _error_middleware(arg)):
+            return "object"
+        return "value" if personal_name(name) else None
+    if arg.type in ("call_expression", "new_expression"):
+        callee = jsts.callee(arg) if arg.type == "call_expression" else ""
+        if callee.startswith(("JSON.stringify", "String")):
+            return next((k for k in map(_js_kind, jsts.arguments(arg)) if k), None)
+        return None
+    if arg.type == "object":
+        for key, value in jsts.object_pairs(arg).items():
+            if value is not None and value.type != "shorthand_property_identifier":
+                if personal_name(key):
+                    return "value"
+            kind = _js_kind(value)
+            if kind:
+                return kind
+        return None
+    if arg.type == "template_string":
+        subs = [
+            s.named_children[0] for s in arg.named_children if s.type == "template_substitution"
+        ]
+        return next((k for k in map(_js_kind, subs) if k), None)
+    if arg.type == "member_expression":
+        text = jsts.node_text(arg)
+        parts = [p for p in re.split(r"\?\.|\.", text) if p]
+        if parts[-1] in WHOLE_ATTRS or parts[-1] in ("query", "params"):
+            return "object"
+        return "value" if personal_name(parts[-1], ".".join(parts[:-1])) else None
+    return None
+
+
+def _javascript(ctx: Context, rel: str) -> Iterator[Hit]:
+    for tree in jsts.parse_file(ctx.index, rel):
+        for call in jsts.calls(tree, LOG_CALL):
+            kinds = [_js_kind(a) for a in jsts.arguments(call)]
+            if any(kinds):
+                yield (
+                    jsts.line(tree, call),
+                    OBJECT_LOGGED if "object" in kinds else VALUE_LOGGED,
+                    False,
+                )
+
+
+def destinations(ctx: Context, rel: str) -> list[str]:
+    """Monitoring and error tracking SDKs set up in the same app root as the file."""
+    home = root_of(ctx.detection.app_roots, rel)
+    prefix = f"{home.path}/" if home is not None and home.path else ""
+    return sorted(
+        {
+            sdk.name
+            for sdk in ctx.detection.sdks
+            if sdk.category in EXPORTERS
+            and any(loc.file.startswith(prefix) for loc in sdk.locations)
+        }
+    )
+
+
+def _logged(ctx: Context, rel: str, hits: list[Hit], console: bool) -> Finding:
+    lines = sorted({line for line, _, _ in hits})
+    ctx.facts.setdefault("logged_pii", []).extend(Location(rel, n) for n in lines)
+    what = " ".join(dict.fromkeys(w for _, w, _ in sorted(hits)))
+    if len(lines) > 1:
+        what = f"{len(lines)} log calls in this file. " + what
+    if console:
+        what += CONSOLE
+    else:
+        exported = destinations(ctx, rel)
+        if exported:
+            what += f" Log records from this app are exported to {', '.join(exported)}."
+    return make_finding(
+        "LEAK-LOGGED-PII",
+        tag=Tag.INFERRED,
+        locations=[Location(rel, n) for n in lines[:10]],
+        severity="low" if console else None,
+        snippet=snippet(ctx.index.text(rel), lines[0]),
+        what=what,
+    )
+
+
+def _per_file(ctx: Context, rel: str, hits: list[Hit]) -> Iterator[Finding]:
+    """One finding for the log calls in a file, and one for its console-only prints."""
+    for console in (False, True):
+        group = [h for h in hits if h[2] is console]
+        if group:
+            yield _logged(ctx, rel, group, console)
+
+
+@rule("LEAK-LOGGED-PII", review="leaks", severity="medium", exploitability="low")
+def logged_pii(ctx: Context) -> Iterator[Finding]:
+    for entry in ctx.index.js_files:
+        if not is_test(entry.rel):
+            yield from _per_file(ctx, entry.rel, list(_javascript(ctx, entry.rel)))
+    for entry in ctx.index.py_files:
+        if not is_test(entry.rel) and PurePosixPath(entry.rel).name != "conftest.py":
+            yield from _per_file(ctx, entry.rel, list(_python(ctx, entry.rel)))
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (290 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/reviews/leaks.py src/dpr/reviews/leaks_code.py src/dpr/reviews/leaks_logs.py tests/reviews/test_leaks_code.py tests/reviews/test_leaks_logs.py
+git commit -m "Report logged personal data by whole-word names and group it per file"
+```
+
+---
+
+### Task 58: Router mount prefixes, limiter scope per app root and form limit wording
+
+Judge gap 6 (mount prefixes) and FP fixes. FastAPI `include_router(..., prefix=...)` chains (including prefixes read from settings defaults) and Express `app.use('/prefix', router)` are resolved, so route paths match the deployed URL and a limiter mounted on `/api` covers the routes below it. Limiter checks now stay inside one app root: a worker count in one app does not make another app's in-memory limiter a finding, and proxy-IP findings skip roots nothing deploys. `ABUSE-FORM-NO-CHALLENGE` says "have rate limits but no bot challenge" when every listed form is limited.
+
+**Files:**
+- Create: `src/dpr/parsing/mounts.py`
+- Modify: `src/dpr/data/rule_text/abuse_paid.yaml` (form finding title takes a summary)
+- Modify: `src/dpr/discovery/approots.py` (decide deployment from named sub-roots only)
+- Modify: `src/dpr/parsing/routes.py` (apply mount prefixes to extracted routes)
+- Modify: `src/dpr/reviews/abuse_limits.py` (worker counts and proxy keys per app root)
+- Modify: `src/dpr/reviews/abuse_paid.py` (credit mounted limiters; form summary)
+- Test: `tests/parsing/test_mounts.py`, `tests/reviews/test_abuse_scope.py`
+
+**Interfaces:**
+- Consumes: app roots (Task 54), `extract_routes` from Milestone 1, `is_limited` and `multi_process` from Milestone 2 Tasks 44 and 45
+- Produces:
+  - `dpr.parsing.mounts`:
+
+```python
+def limiter_mounts(index: RepoIndex) -> list[tuple[str, str]]: ...
+def apply_mounts(index: RepoIndex, routes: list[Route]) -> list[Route]: ...
+```
+
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/parsing/test_mounts.py`:
+
+```python
+from dpr.parsing.mounts import limiter_mounts
+from dpr.parsing.routes import extract_routes
+from dpr.walk import RepoIndex
+from tests.reviews.helpers import write
+
+
+def paths(root):
+    return sorted((r.method, r.path) for r in extract_routes(RepoIndex(root)))
+
+
+def test_fastapi_include_router_prefixes_chain_through_nested_routers(tmp_path):
+    write(
+        tmp_path,
+        "api/app/config.py",
+        "class Settings(BaseSettings):\n    api_v1_prefix: str = '/api/v1'\n",
+    )
+    write(
+        tmp_path,
+        "api/app/main.py",
+        "from fastapi import FastAPI\nfrom app.api.v1.router import api_router\n"
+        "from app.api import health\n"
+        "app = FastAPI()\napp.include_router(api_router, prefix=settings.api_v1_prefix)\n"
+        "app.include_router(health.router)\n",
+    )
+    write(
+        tmp_path,
+        "api/app/api/v1/router.py",
+        "from fastapi import APIRouter\n"
+        "from app.api.v1.endpoints.auth import router as auth_router\n"
+        "from .endpoints import files\n"
+        "api_router = APIRouter()\napi_router.include_router(auth_router)\n"
+        "api_router.include_router(files.router, prefix='/storage/')\n",
+    )
+    write(
+        tmp_path,
+        "api/app/api/v1/endpoints/auth.py",
+        "from fastapi import APIRouter\nrouter = APIRouter(prefix='/auth')\n"
+        "@router.post('/login')\nasync def login(): ...\n",
+    )
+    write(
+        tmp_path,
+        "api/app/api/v1/endpoints/files.py",
+        "from fastapi import APIRouter\nrouter = APIRouter()\n"
+        "@router.get('/{file_id}')\nasync def download(file_id: str): ...\n",
+    )
+    write(
+        tmp_path,
+        "api/app/api/health.py",
+        "from fastapi import APIRouter\nrouter = APIRouter()\n"
+        "@router.get('/health')\nasync def health(): ...\n",
+    )
+    assert paths(tmp_path) == [
+        ("GET", "/api/v1/storage/{file_id}"),
+        ("GET", "/health"),
+        ("POST", "/api/v1/auth/login"),
+    ]
+
+
+def test_unresolvable_prefix_leaves_the_path_alone(tmp_path):
+    write(
+        tmp_path,
+        "app/main.py",
+        "from fastapi import FastAPI\nfrom app import auth\napp = FastAPI()\n"
+        "app.include_router(auth.router, prefix=os.environ['PREFIX'])\n",
+    )
+    write(
+        tmp_path,
+        "app/auth.py",
+        "from fastapi import APIRouter\nrouter = APIRouter()\n@router.post('/login')\ndef login(): ...\n",
+    )
+    assert paths(tmp_path) == [("POST", "/login")]
+
+
+def test_express_use_mounts_router_files_and_limiters(tmp_path):
+    write(
+        tmp_path,
+        "api/src/index.ts",
+        "import express from 'express'\nimport rateLimit from 'express-rate-limit'\n"
+        "import authRoutes from './routes/auth.routes.js'\n"
+        "const app = express()\nconst limiter = rateLimit({ windowMs: 1000, max: 5 })\n"
+        "app.use('/api/', limiter)\napp.use('/api/v1/auth', authRoutes)\n"
+        "app.get('/health', (req, res) => res.json({}))\n",
+    )
+    write(
+        tmp_path,
+        "api/src/routes/auth.routes.ts",
+        "import { Router } from 'express'\nconst router = Router()\n"
+        "router.post('/login', async (req, res) => res.json({}))\nexport default router\n",
+    )
+    assert paths(tmp_path) == [("GET", "/health"), ("POST", "/api/v1/auth/login")]
+    assert limiter_mounts(RepoIndex(tmp_path)) == [("api/src/index.ts", "/api")]
+
+
+def test_express_global_limiter_has_an_empty_prefix(tmp_path):
+    write(
+        tmp_path,
+        "server.js",
+        "const app = express()\nconst apiLimiter = rateLimit({ max: 5 })\napp.use(apiLimiter)\n"
+        "app.post('/login', (req, res) => res.json({}))\n",
+    )
+    assert limiter_mounts(RepoIndex(tmp_path)) == [("server.js", "")]
+```
+
+`tests/reviews/test_abuse_scope.py`:
+
+```python
+from tests.reviews.helpers import findings_for, write
+
+PY_LIMITER = (
+    "from slowapi import Limiter\nfrom slowapi.util import get_remote_address\n"
+    "limiter = Limiter(key_func=get_remote_address)\n"
+)
+
+
+def test_worker_count_from_another_app_root_is_not_borrowed(tmp_path):
+    write(tmp_path, "azure-pipelines.yml", "steps:\n  - script: cd apps/api-py && pytest\n")
+    write(tmp_path, "apps/api-py/requirements.txt", "fastapi\nslowapi\n")
+    write(tmp_path, "apps/api-py/startup.sh", "gunicorn app.main:app --workers 2\n")
+    write(tmp_path, "apps/api-py/app/main.py", "@app.get('/x')\ndef x(): ...\n")
+    write(tmp_path, "apps/api/package.json", '{"dependencies": {"express": "4"}}')
+    write(
+        tmp_path,
+        "apps/api/src/index.ts",
+        "const app = express()\nconst limiter = rateLimit({ windowMs: 1000, max: 5 })\n"
+        "app.use('/api/', limiter)\napp.get('/api/x', (req, res) => res.json({}))\n",
+    )
+    assert findings_for(tmp_path, "abuse", "ABUSE-INMEMORY-LIMITER") == []
+
+
+def test_worker_count_in_the_same_app_root_still_counts(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\nslowapi\n")
+    write(tmp_path, "api/app/rate_limit.py", PY_LIMITER)
+    write(tmp_path, "api/startup.sh", "gunicorn app.main:app --workers 2\n")
+    [finding] = findings_for(tmp_path, "abuse", "ABUSE-INMEMORY-LIMITER")
+    assert [str(loc) for loc in finding.locations] == [
+        "api/app/rate_limit.py:3",
+        "api/startup.sh:1",
+    ]
+
+
+def test_proxy_key_in_an_undeployed_app_is_skipped(tmp_path):
+    write(tmp_path, "render.yaml", "services:\n  - type: web\n    rootDir: apps/api-py\n")
+    write(tmp_path, "apps/api-py/requirements.txt", "fastapi\nslowapi\n")
+    write(tmp_path, "apps/api-py/app/rate_limit.py", PY_LIMITER)
+    write(
+        tmp_path,
+        "apps/api-py/app/main.py",
+        "from fastapi import FastAPI\napp = FastAPI()\n@app.get('/x')\ndef x(): ...\n",
+    )
+    write(tmp_path, "apps/api/package.json", '{"dependencies": {"express": "4"}}')
+    write(
+        tmp_path,
+        "apps/api/src/index.ts",
+        "const app = express()\nconst limiter = rateLimit({ windowMs: 1000, max: 5 })\n"
+        "app.get('/api/x', (req, res) => res.json({}))\n",
+    )
+    found = findings_for(tmp_path, "abuse", "ABUSE-LIMITER-PROXY-IP")
+    assert [str(f.locations[0]) for f in found] == ["apps/api-py/app/rate_limit.py:3"]
+
+
+def test_form_title_says_no_bot_challenge_when_limited(tmp_path):
+    write(
+        tmp_path,
+        "api/auth.py",
+        "from fastapi import APIRouter\nrouter = APIRouter(prefix='/auth')\n"
+        "@router.post('/register')\n@limiter.limit('3/hour')\nasync def register(request, data): ...\n",
+    )
+    write(
+        tmp_path,
+        "api/contact.py",
+        "from fastapi import APIRouter\nrouter = APIRouter()\n"
+        "@router.post('/contact')\nasync def contact(data): ...\n",
+    )
+    titles = {
+        f.locations[0].file: f.title
+        for f in findings_for(tmp_path, "abuse", "ABUSE-FORM-NO-CHALLENGE")
+    }
+    assert titles == {
+        "api/auth.py": "Public forms have rate limits but no bot challenge",
+        "api/contact.py": "Public forms accept unlimited automated submissions",
+    }
+
+
+def test_mounted_express_limiter_counts_for_paid_routes(tmp_path):
+    write(tmp_path, "package.json", '{"dependencies": {"express": "4", "openai": "4"}}')
+    write(
+        tmp_path,
+        "src/index.js",
+        "import aiRoutes from './routes/ai.js'\nconst app = express()\n"
+        "const limiter = rateLimit({ windowMs: 1000, max: 5 })\n"
+        "app.use('/api', limiter)\napp.use('/api/ai', aiRoutes)\n",
+    )
+    write(
+        tmp_path,
+        "src/routes/ai.js",
+        "import OpenAI from 'openai'\nconst client = new OpenAI()\nconst router = Router()\n"
+        "router.post('/generate', requireUser, async (req, res) => {\n"
+        "  res.json(await client.responses.create({ input: req.body.q }))\n})\n"
+        "export default router\n",
+    )
+    assert findings_for(tmp_path, "abuse", "ABUSE-PAID-UNLIMITED") == []
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/parsing/test_mounts.py tests/reviews/test_abuse_scope.py`
+Expected: FAIL (pytest reports 1 error; collection stops at `ModuleNotFoundError: No module named 'dpr.parsing.mounts'`)
+
+- [ ] **Step 3: Resolve mounts and scope the limiter checks**
+
+Modify `src/dpr/data/rule_text/abuse_paid.yaml`, replace:
+
+```yaml
+  fix: Read an environment or feature flag such as ${flag} on every request and return 503 when it is off.
+  verify: Set ${flag}=false in a test environment and confirm the route returns 503 without calling ${sdk}.
+ABUSE-FORM-NO-CHALLENGE:
+  title: Public forms accept unlimited automated submissions
+  effort_minutes: 30
+  detail: 'These unauthenticated form routes have no bot challenge or honeypot: ${routes}. Each is a free write into the system and, when it sends email, a free send from your quota.'
+  proof_needed: Check whether a WAF, edge rule or provider-side challenge protects these routes.
+```
+
+with:
+
+```yaml
+  fix: Read an environment or feature flag such as ${flag} on every request and return 503 when it is off.
+  verify: Set ${flag}=false in a test environment and confirm the route returns 503 without calling ${sdk}.
+ABUSE-FORM-NO-CHALLENGE:
+  title: Public forms ${summary}
+  effort_minutes: 30
+  detail: 'These unauthenticated form routes have no bot challenge or honeypot: ${routes}. Each is a free write into the system and, when it sends email, a free send from your quota.'
+  proof_needed: Check whether a WAF, edge rule or provider-side challenge protects these routes.
+```
+
+Modify `src/dpr/discovery/approots.py`, replace:
+
+```python
+        else:
+            roots.append(AppRoot(folder, kind, None, ""))
+    apps = [r for r in roots if r.path and r.kind != "library"]
+    if any(r.deployed for r in apps):
+        roots = [
+            replace(r, deployed=False, evidence="no deploy or CI configuration names it")
+            if r in apps and r.deployed is None
+```
+
+with:
+
+```python
+        else:
+            roots.append(AppRoot(folder, kind, None, ""))
+    apps = [r for r in roots if r.path and r.kind != "library"]
+    if any(r.deployed for r in roots if r.path):
+        roots = [
+            replace(r, deployed=False, evidence="no deploy or CI configuration names it")
+            if r in apps and r.deployed is None
+```
+
+`src/dpr/parsing/mounts.py`:
+
+```python
+"""Router mount prefixes: FastAPI include_router and Express app.use, applied to route paths."""
+
+from __future__ import annotations
+
+import ast
+import re
+from dataclasses import replace
+from pathlib import PurePosixPath
+
+from dpr.model import Route
+from dpr.parsing import jsts, pyast
+from dpr.walk import RepoIndex
+
+JS_DEFAULT_IMPORT = re.compile(
+    r"""import\s+(\w+)\s+from\s+['"](\.[^'"]+)['"]"""
+    r"""|(?:const|let|var)\s+(\w+)\s*=\s*require\(\s*['"](\.[^'"]+)['"]\s*\)"""
+)
+LIMITER = re.compile(r"(?i)rate_?limit|limiter|slow_?down|throttle")
+JS_EXTENSIONS = (".ts", ".tsx", ".js", ".mjs", ".cjs", ".jsx")
+VERBS = ("get", "post", "put", "patch", "delete", "route", "api_route")
+Node = tuple[str, str]
+
+
+def _shared(a: str, b: str) -> int:
+    count = 0
+    for left, right in zip(a.split("/"), b.split("/"), strict=False):
+        if left != right:
+            break
+        count += 1
+    return count
+
+
+def _module_file(index: RepoIndex, importer: str, module: str, level: int = 0) -> str | None:
+    if level:
+        base = PurePosixPath(importer).parent
+        for _ in range(level - 1):
+            base = base.parent
+        stem = (base / module.replace(".", "/")).as_posix() if module else base.as_posix()
+        wanted = (f"{stem}.py", f"{stem}/__init__.py")
+        return next((f.rel for f in index.py_files if f.rel in wanted), None)
+    tail = module.replace(".", "/")
+    found = [
+        f.rel
+        for f in index.py_files
+        if f.rel in (f"{tail}.py", f"{tail}/__init__.py")
+        or f.rel.endswith((f"/{tail}.py", f"/{tail}/__init__.py"))
+    ]
+    return max(found, key=lambda rel: _shared(rel, importer)) if found else None
+
+
+def _py_imports(index: RepoIndex, rel: str, tree: ast.Module) -> dict[str, Node]:
+    """Local name to (file, attribute); attribute "" means the name is the module itself."""
+    names: dict[str, Node] = {}
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                local = alias.asname or alias.name
+                sub = f"{node.module}.{alias.name}" if node.module else alias.name
+                as_module = _module_file(index, rel, sub, node.level)
+                if as_module is not None:
+                    names[local] = (as_module, "")
+                    continue
+                owner = _module_file(index, rel, node.module or "", node.level)
+                if owner is not None:
+                    names[local] = (owner, alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                owner = _module_file(index, rel, alias.name)
+                if owner is not None and alias.asname:
+                    names[alias.asname] = (owner, "")
+    return names
+
+
+def _settings_default(index: RepoIndex, attribute: str) -> str | None:
+    values = set()
+    for entry in index.py_files:
+        if attribute not in index.text(entry.rel):
+            continue
+        tree = pyast.parse_file(index, entry.rel)
+        for cls in pyast.class_defs(tree) if tree else []:
+            value = pyast.assignments(cls.body).get(attribute)
+            text = pyast.constant(value, None)
+            if isinstance(text, str):
+                values.add(text)
+    return values.pop() if len(values) == 1 else None
+
+
+def _py_prefix(index: RepoIndex, tree: ast.Module, node: ast.AST | None) -> str | None:
+    if node is None:
+        return ""
+    value = pyast.constant(node, None)
+    if isinstance(value, str):
+        return value
+    if isinstance(node, ast.Name):
+        found = pyast.constant(pyast.assignments(tree.body).get(node.id), None)
+        return found if isinstance(found, str) else None
+    if isinstance(node, ast.Attribute):
+        return _settings_default(index, node.attr)
+    return None
+
+
+def _py_edges(index: RepoIndex) -> dict[Node, tuple[Node, str]]:
+    """Included router to (parent router, prefix added at the include)."""
+    edges: dict[Node, tuple[Node, str]] = {}
+    for entry in index.py_files:
+        text = index.text(entry.rel)
+        if "include_router" not in text:
+            continue
+        tree = pyast.parse_file(index, entry.rel)
+        if tree is None:
+            continue
+        imports = _py_imports(index, entry.rel, tree)
+        for call in pyast.calls(tree, r"(?:\w+\.)*\w+\.include_router"):
+            if not call.args or not isinstance(call.func, ast.Attribute):
+                continue
+            parent = (entry.rel, pyast.dotted(call.func.value) or "")
+            child_expr = call.args[0]
+            if isinstance(child_expr, ast.Name):
+                child = imports.get(child_expr.id, (entry.rel, child_expr.id))
+            elif isinstance(child_expr, ast.Attribute) and isinstance(child_expr.value, ast.Name):
+                module = imports.get(child_expr.value.id)
+                if module is None or module[1]:
+                    continue
+                child = (module[0], child_expr.attr)
+            else:
+                continue
+            prefix = _py_prefix(index, tree, pyast.kwarg(call, "prefix"))
+            if prefix is not None and child not in edges:
+                edges[child] = (parent, prefix.rstrip("/"))
+    return edges
+
+
+def _full_prefix(edges: dict[Node, tuple[Node, str]], node: Node) -> str:
+    parts, seen = [], set()
+    while node in edges and node not in seen:
+        seen.add(node)
+        node, prefix = edges[node]
+        parts.append(prefix)
+    return "".join(reversed(parts))
+
+
+def _router_name(route: Route) -> str | None:
+    for dec in getattr(route.handler, "decorator_list", []):
+        if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
+            if dec.func.attr in VERBS:
+                return pyast.dotted(dec.func.value)
+    return None
+
+
+def _js_target(index: RepoIndex, importer: str, spec: str) -> str | None:
+    base = (PurePosixPath(importer).parent / spec).as_posix()
+    parts = []
+    for part in base.split("/"):
+        if part == "..":
+            parts = parts[:-1]
+        elif part not in (".", ""):
+            parts.append(part)
+    stem = "/".join(parts)
+    stripped = re.sub(r"\.(?:[cm]?js|jsx|ts|tsx)$", "", stem)
+    files = {f.rel for f in index.js_files}
+    candidates = [stem] + [stripped + ext for ext in JS_EXTENSIONS]
+    candidates += [f"{stripped}/index{ext}" for ext in JS_EXTENSIONS]
+    return next((c for c in candidates if c in files), None)
+
+
+def _js_mounts(index: RepoIndex) -> tuple[dict[str, str], list[tuple[str, str]]]:
+    """Route file to mount prefix, and (mounting file, prefix) for each limiter middleware."""
+    routers: dict[str, str] = {}
+    limiters: list[tuple[str, str]] = []
+    for entry in index.js_files:
+        text = index.text(entry.rel)
+        if ".use(" not in text:
+            continue
+        imports = {}
+        for match in JS_DEFAULT_IMPORT.finditer(text):
+            name, spec = match.group(1) or match.group(3), match.group(2) or match.group(4)
+            target = _js_target(index, entry.rel, spec)
+            if target:
+                imports[name] = target
+        for tree in jsts.parse_file(index, entry.rel):
+            for call in jsts.calls(tree, r"\w+\.use"):
+                args = jsts.arguments(call)
+                prefix = jsts.string_value(args[0]) if args else None
+                handlers = args[1:] if prefix is not None else args
+                for handler in handlers:
+                    name = jsts.node_text(handler)
+                    if handler.type == "identifier" and name in imports and prefix:
+                        routers.setdefault(imports[name], prefix.rstrip("/"))
+                    declared = re.search(
+                        rf"(?:const|let|var)\s+{re.escape(name)}\s*=\s*([\w.]+)\(", text
+                    )
+                    if LIMITER.search(name) or (declared and LIMITER.search(declared.group(1))):
+                        limiters.append((entry.rel, (prefix or "/").rstrip("/")))
+    return routers, limiters
+
+
+def limiter_mounts(index: RepoIndex) -> list[tuple[str, str]]:
+    key = ("js-limiter-mounts", "")
+    if key not in index.cache:
+        index.cache[key] = _js_mounts(index)[1]
+    return index.cache[key]
+
+
+def apply_mounts(index: RepoIndex, routes: list[Route]) -> list[Route]:
+    edges = _py_edges(index)
+    js_routers, _ = _js_mounts(index)
+    mounted = []
+    for route in routes:
+        prefix = ""
+        if route.framework == "fastapi":
+            name = _router_name(route)
+            prefix = _full_prefix(edges, (route.file, name)) if name else ""
+        elif route.framework in ("express", "fastify"):
+            prefix = js_routers.get(route.file, "")
+        if prefix and not route.path.startswith(prefix + "/"):
+            path = prefix + (route.path if route.path != "/" else "")
+            route = replace(route, path=path)
+        mounted.append(route)
+    return mounted
+```
+
+Modify `src/dpr/parsing/routes.py`, replace:
+
+```python
+
+from dpr.model import Route
+from dpr.parsing import routes_js, routes_py
+from dpr.walk import RepoIndex
+
+PUBLIC_FORM = re.compile(
+```
+
+with:
+
+```python
+
+from dpr.model import Route
+from dpr.parsing import routes_js, routes_py
+from dpr.parsing.mounts import apply_mounts
+from dpr.walk import RepoIndex
+
+PUBLIC_FORM = re.compile(
+```
+
+Modify `src/dpr/parsing/routes.py`, replace:
+
+```python
+        + routes_py.django_routes(index)
+    )
+    routes = []
+    for route in found:
+        name = getattr(route.handler, "name", None)
+        name = name if isinstance(name, str) else ""
+        public = bool(PUBLIC_FORM.search(route.path) or PUBLIC_FORM.search(name))
+```
+
+with:
+
+```python
+        + routes_py.django_routes(index)
+    )
+    routes = []
+    for route in apply_mounts(index, found):
+        name = getattr(route.handler, "name", None)
+        name = name if isinstance(name, str) else ""
+        public = bool(PUBLIC_FORM.search(route.path) or PUBLIC_FORM.search(name))
+```
+
+Modify `src/dpr/reviews/abuse_limits.py`, replace:
+
+```python
+import re
+from collections.abc import Iterator
+
+from dpr.model import Finding, Location, Tag
+from dpr.parsing import jsts, pyast
+from dpr.redact import snippet
+```
+
+with:
+
+```python
+import re
+from collections.abc import Iterator
+
+from dpr.discovery.approots import root_of
+from dpr.model import Finding, Location, Tag
+from dpr.parsing import jsts, pyast
+from dpr.redact import snippet
+```
+
+Modify `src/dpr/reviews/abuse_limits.py`, replace:
+
+```python
+            if value == "max" or int(value) > 1:
+                found.append(Location(entry.rel, line_of(text, match.start())))
+                break
+    if not found:
+        return None
+    return max(found, key=lambda loc: len(_common(loc.file, near)))
+```
+
+with:
+
+```python
+            if value == "max" or int(value) > 1:
+                found.append(Location(entry.rel, line_of(text, match.start())))
+                break
+    if near:
+        home = root_of(ctx.detection.app_roots, near)
+        found = [loc for loc in found if root_of(ctx.detection.app_roots, loc.file) == home]
+    if not found:
+        return None
+    return max(found, key=lambda loc: len(_common(loc.file, near)))
+```
+
+Modify `src/dpr/reviews/abuse_limits.py`, replace:
+
+```python
+        return
+    for rel, tree, call in _limiters(ctx):
+        evidence = multi_process(ctx, rel)
+        kind = _memory_storage(tree, call)
+        if kind == "always":
+            what = "The limiter keeps its counters in process memory."
+```
+
+with:
+
+```python
+        return
+    for rel, tree, call in _limiters(ctx):
+        evidence = multi_process(ctx, rel)
+        if evidence is None:
+            continue
+        kind = _memory_storage(tree, call)
+        if kind == "always":
+            what = "The limiter keeps its counters in process memory."
+```
+
+Modify `src/dpr/reviews/abuse_limits.py`, replace:
+
+```python
+        for tree in jsts.parse_file(ctx.index, entry.rel):
+            for call in jsts.calls(tree, r"rateLimit|slowDown"):
+                args = jsts.arguments(call)
+                if not args or "store" not in jsts.object_pairs(args[0]):
+                    what = "express-rate-limit has no store option, so it counts in process memory."
+                    line = jsts.line(tree, call)
+                    evidence = multi_process(ctx, entry.rel)
+                    yield _inmemory(ctx, entry.rel, line, Tag.CONFIRMED, what, evidence)
+            for decl in jsts.walk(tree.root, {"variable_declarator"}):
+                name = jsts.node_text(decl.child_by_field_name("name"))
+                value = jsts.node_text(decl.child_by_field_name("value"))
+                top_level = jsts.enclosing_function(decl) is None
+                if top_level and value.startswith("new Map(") and COUNTER_NAME.search(name):
+                    what = f"The module-level Map {name} counts requests in process memory."
+                    line = jsts.line(tree, decl)
+                    evidence = multi_process(ctx, entry.rel)
+                    yield _inmemory(ctx, entry.rel, line, Tag.INFERRED, what, evidence)
+
+
+@rule(
+```
+
+with:
+
+```python
+        for tree in jsts.parse_file(ctx.index, entry.rel):
+            for call in jsts.calls(tree, r"rateLimit|slowDown"):
+                args = jsts.arguments(call)
+                evidence = multi_process(ctx, entry.rel)
+                if evidence is not None and (not args or "store" not in jsts.object_pairs(args[0])):
+                    what = "express-rate-limit has no store option, so it counts in process memory."
+                    line = jsts.line(tree, call)
+                    yield _inmemory(ctx, entry.rel, line, Tag.CONFIRMED, what, evidence)
+            for decl in jsts.walk(tree.root, {"variable_declarator"}):
+                name = jsts.node_text(decl.child_by_field_name("name"))
+                value = jsts.node_text(decl.child_by_field_name("value"))
+                top_level = jsts.enclosing_function(decl) is None
+                evidence = multi_process(ctx, entry.rel)
+                if top_level and value.startswith("new Map(") and COUNTER_NAME.search(name):
+                    if evidence is not None:
+                        what = f"The module-level Map {name} counts requests in process memory."
+                        line = jsts.line(tree, decl)
+                        yield _inmemory(ctx, entry.rel, line, Tag.INFERRED, what, evidence)
+
+
+@rule(
+```
+
+Modify `src/dpr/reviews/abuse_limits.py`, replace:
+
+```python
+        return
+    if any(PROXY_TRUST.search(ctx.index.text(f.rel)) for f in ctx.index.files):
+        return
+    for rel, _tree, call in _limiters(ctx):
+        key = pyast.kwarg(call, "key_func")
+        if key is not None and (pyast.dotted(key) or "").endswith("get_remote_address"):
+            yield make_finding(
+```
+
+with:
+
+```python
+        return
+    if any(PROXY_TRUST.search(ctx.index.text(f.rel)) for f in ctx.index.files):
+        return
+
+    def undeployed(rel: str) -> bool:
+        home = root_of(ctx.detection.app_roots, rel)
+        return home is not None and home.deployed is False
+
+    for rel, _tree, call in _limiters(ctx):
+        if undeployed(rel):
+            continue
+        key = pyast.kwarg(call, "key_func")
+        if key is not None and (pyast.dotted(key) or "").endswith("get_remote_address"):
+            yield make_finding(
+```
+
+Modify `src/dpr/reviews/abuse_limits.py`, replace:
+
+```python
+    for entry in ctx.index.js_files:
+        if is_test(entry.rel) or "rateLimit" not in ctx.index.text(entry.rel):
+            continue
+        for tree in jsts.parse_file(ctx.index, entry.rel):
+            for call in jsts.calls(tree, r"rateLimit"):
+                args = jsts.arguments(call)
+```
+
+with:
+
+```python
+    for entry in ctx.index.js_files:
+        if is_test(entry.rel) or "rateLimit" not in ctx.index.text(entry.rel):
+            continue
+        if undeployed(entry.rel):
+            continue
+        for tree in jsts.parse_file(ctx.index, entry.rel):
+            for call in jsts.calls(tree, r"rateLimit"):
+                args = jsts.arguments(call)
+```
+
+Modify `src/dpr/reviews/abuse_paid.py`, replace:
+
+```python
+import re
+from collections.abc import Iterator
+
+from dpr.model import Finding, Location, Route, Tag
+from dpr.parsing import jsts
+from dpr.redact import snippet
+from dpr.reviews.access import PUBLIC, access
+from dpr.reviews.paid import PaidRoute, costs, paid_routes
+```
+
+with:
+
+```python
+import re
+from collections.abc import Iterator
+
+from dpr.discovery.approots import root_of
+from dpr.model import Finding, Location, Route, Tag
+from dpr.parsing import jsts
+from dpr.parsing.mounts import limiter_mounts
+from dpr.redact import snippet
+from dpr.reviews.access import PUBLIC, access
+from dpr.reviews.paid import PaidRoute, costs, paid_routes
+```
+
+Modify `src/dpr/reviews/abuse_paid.py`, replace:
+
+```python
+                and jsts.line(route.tree, call) < route.line
+            ):
+                return True
+    if route.framework.startswith("next"):
+        for entry in ctx.index.named("middleware.ts", "middleware.js"):
+            if LIMITER_WORD.search(ctx.index.text(entry.rel)):
+```
+
+with:
+
+```python
+                and jsts.line(route.tree, call) < route.line
+            ):
+                return True
+        home = root_of(ctx.detection.app_roots, route.file)
+        for rel, prefix in limiter_mounts(ctx.index):
+            same_app = root_of(ctx.detection.app_roots, rel) == home
+            if same_app and (route.path == prefix or route.path.startswith(prefix + "/")):
+                return True
+    if route.framework.startswith("next"):
+        for entry in ctx.index.named("middleware.ts", "middleware.js"):
+            if LIMITER_WORD.search(ctx.index.text(entry.rel)):
+```
+
+Modify `src/dpr/reviews/abuse_paid.py`, replace:
+
+```python
+    for rel, routes in sorted(by_file.items()):
+        if CHALLENGE.search(ctx.index.text(rel)):
+            continue
+        yield make_finding(
+            "ABUSE-FORM-NO-CHALLENGE",
+            tag=Tag.INFERRED,
+            locations=[Location(r.file, r.line) for r in routes],
+            snippet=snippet(ctx.index.text(rel), routes[0].line),
+            routes=", ".join(f"{r.method} {r.path}" for r in routes),
+        )
+```
+
+with:
+
+```python
+    for rel, routes in sorted(by_file.items()):
+        if CHALLENGE.search(ctx.index.text(rel)):
+            continue
+        limited = all(is_limited(ctx, r) for r in routes)
+        yield make_finding(
+            "ABUSE-FORM-NO-CHALLENGE",
+            tag=Tag.INFERRED,
+            locations=[Location(r.file, r.line) for r in routes],
+            snippet=snippet(ctx.index.text(rel), routes[0].line),
+            routes=", ".join(f"{r.method} {r.path}" for r in routes),
+            summary="have rate limits but no bot challenge"
+            if limited
+            else "accept unlimited automated submissions",
+        )
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (299 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/rule_text/abuse_paid.yaml src/dpr/discovery/approots.py src/dpr/parsing/mounts.py src/dpr/parsing/routes.py src/dpr/reviews/abuse_limits.py src/dpr/reviews/abuse_paid.py tests/parsing/test_mounts.py tests/reviews/test_abuse_scope.py
+git commit -m "Resolve router mount prefixes and scope limiter checks to one app root"
+```
+
+---
+
+### Task 59: Source map twins, escaped HTML values and shell tokens
+
+Judge FP fixes. `LEAK-SOURCEMAP` groups `vite.config.ts` and a stale `vite.config.js` in the same folder into one finding that names the file the tool loads. `OWASP-A03-HTML-EMAIL` treats joins of generator expressions, numeric-annotated parameters and names already passed through an escape function (followed to a fixpoint) as safe. `OWASP-A08-UNPINNED-INSTALL` reads a shell command only up to `&&`, `;`, `|` or a comment, so `npm ci && npx vite build` is not an unpinned `npx` of an arbitrary package.
+
+**Files:**
+- Modify: `src/dpr/reviews/leaks.py` (group config twins per folder and tool)
+- Modify: `src/dpr/reviews/owasp_inject.py` (escaped and numeric values are safe in HTML)
+- Modify: `src/dpr/reviews/owasp_integrity.py` (stop reading a command at shell separators)
+- Test: `tests/reviews/test_leaks_owasp_precision.py`
+
+**Interfaces:**
+- Consumes: Milestone 1 `LEAK-SOURCEMAP`, Milestone 2 Tasks 41 and 42 rules
+- Produces:
+  - `dpr.reviews.owasp_integrity`:
+
+```python
+def command_args(text: str) -> list[str]: ...
+```
+
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/reviews/test_leaks_owasp_precision.py`:
+
+```python
+from tests.reviews.helpers import findings_for, write
+
+VITE_JS = "export default {\n  build: {\n    sourcemap: true,\n  },\n}\n"
+VITE_TS = "import { defineConfig } from 'vite'\nexport default defineConfig({\n  build: { sourcemap: true },\n})\n"
+
+
+def test_vite_config_twins_collapse_to_the_file_vite_loads(tmp_path):
+    write(tmp_path, "web/vite.config.ts", VITE_TS)
+    write(tmp_path, "web/vite.config.js", VITE_JS)
+    write(
+        tmp_path,
+        "web/vite.config.d.ts",
+        "declare const _default: unknown\nexport default _default\n",
+    )
+    write(tmp_path, "admin/vite.config.ts", VITE_TS)
+    found = {f.locations[0].file: f for f in findings_for(tmp_path, "leaks", "LEAK-SOURCEMAP")}
+    assert set(found) == {"web/vite.config.js", "admin/vite.config.ts"}
+    web = found["web/vite.config.js"]
+    assert [str(loc) for loc in web.locations] == ["web/vite.config.js:3", "web/vite.config.ts:3"]
+    assert "The same setting is in vite.config.ts, which vite does not load" in web.detail
+    assert "does not load" not in found["admin/vite.config.ts"].detail
+
+
+def test_values_escaped_in_joined_loops_and_numbers_are_safe(tmp_path):
+    write(
+        tmp_path,
+        "app/services/email_service.py",
+        "import html\n"
+        "def rows(columns, items):\n"
+        "    head = ''.join(f'<th>{html.escape(h)}</th>' for _, h in columns)\n"
+        "    body = ''.join('<tr>' + ''.join(f'<td>{html.escape(str(i.get(k)))}</td>' for k, _ in columns) + '</tr>' for i in items)\n"
+        "    return f'<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'\n"
+        "def alert(name: str, threshold: int, days: int | None):\n"
+        "    return f'<p>{html.escape(name)} ends within {threshold} days, {days} left</p>'\n",
+    )
+    assert findings_for(tmp_path, "owasp", "OWASP-A03-HTML-EMAIL") == []
+
+
+def test_joined_loop_with_a_raw_value_is_still_reported(tmp_path):
+    write(
+        tmp_path,
+        "app/services/email_service.py",
+        "def rows(items):\n"
+        "    table = ''.join(f'<tr><td>{item.name}</td></tr>' for item in items)\n"
+        "    return f'<table>{table}</table>'\n",
+    )
+    [finding] = findings_for(tmp_path, "owasp", "OWASP-A03-HTML-EMAIL")
+    assert [str(loc) for loc in finding.locations] == [
+        "app/services/email_service.py:2",
+        "app/services/email_service.py:3",
+    ]
+
+
+def test_shell_operators_are_not_package_names(tmp_path):
+    write(
+        tmp_path,
+        "api/startup.sh",
+        'pip install --quiet pysqlite3-binary 2>&1 || echo "skipped"\n'
+        "pip install -r requirements.txt && echo done\n",
+    )
+    write(tmp_path, "azure-pipelines.yml", "steps:\n  - script: npm install && npm run build\n")
+    found = {
+        f.locations[0].file: f
+        for f in findings_for(tmp_path, "owasp", "OWASP-A08-UNPINNED-INSTALL")
+    }
+    assert found["api/startup.sh"].detail.startswith(
+        "pip installs pysqlite3-binary without a pinned version at start-up."
+    )
+    assert (
+        "2>&1" not in found["api/startup.sh"].detail and "||" not in found["api/startup.sh"].detail
+    )
+    assert [str(loc) for loc in found["api/startup.sh"].locations] == ["api/startup.sh:1"]
+    assert "npm ci installs what is locked" in found["azure-pipelines.yml"].detail
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_leaks_owasp_precision.py`
+Expected: FAIL (pytest reports 3 failed, 1 passed)
+
+- [ ] **Step 3: Fix the three rules**
+
+Modify `src/dpr/reviews/leaks.py`, replace:
+
+```python
+
+import re
+from collections.abc import Iterator
+
+import dpr.reviews.leaks_creds  # noqa: F401  (registers rules)
+import dpr.reviews.leaks_logs  # noqa: F401  (registers rules)
+```
+
+with:
+
+```python
+
+import re
+from collections.abc import Iterator
+from pathlib import PurePosixPath
+
+import dpr.reviews.leaks_creds  # noqa: F401  (registers rules)
+import dpr.reviews.leaks_logs  # noqa: F401  (registers rules)
+```
+
+Modify `src/dpr/reviews/leaks.py`, replace:
+
+```python
+    "removing it from the next build does not undo that."
+)
+NEXT_SOURCEMAPS = re.compile(r"productionBrowserSourceMaps\s*:\s*true")
+VITE_SOURCEMAPS = re.compile(r"\bsourcemap\s*:\s*(?:true|['\"](?:inline|hidden)['\"])")
+
+
+```
+
+with:
+
+```python
+    "removing it from the next build does not undo that."
+)
+NEXT_SOURCEMAPS = re.compile(r"productionBrowserSourceMaps\s*:\s*true")
+LOAD_ORDER = {
+    "vite": [".js", ".mjs", ".ts", ".cjs", ".mts", ".cts"],
+    "next": [".js", ".mjs", ".ts", ".cjs", ".mts", ".cts"],
+}
+VITE_SOURCEMAPS = re.compile(r"\bsourcemap\s*:\s*(?:true|['\"](?:inline|hidden)['\"])")
+
+
+```
+
+Modify `src/dpr/reviews/leaks.py`, replace:
+
+```python
+            locations=[Location(f.rel, 1) for f in maps[:5]],
+            what=f"{len(maps)} source map file(s) are in the build output.",
+        )
+    for entry in ctx.index.named("next.config.*", "vite.config.*"):
+        text = ctx.index.text(entry.rel)
+        pattern = NEXT_SOURCEMAPS if entry.name.startswith("next.") else VITE_SOURCEMAPS
+        for match in pattern.finditer(text):
+            line = line_of(text, match.start())
+            yield make_finding(
+                "LEAK-SOURCEMAP",
+                tag=Tag.CONFIRMED,
+                locations=[Location(entry.rel, line)],
+                snippet=snippet(text, line),
+                what=f"{entry.name} turns on source maps for the production build.",
+            )
+
+
+def _sentry_detail(sends_pii: bool, scrubs: bool) -> str:
+```
+
+with:
+
+```python
+            locations=[Location(f.rel, 1) for f in maps[:5]],
+            what=f"{len(maps)} source map file(s) are in the build output.",
+        )
+    groups: dict[tuple[str, str], list[Location]] = {}
+    for entry in ctx.index.named("next.config.*", "vite.config.*"):
+        if entry.name.endswith(".d.ts"):
+            continue
+        text = ctx.index.text(entry.rel)
+        tool = "next" if entry.name.startswith("next.") else "vite"
+        pattern = NEXT_SOURCEMAPS if tool == "next" else VITE_SOURCEMAPS
+        folder = str(PurePosixPath(entry.rel).parent)
+        for match in pattern.finditer(text):
+            groups.setdefault((folder, tool), []).append(
+                Location(entry.rel, line_of(text, match.start()))
+            )
+    for (_folder, tool), found in sorted(groups.items()):
+        order = LOAD_ORDER[tool]
+        found.sort(key=lambda loc: (order.index(PurePosixPath(loc.file).suffix), loc.line))
+        loaded = PurePosixPath(found[0].file).name
+        twins = sorted({PurePosixPath(loc.file).name for loc in found[1:]} - {loaded})
+        extra = (
+            f" The same setting is in {', '.join(twins)}, which {tool} does not load when "
+            f"{loaded} exists."
+            if twins
+            else ""
+        )
+        yield make_finding(
+            "LEAK-SOURCEMAP",
+            tag=Tag.CONFIRMED,
+            locations=found,
+            snippet=snippet(ctx.index.text(found[0].file), found[0].line),
+            what=f"{loaded} turns on source maps for the production build.{extra}",
+        )
+
+
+def _sentry_detail(sends_pii: bool, scrubs: bool) -> str:
+```
+
+Modify `src/dpr/reviews/owasp_inject.py`, replace:
+
+```python
+    return names
+
+
+def _escaped_names(fn: ast.AST) -> set[str]:
+    names = {a.arg for a in fn.args.args if MARKUP_NAME.match(a.arg)} | _constant_loop_names(fn)
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+            if _safe_value(node.value) or MARKUP_NAME.match(node.targets[0].id):
+                names.add(node.targets[0].id)
+    return names
+
+```
+
+with:
+
+```python
+    return names
+
+
+NUMERIC = re.compile(r"^(?:int|float|bool|Decimal|date|datetime|UUID)(?:\s*\|\s*None)?$")
+
+
+def _markup_safe(node: ast.AST, escaped: set[str]) -> bool:
+    """Constants, escaped values, and strings built only from them, including joined loops."""
+    if _safe_value(node) or (isinstance(node, ast.Name) and node.id in escaped):
+        return True
+    if isinstance(node, ast.JoinedStr):
+        values = [v.value for v in node.values if isinstance(v, ast.FormattedValue)]
+        return all(_markup_safe(v, escaped) for v in values)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _markup_safe(node.left, escaped) and _markup_safe(node.right, escaped)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        if node.func.attr == "join" and len(node.args) == 1:
+            arg = node.args[0]
+            if isinstance(arg, ast.GeneratorExp | ast.ListComp):
+                return _markup_safe(arg.elt, escaped)
+            return _markup_safe(arg, escaped)
+    return False
+
+
+def _escaped_names(fn: ast.AST) -> set[str]:
+    names = {a.arg for a in fn.args.args if MARKUP_NAME.match(a.arg)} | _constant_loop_names(fn)
+    names |= {
+        a.arg
+        for a in [*fn.args.args, *fn.args.kwonlyargs]
+        if a.annotation is not None and NUMERIC.match(ast.unparse(a.annotation))
+    }
+    assigns = [
+        n for n in ast.walk(fn) if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)
+    ]
+    for _ in range(2):
+        for node in assigns:
+            if _markup_safe(node.value, names) or MARKUP_NAME.match(node.targets[0].id):
+                names.add(node.targets[0].id)
+    return names
+
+```
+
+Modify `src/dpr/reviews/owasp_inject.py`, replace:
+
+```python
+        if not HTML_TAG.search(literal):
+            continue
+        for value in node.values:
+            if not isinstance(value, ast.FormattedValue):
+                continue
+            expr = value.value
+            if _safe_value(expr) or (isinstance(expr, ast.Name) and expr.id in escaped):
+                continue
+            found.append(node)
+            break
+    return found
+
+
+```
+
+with:
+
+```python
+        if not HTML_TAG.search(literal):
+            continue
+        for value in node.values:
+            if isinstance(value, ast.FormattedValue) and not _markup_safe(value.value, escaped):
+                found.append(node)
+                break
+    return found
+
+
+```
+
+Modify `src/dpr/reviews/owasp_integrity.py`, replace:
+
+```python
+            )
+
+
+def _install_problems(line: str, runtime: bool) -> str | None:
+    pip = PIP_INSTALL.search(line)
+    if pip:
+        args = [a for a in pip.group(1).split() if not a.startswith("-")]
+        if "-r" in pip.group(1).split() or "-e" in pip.group(1).split():
+            return None
+        packages = [a for a in args if a not in (".", "pip") and "==" not in a]
+        if packages:
+```
+
+with:
+
+```python
+            )
+
+
+SHELL_STOP = re.compile(r"^(?:&&|\|\||;|\||\d*>.*|<.*|#.*)$")
+
+
+def command_args(text: str) -> list[str]:
+    """Arguments up to the first shell operator, redirect or comment."""
+    args = []
+    for token in text.split():
+        if SHELL_STOP.match(token):
+            break
+        args.append(token.rstrip(";"))
+    return args
+
+
+def _install_problems(line: str, runtime: bool) -> str | None:
+    pip = PIP_INSTALL.search(line)
+    if pip:
+        tokens = command_args(pip.group(1))
+        args = [a for a in tokens if not a.startswith("-")]
+        if "-r" in tokens or "-e" in tokens:
+            return None
+        packages = [a for a in args if a not in (".", "pip") and "==" not in a]
+        if packages:
+```
+
+Modify `src/dpr/reviews/owasp_integrity.py`, replace:
+
+```python
+        return f"npx runs {npx.group(1)} without a pinned version."
+    npm = NPM_INSTALL.search(line)
+    if npm and not runtime:
+        extra = [a for a in npm.group(1).split() if not a.startswith("-")]
+        if not extra:
+            return "npm install in CI can rewrite the lock file; npm ci installs what is locked."
+        if "-g" in npm.group(1).split() and not any("@" in a[1:] for a in extra):
+            return f"npm installs {extra[0]} globally without a pinned version."
+    return None
+
+```
+
+with:
+
+```python
+        return f"npx runs {npx.group(1)} without a pinned version."
+    npm = NPM_INSTALL.search(line)
+    if npm and not runtime:
+        tokens = command_args(npm.group(1))
+        extra = [a for a in tokens if not a.startswith("-")]
+        if not extra:
+            return "npm install in CI can rewrite the lock file; npm ci installs what is locked."
+        if "-g" in tokens and not any("@" in a[1:] for a in extra):
+            return f"npm installs {extra[0]} globally without a pinned version."
+    return None
+
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (303 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/reviews/leaks.py src/dpr/reviews/owasp_inject.py src/dpr/reviews/owasp_integrity.py tests/reviews/test_leaks_owasp_precision.py
+git commit -m "Group source map twins and stop HTML and install false positives"
+```
+
+---
+
+### Task 60: Header checks by surface kind, HSTS severity and attacker wording
+
+Severity calibration (gap 10). HSTS missing is low unless a cookie lacks `Secure` (then medium). Document-only headers (CSP, frame, permissions, referrer) are not asked of API-only surfaces that return JSON and render no HTML. OWASP A01 attack text names the least privileged role the auth dependency admits ("Sign in as any manager account") instead of "any signed-in user" when a role is visible.
+
+**Files:**
+- Modify: `src/dpr/data/rule_text/owasp_a01.yaml` (attack text takes the attacker)
+- Modify: `src/dpr/reviews/baseline_config.py` (share cookie findings)
+- Modify: `src/dpr/reviews/baseline_headers.py` (severity rules and API-only surfaces)
+- Modify: `src/dpr/reviews/headers_static.py` (classify API-only surfaces)
+- Modify: `src/dpr/reviews/owasp_a01.py` (attacker from the auth evidence)
+- Test: `tests/reviews/test_header_scope.py`
+- Modify fixture: `tests/fixtures/fastapi-bad/expected.yaml` (API surface loses document headers)
+- Modify test: `tests/reviews/test_baseline_headers.py` (HSTS low, CSP on three surfaces)
+
+**Interfaces:**
+- Consumes: surfaces from Milestone 2 Task 36, cookie findings from Task 37, access evidence from Task 39
+- Produces:
+  - `dpr.reviews.baseline_config`:
+
+```python
+def cookie_findings(ctx: Context) -> list[Finding]: ...
+```
+
+  - `dpr.reviews.headers_static`:
+
+```python
+def api_only(ctx: Context, surface: Surface) -> bool: ...
+```
+
+  - `dpr.reviews.owasp_a01`:
+
+```python
+def attacker(evidence: str) -> str: ...
+```
+
+
+**Earlier tests updated on purpose:** `tests/reviews/test_baseline_headers.py` expects HSTS low (no insecure cookie in that test) and CSP on three surfaces instead of four (the API-only surface is dropped). `tests/fixtures/fastapi-bad/expected.yaml` loses the frame, permissions and referrer findings on the JSON API and keeps CSP on the static site config.
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: BASE-DB-ADMIN-LOGIN, file: infra/main.tf, line: 9, tag: INFERRED}
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 1, tag: CONFIRMED}
+  - {rule: BASE-DEBUG-ON, file: api/app/config.py, line: 5, tag: INFERRED}
+  - {rule: BASE-HEADER-MISSING-CSP, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-FRAME, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-PERMISSIONS, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-REFERRER, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HTTPS-NOT-ENFORCED, file: infra/main.tf, line: 12, tag: CONFIRMED}
+  - {rule: BASE-LITERAL-PASSWORD-HASH, file: api/app/db/seed.py, line: 8, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: BASE-DB-ADMIN-LOGIN, file: infra/main.tf, line: 9, tag: INFERRED}
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 1, tag: CONFIRMED}
+  - {rule: BASE-DEBUG-ON, file: api/app/config.py, line: 5, tag: INFERRED}
+  - {rule: BASE-HEADER-MISSING-CSP, file: web/staticwebapp.config.json, line: 3, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HTTPS-NOT-ENFORCED, file: infra/main.tf, line: 12, tag: CONFIRMED}
+  - {rule: BASE-LITERAL-PASSWORD-HASH, file: api/app/db/seed.py, line: 8, tag: CONFIRMED}
+```
+
+Modify `tests/reviews/test_baseline_headers.py`, replace:
+
+```python
+def test_missing_headers_are_unverified_without_url(tmp_path):
+    root = repo(tmp_path)
+    [hsts] = findings_for(root, "baseline", "BASE-HEADER-MISSING-HSTS")
+    assert hsts.tag.value == "UNVERIFIED" and hsts.severity.value == "high"
+    assert [str(loc) for loc in hsts.locations] == [
+        "site/next.config.js:1",
+        "web/staticwebapp.config.json:2",
+    ]
+    assert "web/staticwebapp.config.json (static host config)" in hsts.detail
+    [csp] = findings_for(root, "baseline", "BASE-HEADER-MISSING-CSP")
+    assert len(csp.locations) == 4 and csp.severity.value == "medium"
+    assert findings_for(root, "baseline", "BASE-HEADER-MISSING-FRAME")[0].severity.value == "low"
+
+
+```
+
+with:
+
+```python
+def test_missing_headers_are_unverified_without_url(tmp_path):
+    root = repo(tmp_path)
+    [hsts] = findings_for(root, "baseline", "BASE-HEADER-MISSING-HSTS")
+    assert hsts.tag.value == "UNVERIFIED" and hsts.severity.value == "low"
+    assert [str(loc) for loc in hsts.locations] == [
+        "site/next.config.js:1",
+        "web/staticwebapp.config.json:2",
+    ]
+    assert "web/staticwebapp.config.json (static host config)" in hsts.detail
+    [csp] = findings_for(root, "baseline", "BASE-HEADER-MISSING-CSP")
+    assert len(csp.locations) == 3 and csp.severity.value == "medium"
+    assert findings_for(root, "baseline", "BASE-HEADER-MISSING-FRAME")[0].severity.value == "low"
+
+
+```
+
+`tests/reviews/test_header_scope.py`:
+
+```python
+from dpr.reviews.owasp_a01 import attacker
+from tests.reviews.helpers import findings_for, write
+
+API = "from fastapi import FastAPI\napp = FastAPI()\n"
+
+
+def api(root, main=API):
+    write(root, "api/requirements.txt", "fastapi\n")
+    write(root, "api/app/main.py", main)
+    return root
+
+
+def test_json_api_is_only_checked_for_transport_headers(tmp_path):
+    api(tmp_path)
+    for key in ("CSP", "FRAME", "REFERRER", "PERMISSIONS"):
+        assert findings_for(tmp_path, "baseline", f"BASE-HEADER-MISSING-{key}") == [], key
+    [hsts] = findings_for(tmp_path, "baseline", "BASE-HEADER-MISSING-HSTS")
+    [xcto] = findings_for(tmp_path, "baseline", "BASE-HEADER-MISSING-XCTO")
+    assert str(hsts.locations[0]) == str(xcto.locations[0]) == "api/app/main.py:2"
+
+
+def test_server_app_that_renders_pages_is_checked_for_document_headers(tmp_path):
+    api(tmp_path)
+    write(
+        tmp_path,
+        "api/app/pages.py",
+        "from fastapi.templating import Jinja2Templates\ntemplates = Jinja2Templates('t')\n",
+    )
+    [csp] = findings_for(tmp_path, "baseline", "BASE-HEADER-MISSING-CSP")
+    assert [str(loc) for loc in csp.locations] == ["api/app/main.py:2"]
+
+
+def test_hsts_is_low_unless_a_session_cookie_lacks_secure(tmp_path):
+    api(tmp_path)
+    [hsts] = findings_for(tmp_path, "baseline", "BASE-HEADER-MISSING-HSTS")
+    assert hsts.severity.value == "low"
+    write(
+        tmp_path,
+        "api/app/auth.py",
+        "def login(response):\n"
+        "    response.set_cookie('session', 'x', httponly=True, secure=False, samesite='lax')\n",
+    )
+    [hsts] = findings_for(tmp_path, "baseline", "BASE-HEADER-MISSING-HSTS")
+    assert hsts.severity.value == "medium"
+
+
+def test_csp_is_never_above_medium(tmp_path):
+    write(tmp_path, "web/staticwebapp.config.json", '{"globalHeaders": {}}')
+    [csp] = findings_for(tmp_path, "baseline", "BASE-HEADER-MISSING-CSP")
+    assert csp.severity.value == "medium"
+
+
+def test_attacker_role_comes_from_the_auth_dependency():
+    assert attacker("Depends(ManagerOrAdmin)") == "any manager account"
+    assert attacker("Depends(get_current_user)") == "any signed-in user"
+    assert attacker("Depends(StaffOrAdmin)") == "any staff account"
+    assert attacker("@login_required") == "any signed-in user"
+    assert attacker("Depends(require_agents)") == "any agent account"
+
+
+def test_unscoped_query_attack_names_the_role(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    write(
+        tmp_path,
+        "api/app/models.py",
+        "class Attachment(Base):\n    __tablename__ = 'attachments'\n"
+        "    id = Column(String, primary_key=True)\n    uploaded_by_id = Column(String)\n",
+    )
+    write(
+        tmp_path,
+        "api/app/routes.py",
+        "from fastapi import APIRouter\nfrom sqlalchemy import select\nrouter = APIRouter()\n"
+        "ManagerOrAdmin = Annotated[User, Depends(require_manager_or_admin)]\n"
+        "@router.get('/attachments/{attachment_id}')\n"
+        "async def download(attachment_id: str, current_user: ManagerOrAdmin):\n"
+        "    return await db.execute(select(Attachment).where(Attachment.id == attachment_id))\n",
+    )
+    [finding] = findings_for(tmp_path, "owasp", "OWASP-A01-UNSCOPED-QUERY")
+    assert finding.attack.startswith("1. Sign in as any manager account.")
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_header_scope.py tests/reviews/test_baseline_headers.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 1 error; collection stops at `ImportError: cannot import name 'attacker' from 'dpr.reviews.owasp_a01'`)
+
+- [ ] **Step 3: Scope the header checks and word the attacker**
+
+Modify `src/dpr/data/rule_text/owasp_a01.yaml`, replace:
+
+```yaml
+  effort_minutes: 15
+  detail: The ${level} route ${method} ${path} looks up a ${model} using ${key} from the request, and neither the query nor a later check ties the record to the caller.
+  proof_needed: Confirm the record belongs to a user or tenant and that nothing outside this code path checks ownership.
+  attack: 1. Sign in as any user. 2. Note the identifier of one of your own records. 3. Request the same route with another identifier. 4. Read or change a record that belongs to someone else.
+  blast: Every ${model} record reachable through ${method} ${path}.
+  fix: Put the caller into the query itself, for example where(Model.id == key, Model.owner_id == current_user.id) or findFirst({ where { id, userId session.user.id } }), and return 404 when nothing matches.
+  verify: As user A, request a record that belongs to user B through ${method} ${path} and expect 404.
+```
+
+with:
+
+```yaml
+  effort_minutes: 15
+  detail: The ${level} route ${method} ${path} looks up a ${model} using ${key} from the request, and neither the query nor a later check ties the record to the caller.
+  proof_needed: Confirm the record belongs to a user or tenant and that nothing outside this code path checks ownership.
+  attack: 1. Sign in as ${attacker}. 2. Note the identifier of one of your own records. 3. Request the same route with another identifier. 4. Read or change a record that belongs to someone else.
+  blast: Every ${model} record reachable through ${method} ${path}.
+  fix: Put the caller into the query itself, for example where(Model.id == key, Model.owner_id == current_user.id) or findFirst({ where { id, userId session.user.id } }), and return 404 when nothing matches.
+  verify: As user A, request a record that belongs to user B through ${method} ${path} and expect 404.
+```
+
+Modify `src/dpr/reviews/baseline_config.py`, replace:
+
+```python
+                )
+
+
+def _cookie_rule(flag: str):
+    def check(ctx: Context) -> Iterator[Finding]:
+        if "cookie_findings" not in ctx.facts:
+            ctx.facts["cookie_findings"] = [*_js_cookies(ctx), *_py_cookies(ctx)]
+        for finding in ctx.facts["cookie_findings"]:
+            if finding.rule_id == FLAGS[flag]:
+                yield finding
+
+```
+
+with:
+
+```python
+                )
+
+
+def cookie_findings(ctx: Context) -> list[Finding]:
+    """Cookie flag findings, computed once per run and shared with the header checks."""
+    if "cookie_findings" not in ctx.facts:
+        ctx.facts["cookie_findings"] = [*_js_cookies(ctx), *_py_cookies(ctx)]
+    return ctx.facts["cookie_findings"]
+
+
+def _cookie_rule(flag: str):
+    def check(ctx: Context) -> Iterator[Finding]:
+        for finding in cookie_findings(ctx):
+            if finding.rule_id == FLAGS[flag]:
+                yield finding
+
+```
+
+Modify `src/dpr/reviews/baseline_headers.py`, replace:
+
+```python
+
+from dpr.adapters.headers import HeaderRead, read_headers
+from dpr.model import Finding, Location, Tag
+from dpr.reviews.headers_static import HEADERS, csp_values, surfaces
+from dpr.rules import Context, make_finding, rule
+
+SEVERITY = {"HSTS": "high", "CSP": "medium"}
+LOGIN_PATH = re.compile(r"(?i)/(?:log-?in|sign-?in)$")
+VERSION = re.compile(r"\d")
+
+```
+
+with:
+
+```python
+
+from dpr.adapters.headers import HeaderRead, read_headers
+from dpr.model import Finding, Location, Tag
+from dpr.reviews.baseline_config import cookie_findings
+from dpr.reviews.headers_static import HEADERS, api_only, csp_values, surfaces
+from dpr.rules import Context, make_finding, rule
+
+SEVERITY = {"HSTS": "low", "CSP": "medium"}
+DOCUMENT_HEADERS = ("CSP", "FRAME", "REFERRER", "PERMISSIONS")
+LOGIN_PATH = re.compile(r"(?i)/(?:log-?in|sign-?in)$")
+VERSION = re.compile(r"\d")
+
+```
+
+Modify `src/dpr/reviews/baseline_headers.py`, replace:
+
+```python
+    return None
+
+
+def _missing(ctx: Context, key: str) -> Iterator[Finding]:
+    header = HEADERS[key]
+    root = _read(ctx, "https root")
+```
+
+with:
+
+```python
+    return None
+
+
+def _severity(ctx: Context, key: str) -> str:
+    """Header gaps rank below access control: at most medium, HSTS medium only with weak cookies."""
+    if key == "HSTS" and any(f.rule_id == "BASE-COOKIE-SECURE" for f in cookie_findings(ctx)):
+        return "medium"
+    return SEVERITY.get(key, "low")
+
+
+def _missing(ctx: Context, key: str) -> Iterator[Finding]:
+    header = HEADERS[key]
+    root = _read(ctx, "https root")
+```
+
+Modify `src/dpr/reviews/baseline_headers.py`, replace:
+
+```python
+                f"BASE-HEADER-MISSING-{key}",
+                tag=Tag.CONFIRMED,
+                locations=[Location(root.url, 1)],
+                severity=SEVERITY.get(key, "low"),
+                header=header,
+                where=f"the live response from {root.url}",
+            )
+        return
+    lacking = [s for s in surfaces(ctx) if header not in s.headers]
+    if lacking:
+        where = "; ".join(f"{s.name} ({s.kind})" for s in lacking)
+        yield make_finding(
+            f"BASE-HEADER-MISSING-{key}",
+            tag=Tag.UNVERIFIED,
+            locations=[s.location for s in lacking][:10],
+            severity=SEVERITY.get(key, "low"),
+            header=header,
+            where=where,
+        )
+```
+
+with:
+
+```python
+                f"BASE-HEADER-MISSING-{key}",
+                tag=Tag.CONFIRMED,
+                locations=[Location(root.url, 1)],
+                severity=_severity(ctx, key),
+                header=header,
+                where=f"the live response from {root.url}",
+            )
+        return
+    lacking = [
+        s
+        for s in surfaces(ctx)
+        if header not in s.headers and not (key in DOCUMENT_HEADERS and api_only(ctx, s))
+    ]
+    if lacking:
+        where = "; ".join(f"{s.name} ({s.kind})" for s in lacking)
+        yield make_finding(
+            f"BASE-HEADER-MISSING-{key}",
+            tag=Tag.UNVERIFIED,
+            locations=[s.location for s in lacking][:10],
+            severity=_severity(ctx, key),
+            header=header,
+            where=where,
+        )
+```
+
+Modify `src/dpr/reviews/headers_static.py`, replace:
+
+```python
+)
+STRING_LITERAL = re.compile(r""""(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`""")
+PLATFORM_HSTS = {"vercel.json", "netlify.toml"}
+
+
+@dataclass(frozen=True)
+```
+
+with:
+
+```python
+)
+STRING_LITERAL = re.compile(r""""(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`""")
+PLATFORM_HSTS = {"vercel.json", "netlify.toml"}
+API_KINDS = ("FastAPI app", "Starlette app", "Flask app", "Express app")
+RENDERS_HTML = re.compile(
+    r"render_template|TemplateResponse|HTMLResponse|Jinja2Templates|res\.render\(|express\.static"
+    r"|sendFile\(|StaticFiles\("
+)
+
+
+@dataclass(frozen=True)
+```
+
+Modify `src/dpr/reviews/headers_static.py`, replace:
+
+```python
+    return ctx.facts["header_surfaces"]
+
+
+def csp_values(ctx: Context) -> list[tuple[str, Location]]:
+    found = []
+    roots = {s.root for s in surfaces(ctx)}
+```
+
+with:
+
+```python
+    return ctx.facts["header_surfaces"]
+
+
+def api_only(ctx: Context, surface: Surface) -> bool:
+    """A server app surface whose code renders no HTML pages and serves no static files."""
+    if surface.kind not in API_KINDS:
+        return False
+    for entry in [*ctx.index.js_files, *ctx.index.py_files]:
+        if _under(entry.rel, surface.root) and RENDERS_HTML.search(ctx.index.text(entry.rel)):
+            return False
+    return True
+
+
+def csp_values(ctx: Context) -> list[tuple[str, Location]]:
+    found = []
+    roots = {s.root for s in surfaces(ctx)}
+```
+
+Modify `src/dpr/reviews/owasp_a01.py`, replace:
+
+```python
+from dpr.rules import Context, make_finding, rule
+
+WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
+EMAIL_SUBJECT = re.compile(
+    r"\b(?:current_user|user|me|caller|request\.user|session\.user)\.email\b"
+)
+MODEL_EMAIL = re.compile(r"\b([A-Z]\w*)\.email\b")
+
+
+def unscoped(ctx: Context) -> list[tuple[Route, list, str]]:
+    """Unscoped lookups on owned or unknown models, grouped per route, first lookup first."""
+    if "unscoped_lookups" not in ctx.facts:
+```
+
+with:
+
+```python
+from dpr.rules import Context, make_finding, rule
+
+WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
+ROLE_ORDER = ("customer", "client", "viewer", "member", "editor", "agent", "manager", "staff")
+EMAIL_SUBJECT = re.compile(
+    r"\b(?:current_user|user|me|caller|request\.user|session\.user)\.email\b"
+)
+MODEL_EMAIL = re.compile(r"\b([A-Z]\w*)\.email\b")
+
+
+def attacker(evidence: str) -> str:
+    """Who can make the request, from the least privileged role named by the auth check."""
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", evidence).lower()
+    named = set(re.split(r"[^a-z0-9]+", spaced))
+    role = next((r for r in ROLE_ORDER if r in named or f"{r}s" in named), None)
+    return f"any {role} account" if role else "any signed-in user"
+
+
+def unscoped(ctx: Context) -> list[tuple[Route, list, str]]:
+    """Unscoped lookups on owned or unknown models, grouped per route, first lookup first."""
+    if "unscoped_lookups" not in ctx.facts:
+```
+
+Modify `src/dpr/reviews/owasp_a01.py`, replace:
+
+```python
+            proof = "The model was not found; confirm the record belongs to a user or tenant."
+        locations = [lookup.location, *([lookup.via] if lookup.via else [])]
+        locations += [item.location for item in items[1:]]
+        level = access(ctx, route).level
+        yield make_finding(
+            "OWASP-A01-UNSCOPED-QUERY",
+            tag=Tag.CONFIRMED if confirmed else Tag.INFERRED,
+```
+
+with:
+
+```python
+            proof = "The model was not found; confirm the record belongs to a user or tenant."
+        locations = [lookup.location, *([lookup.via] if lookup.via else [])]
+        locations += [item.location for item in items[1:]]
+        level = access(ctx, route)
+        yield make_finding(
+            "OWASP-A01-UNSCOPED-QUERY",
+            tag=Tag.CONFIRMED if confirmed else Tag.INFERRED,
+```
+
+Modify `src/dpr/reviews/owasp_a01.py`, replace:
+
+```python
+            path=route.path,
+            key=", ".join(lookup.keys),
+            model=lookup.model or "record",
+            level=level,
+        )
+
+
+```
+
+with:
+
+```python
+            path=route.path,
+            key=", ".join(lookup.keys),
+            model=lookup.model or "record",
+            level=level.level,
+            attacker=attacker(level.evidence),
+        )
+
+
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (309 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/rule_text/owasp_a01.yaml src/dpr/reviews/baseline_config.py src/dpr/reviews/baseline_headers.py src/dpr/reviews/headers_static.py src/dpr/reviews/owasp_a01.py tests/fixtures/fastapi-bad/expected.yaml tests/reviews/test_baseline_headers.py tests/reviews/test_header_scope.py
+git commit -m "Judge document headers on HTML surfaces only and calibrate HSTS severity"
+```
+
+---
+
+### Task 61: GRANT parsing, Python migrations and RLS applicability for server databases
+
+Judge gap 3, first half. Review 2 now runs whenever the repository has ORM models or a migration folder (Alembic, Django, Prisma, Drizzle, plain SQL), not only when it ships a client-side database key. `GRANT` and `REVOKE` statements are parsed into `SchemaState.grants`. Alembic and Django migrations that call `op.execute("...")` or `migrations.RunSQL("...")` contribute their SQL, with each statement located at the Python call line.
+
+**Files:**
+- Create: `src/dpr/parsing/pymigrations.py`, `src/dpr/parsing/sqlgrants.py`
+- Modify: `src/dpr/parsing/sqlschema.py` (collect GRANT statements)
+- Modify: `src/dpr/reviews/rls.py` (run for ORM models and migration folders)
+- Test: `tests/parsing/test_pymigrations.py`, `tests/parsing/test_sqlgrants.py`
+- Modify test: `tests/reviews/test_rls_tables.py` (not-applicable text lists the new layers)
+- Modify test: `tests/test_api.py` (same text in the applicability table)
+- Modify test: `tests/test_fixtures.py` (`fastapi-good` now runs review 2)
+
+**Interfaces:**
+- Consumes: `SchemaState` and `split_sql` from Milestone 1 Task 12, `DataModel` detection from Milestone 1
+- Produces:
+  - `dpr.parsing.pymigrations`:
+
+```python
+def migration_folders(index: RepoIndex) -> list[tuple[str, str]]: ...
+def python_migration_state(index: RepoIndex) -> SchemaState: ...
+```
+
+  - `dpr.parsing.sqlgrants`:
+
+```python
+@dataclass(frozen=True)
+class Grant:
+    action: str
+    privileges: tuple[str, ...]
+    kind: str
+    objects: tuple[str, ...]
+    roles: tuple[str, ...]
+    location: Location
+    @property
+    def to_public_role(self) -> bool: ...
+def parse_grant(norm: str, location: Location) -> Grant | None: ...
+```
+
+  - `dpr.parsing.sqlschema`:
+
+```python
+@dataclass
+class SchemaState:
+    tables: dict[str, TableDef] = field(default_factory=dict)
+    policies: dict[tuple[str, str], Policy] = field(default_factory=dict)
+    views: dict[str, View] = field(default_factory=dict)
+    functions: dict[str, Function] = field(default_factory=dict)
+    buckets: dict[str, Bucket] = field(default_factory=dict)
+    sources: list[str] = field(default_factory=list)
+    grants: list[Grant] = field(default_factory=list)
+    def policies_for(self, table_key: str) -> list[Policy]: ...
+    def table(self, key: str, loc: Location) -> TableDef: ...
+    def apply(self, stmt: Statement, file: str) -> None: ...
+    def _create_table(self, s: str, loc: Location) -> bool: ...
+    def _alter_table(self, s: str, loc: Location) -> bool: ...
+    def _create_policy(self, s: str, loc: Location) -> bool: ...
+    def _alter_policy(self, s: str, loc: Location) -> bool: ...
+    def _drop_policy(self, s: str, loc: Location) -> bool: ...
+    def _create_view(self, s: str, loc: Location) -> bool: ...
+    def _alter_view(self, s: str, loc: Location) -> bool: ...
+    def _create_function(self, s: str, loc: Location) -> bool: ...
+    def _insert_bucket(self, s: str, loc: Location) -> bool: ...
+    def _drop_object(self, s: str, loc: Location) -> bool: ...
+    def _grant(self, s: str, loc: Location) -> bool: ...
+```
+
+
+**Edits to files the Milestone 1 fix wave also changes.** Apply each replacement below by its intent if the exact old text differs:
+
+- `src/dpr/parsing/sqlschema.py`: add `grants: list[Grant] = field(default_factory=list)` to `SchemaState`, and register a `_grant` statement handler (shown) in the same handler tuple the builder tries for each normalised statement, before the fallback. Keep the fix wave's rename handling and E-string escapes as they are.
+
+**Earlier tests updated on purpose:** `tests/reviews/test_rls_tables.py` and `tests/test_api.py` expect the longer not-applicable reason; `tests/test_fixtures.py` adds `rls` to the sections `fastapi-good` runs.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/parsing/test_pymigrations.py`:
+
+```python
+from dpr.api import review
+from dpr.parsing.pymigrations import migration_folders, python_migration_state
+from dpr.walk import RepoIndex
+from tests.reviews.helpers import write
+
+
+def test_migration_folders_for_each_tool(tmp_path):
+    write(tmp_path, "api/alembic/versions/001_users.py", "def upgrade():\n    pass\n")
+    write(tmp_path, "shop/orders/migrations/0001_initial.py", "class Migration: pass\n")
+    write(tmp_path, "shop/orders/migrations/__init__.py", "")
+    write(tmp_path, "prisma/migrations/20240101_init/migration.sql", "create table a (id int);")
+    write(tmp_path, "drizzle/0000_init.sql", "create table b (id int);")
+    write(tmp_path, "supabase/migrations/1.sql", "create table c (id int);")
+    write(tmp_path, "docs/migrations.md", "notes\n")
+    assert migration_folders(RepoIndex(tmp_path)) == [
+        ("api/alembic/versions", "alembic"),
+        ("drizzle", "drizzle"),
+        ("prisma/migrations", "prisma"),
+        ("shop/orders/migrations", "django"),
+        ("supabase/migrations", "supabase"),
+    ]
+
+
+def test_sql_run_from_python_migrations(tmp_path):
+    write(
+        tmp_path,
+        "api/alembic/versions/002_rls.py",
+        "import sqlalchemy as sa\nfrom alembic import op\n\n"
+        "def upgrade():\n"
+        "    op.create_table('notes', sa.Column('id', sa.Integer()))\n"
+        "    op.execute('ALTER TABLE notes ENABLE ROW LEVEL SECURITY')\n"
+        '    op.execute(sa.text("CREATE POLICY own ON notes USING (owner = current_user)"))\n'
+        "    op.execute('GRANT SELECT ON notes TO app_ro; GRANT ALL ON notes TO app_rw')\n"
+        "    op.execute(f'UPDATE notes SET x = {1}')\n",
+    )
+    write(
+        tmp_path,
+        "shop/orders/migrations/0002_grants.py",
+        "from django.db import migrations\n\nclass Migration(migrations.Migration):\n"
+        "    operations = [migrations.RunSQL('REVOKE ALL ON orders_order FROM PUBLIC')]\n",
+    )
+    state = python_migration_state(RepoIndex(tmp_path))
+    assert state.tables["public.notes"].rls is True
+    assert str(state.tables["public.notes"].rls_location) == "api/alembic/versions/002_rls.py:6"
+    assert [p.name for p in state.policies_for("public.notes")] == ["own"]
+    assert [(g.action, g.roles, str(g.location)) for g in state.grants] == [
+        ("grant", ("app_ro",), "api/alembic/versions/002_rls.py:8"),
+        ("grant", ("app_rw",), "api/alembic/versions/002_rls.py:8"),
+        ("revoke", ("public",), "shop/orders/migrations/0002_grants.py:4"),
+    ]
+
+
+def test_orm_models_make_the_database_review_applicable(tmp_path):
+    write(tmp_path, "requirements.txt", "fastapi\nsqlalchemy\n")
+    write(
+        tmp_path,
+        "app/models.py",
+        "class Note(Base):\n    __tablename__ = 'notes'\n    id = Column(Integer, primary_key=True)\n",
+    )
+    report = review(tmp_path, reviews=["rls"])
+    assert "rls" in report.sections
+    assert dict(report.meta.applicability)["rls"] == "runs"
+
+
+def test_migration_folder_alone_makes_it_applicable(tmp_path):
+    write(tmp_path, "api/alembic/versions/001.py", "def upgrade():\n    pass\n")
+    assert "rls" in review(tmp_path, reviews=["rls"]).sections
+```
+
+`tests/parsing/test_sqlgrants.py`:
+
+```python
+from dpr.model import Location
+from dpr.parsing.sql import split_sql
+from dpr.parsing.sqlgrants import parse_grant
+from dpr.parsing.sqlschema import SchemaState
+
+LOC = Location("m.sql", 1)
+
+
+def grant(sql):
+    [stmt] = split_sql(sql)
+    return parse_grant(stmt.norm, LOC)
+
+
+def test_table_grant_to_client_roles():
+    g = grant("GRANT SELECT, INSERT ON TABLE public.notes, profiles TO anon, authenticated;")
+    assert (g.action, g.privileges, g.kind) == ("grant", ("select", "insert"), "table")
+    assert g.objects == ("public.notes", "public.profiles")
+    assert g.roles == ("anon", "authenticated") and g.to_public_role
+
+
+def test_schema_wide_grant_and_revoke():
+    g = grant("grant all on all tables in schema public to app_rw with grant option;")
+    assert (g.kind, g.objects, g.roles, g.to_public_role) == (
+        "all tables in schema",
+        ("public",),
+        ("app_rw",),
+        False,
+    )
+    r = grant("REVOKE CREATE ON SCHEMA public FROM PUBLIC;")
+    assert (r.action, r.kind, r.objects, r.roles) == ("revoke", "schema", ("public",), ("public",))
+
+
+def test_role_membership_is_not_an_object_grant():
+    assert grant("grant app_admin to alice;") is None
+    assert grant("select 1;") is None
+
+
+def test_schema_state_collects_grants_in_order():
+    state = SchemaState()
+    for stmt in split_sql(
+        "create table t (id int);\ngrant select on t to anon;\nrevoke all on t from anon;"
+    ):
+        state.apply(stmt, "m.sql")
+    assert [(g.action, g.objects, g.location.line) for g in state.grants] == [
+        ("grant", ("public.t",), 2),
+        ("revoke", ("public.t",), 3),
+    ]
+```
+
+Modify `tests/reviews/test_rls_tables.py`, replace:
+
+```python
+    ctx = rules.Context(index=index, detection=detect(index))
+    assert reviews.available()["rls"].run(ctx) is None
+    assert ctx.not_covered == [
+        "Review 2 (rls): not applicable, no SQL tables, Supabase client or database dump found"
+    ]
+
+
+```
+
+with:
+
+```python
+    ctx = rules.Context(index=index, detection=detect(index))
+    assert reviews.available()["rls"].run(ctx) is None
+    assert ctx.not_covered == [
+        "Review 2 (rls): not applicable, no SQL tables, ORM models, migrations, Supabase "
+        "client or database dump found"
+    ]
+
+
+```
+
+Modify `tests/test_api.py`, replace:
+
+```python
+    write(tmp_path, "a.py", "x = 1\n")
+    report = review(tmp_path, reviews=[2])
+    assert report.sections == {}
+    assert (
+        dict(report.meta.applicability)["rls"]
+        == "not applicable, no SQL tables, Supabase client or database dump found"
+    )
+
+
+```
+
+with:
+
+```python
+    write(tmp_path, "a.py", "x = 1\n")
+    report = review(tmp_path, reviews=[2])
+    assert report.sections == {}
+    assert dict(report.meta.applicability)["rls"] == (
+        "not applicable, no SQL tables, ORM models, migrations, Supabase client or database "
+        "dump found"
+    )
+
+
+```
+
+Modify `tests/test_fixtures.py`, replace:
+
+```python
+BAD = ("next-supabase-bad", "django-bad", "fastapi-bad")
+GOOD = {
+    "next-supabase-good": {"leaks", "rls", "baseline", "owasp", "abuse"},
+    "fastapi-good": {"leaks", "baseline", "owasp", "abuse"},
+}
+
+
+```
+
+with:
+
+```python
+BAD = ("next-supabase-bad", "django-bad", "fastapi-bad")
+GOOD = {
+    "next-supabase-good": {"leaks", "rls", "baseline", "owasp", "abuse"},
+    "fastapi-good": {"leaks", "rls", "baseline", "owasp", "abuse"},
+}
+
+
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/parsing/test_pymigrations.py tests/parsing/test_sqlgrants.py tests/reviews/test_rls_tables.py tests/test_api.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 2 errors; collection stops at `ModuleNotFoundError: No module named 'dpr.parsing.pymigrations'`)
+
+- [ ] **Step 3: Parse grants and Python migrations and widen applicability**
+
+`src/dpr/parsing/pymigrations.py`:
+
+```python
+"""Database migrations written in Python (Alembic, Django) and migration folders of any tool."""
+
+from __future__ import annotations
+
+import ast
+import re
+from dataclasses import replace
+from pathlib import PurePosixPath
+
+from dpr.parsing import pyast
+from dpr.parsing.sql import split_sql
+from dpr.parsing.sqlschema import SchemaState
+from dpr.walk import RepoIndex
+
+SQL_CALL = r"(?:\w+\.)*(?:execute|RunSQL|run_sql)"
+TEXT_CALL = ("text", "sa.text", "sqlalchemy.text")
+FOLDER_SIGNS = (
+    (re.compile(r"(?:^|/)alembic/versions/[^/]+\.py$"), "alembic"),
+    (re.compile(r"(?:^|/)migrations/\d{4}_[^/]+\.py$"), "django"),
+    (re.compile(r"(?:^|/)prisma/migrations/[^/]+/migration\.sql$"), "prisma"),
+    (re.compile(r"(?:^|/)drizzle/[^/]+\.sql$"), "drizzle"),
+    (re.compile(r"(?:^|/)supabase/migrations/[^/]+\.sql$"), "supabase"),
+    (re.compile(r"(?:^|/)migrations/[^/]+\.sql$"), "sql"),
+)
+
+
+def migration_folders(index: RepoIndex) -> list[tuple[str, str]]:
+    """(folder, tool) for every folder that holds migration files."""
+    found: dict[str, str] = {}
+    for entry in index.files:
+        for pattern, tool in FOLDER_SIGNS:
+            if pattern.search(entry.rel):
+                folder = str(PurePosixPath(entry.rel).parent)
+                if tool == "prisma":
+                    folder = str(PurePosixPath(folder).parent)
+                found.setdefault(folder, tool)
+                break
+    return sorted(found.items())
+
+
+def _sql_text(node: ast.AST | None) -> str | None:
+    value = pyast.constant(node, None)
+    if isinstance(value, str):
+        return value
+    if isinstance(node, ast.Call) and pyast.dotted(node.func) in TEXT_CALL and node.args:
+        return _sql_text(node.args[0])
+    return None
+
+
+def python_migration_state(index: RepoIndex) -> SchemaState:
+    """RLS, policy and grant statements run from Python migrations, applied in path order."""
+    state = SchemaState()
+    python_folders = {f for f, tool in migration_folders(index) if tool in ("alembic", "django")}
+    for entry in sorted(index.py_files, key=lambda f: f.rel):
+        if str(PurePosixPath(entry.rel).parent) not in python_folders:
+            continue
+        tree = pyast.parse_file(index, entry.rel)
+        for call in pyast.calls(tree, SQL_CALL) if tree else []:
+            sql = _sql_text(call.args[0] if call.args else pyast.kwarg(call, "sql"))
+            if not sql:
+                continue
+            state.sources.append(entry.rel)
+            for stmt in split_sql(sql):
+                state.apply(replace(stmt, line=call.lineno), entry.rel)
+    return state
+```
+
+`src/dpr/parsing/sqlgrants.py`:
+
+```python
+"""GRANT and REVOKE statements on tables, schemas and sequences."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from dpr.model import Location
+from dpr.parsing.sql import qualify, split_top_level
+
+GRANT = re.compile(
+    r"^(grant|revoke)\s+(?:grant\s+option\s+for\s+)?(.+?)\s+on\s+(.+?)\s+(to|from)\s+(.+)$", re.S
+)
+OBJECT_KIND = re.compile(
+    r"^(?:(all\s+(?:tables|sequences|functions|routines)\s+in\s+schema)|table|schema|sequence"
+    r"|database|function|procedure|routine|type|domain|foreign\s+table)?\s*(.*)$",
+    re.S,
+)
+ROLE_TAIL = re.compile(
+    r"\s+(?:with\s+(?:grant|admin)\s+option|granted\s+by\s+.*|cascade|restrict)\s*$"
+)
+PUBLIC_ROLES = ("anon", "authenticated", "public")
+
+
+@dataclass(frozen=True)
+class Grant:
+    action: str  # "grant" | "revoke"
+    privileges: tuple[str, ...]
+    kind: str  # "table" | "all tables in schema" | "schema" | "sequence" | ...
+    objects: tuple[str, ...]
+    roles: tuple[str, ...]
+    location: Location
+
+    @property
+    def to_public_role(self) -> bool:
+        return any(role in PUBLIC_ROLES for role in self.roles)
+
+
+def parse_grant(norm: str, location: Location) -> Grant | None:
+    """A grant or revoke on database objects. Role membership grants (no ON) return None."""
+    match = GRANT.match(norm)
+    if not match:
+        return None
+    action, privileges, target, _direction, roles = match.groups()
+    kind_match = OBJECT_KIND.match(target.strip())
+    words = target.strip().split()
+    kind = kind_match.group(1) if kind_match and kind_match.group(1) else ""
+    if not kind:
+        kind = (
+            words[0]
+            if words and words[0] in ("schema", "sequence", "database", "function")
+            else "table"
+        )
+    rest = kind_match.group(2) if kind_match else target
+    kind = re.sub(r"\s+", " ", kind)
+    names = [n.strip() for n in split_top_level(rest) if n.strip()]
+    objects = tuple(qualify(n) if kind == "table" else n.strip('"') for n in names)
+    role_text = ROLE_TAIL.sub("", roles.strip())
+    return Grant(
+        action=action,
+        privileges=tuple(p.strip() for p in privileges.split(",") if p.strip()),
+        kind=kind,
+        objects=objects,
+        roles=tuple(r.strip().strip('"') for r in role_text.split(",") if r.strip()),
+        location=location,
+    )
+```
+
+Modify `src/dpr/parsing/sqlschema.py`, replace:
+
+```python
+    split_sql,
+    split_top_level,
+)
+from dpr.walk import RepoIndex
+
+MIGRATION_GLOBS = ("*migrations/*.sql", "*db/*.sql", "schema.sql", "*/schema.sql")
+```
+
+with:
+
+```python
+    split_sql,
+    split_top_level,
+)
+from dpr.parsing.sqlgrants import Grant, parse_grant
+from dpr.walk import RepoIndex
+
+MIGRATION_GLOBS = ("*migrations/*.sql", "*db/*.sql", "schema.sql", "*/schema.sql")
+```
+
+Modify `src/dpr/parsing/sqlschema.py`, replace:
+
+```python
+    functions: dict[str, Function] = field(default_factory=dict)
+    buckets: dict[str, Bucket] = field(default_factory=dict)
+    sources: list[str] = field(default_factory=list)
+
+    def policies_for(self, table_key: str) -> list[Policy]:
+        found = [p for (t, _), p in self.policies.items() if t == table_key]
+```
+
+with:
+
+```python
+    functions: dict[str, Function] = field(default_factory=dict)
+    buckets: dict[str, Bucket] = field(default_factory=dict)
+    sources: list[str] = field(default_factory=list)
+    grants: list[Grant] = field(default_factory=list)
+
+    def policies_for(self, table_key: str) -> list[Policy]:
+        found = [p for (t, _), p in self.policies.items() if t == table_key]
+```
+
+Modify `src/dpr/parsing/sqlschema.py`, replace:
+
+```python
+            self._create_function,
+            self._insert_bucket,
+            self._drop_object,
+        ):
+            if handler(s, loc):
+                return
+```
+
+with:
+
+```python
+            self._create_function,
+            self._insert_bucket,
+            self._drop_object,
+            self._grant,
+        ):
+            if handler(s, loc):
+                return
+```
+
+Modify `src/dpr/parsing/sqlschema.py`, replace:
+
+```python
+            self.functions.pop(key, None)
+        return True
+
+
+def _invoker(options: str) -> bool:
+    match = re.search(r"security_invoker(?:\s*=\s*'?(\w+)'?)?", options)
+```
+
+with:
+
+```python
+            self.functions.pop(key, None)
+        return True
+
+    def _grant(self, s: str, loc: Location) -> bool:
+        grant = parse_grant(s, loc)
+        if grant is not None:
+            self.grants.append(grant)
+        return grant is not None
+
+
+def _invoker(options: str) -> bool:
+    match = re.search(r"security_invoker(?:\s*=\s*'?(\w+)'?)?", options)
+```
+
+Modify `src/dpr/reviews/rls.py`, replace:
+
+```python
+
+from dpr.model import Finding, Location, Part, ReviewSection, Tag
+from dpr.parsing import jsts
+from dpr.parsing.sqlschema import TableDef
+from dpr.reviews import rls_policies  # noqa: F401  (registers the rls_policies rules)
+from dpr.reviews.rls_common import (
+```
+
+with:
+
+```python
+
+from dpr.model import Finding, Location, Part, ReviewSection, Tag
+from dpr.parsing import jsts
+from dpr.parsing.pymigrations import migration_folders
+from dpr.parsing.sqlschema import TableDef
+from dpr.reviews import rls_policies  # noqa: F401  (registers the rls_policies rules)
+from dpr.reviews.rls_common import (
+```
+
+Modify `src/dpr/reviews/rls.py`, replace:
+
+```python
+
+def run(ctx: Context) -> ReviewSection | None:
+    state = state_for(ctx)
+    if not state.tables and not client_facing(ctx):
+        ctx.not_covered.append(
+            "Review 2 (rls): not applicable, no SQL tables, Supabase client or database dump found"
+        )
+        return None
+    if not client_facing(ctx):
+```
+
+with:
+
+```python
+
+def run(ctx: Context) -> ReviewSection | None:
+    state = state_for(ctx)
+    server_layer = bool(ctx.detection.models or migration_folders(ctx.index))
+    if not state.tables and not client_facing(ctx) and not server_layer:
+        ctx.not_covered.append(
+            "Review 2 (rls): not applicable, no SQL tables, ORM models, migrations, Supabase "
+            "client or database dump found"
+        )
+        return None
+    if not client_facing(ctx):
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (317 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/parsing/pymigrations.py src/dpr/parsing/sqlgrants.py src/dpr/parsing/sqlschema.py src/dpr/reviews/rls.py tests/parsing/test_pymigrations.py tests/parsing/test_sqlgrants.py tests/reviews/test_rls_tables.py tests/test_api.py tests/test_fixtures.py
+git commit -m "Parse SQL grants and Python migrations and run review 2 for server databases"
+```
+
+---
+
+### Task 62: Reduced-relevance review 2 section and the express-prisma fixture
+
+Judge gap 3, second half. When no client-side database key or PostgREST, Supabase or Firebase client exists, review 2 runs at reduced relevance with the same parts the skill's report has: why relevance is reduced, table protection status grouped per app root, policy defects, a cross-reference to `BASE-DB-NETWORK-OPEN` and `BASE-DB-ADMIN-LOGIN`, least-privilege role SQL for Postgres or MySQL with the grants found, and the queries and cloud CLI commands that confirm the live state. A `refs` part kind renders cross-referenced findings from another review. The new `express-prisma` fixture is the ORM-only case: Express, Prisma models and a SQL migration with a grant, a public RDS instance in Terraform, an auth router and no client database key.
+
+> Note: some file content in this task contains Markdown code fences inside Python strings, so those blocks use a longer fence.
+
+**Files:**
+- Create: `src/dpr/reviews/rls_server.py`
+- Modify: `src/dpr/model.py` (document the `refs` part kind)
+- Modify: `src/dpr/report/markdown.py` (render `refs` parts)
+- Modify: `src/dpr/reviews/rls.py` (use the reduced section for server-only databases)
+- Test: `tests/reviews/test_rls_server.py`
+- Fixture files: `tests/fixtures/express-prisma/expected.yaml`, `tests/fixtures/express-prisma/infra/main.tf`, `tests/fixtures/express-prisma/package-lock.json`, `tests/fixtures/express-prisma/package.json`, `tests/fixtures/express-prisma/prisma/migrations/20240101000000_init/migration.sql`, `tests/fixtures/express-prisma/prisma/schema.prisma`, `tests/fixtures/express-prisma/src/index.ts`, `tests/fixtures/express-prisma/src/lib/db.ts`, `tests/fixtures/express-prisma/src/middleware/auth.ts`, `tests/fixtures/express-prisma/src/routes/orders.ts`
+- Modify test: `tests/fixture_builder.py` (build `express-prisma` as a git repository)
+- Modify test: `tests/reviews/test_rls_tables.py` (server-only section has six parts)
+- Modify test: `tests/test_fixtures.py` (`express-prisma` joins the bad fixtures)
+
+**Interfaces:**
+- Consumes: `SchemaState.grants` and `migration_folders` (Task 61), app roots (Task 54), `BASE-DB-*` rules from Milestone 2 Task 38
+- Produces:
+  - `dpr.reviews.rls_server`:
+
+```python
+def reduced_section(ctx: Context) -> ReviewSection: ...
+```
+
+
+**Edits to files the Milestone 1 fix wave also changes.** Apply each replacement below by its intent if the exact old text differs:
+
+- `src/dpr/model.py`: comment only: `Part.kind` may also be `"refs"`, whose `columns` hold rule ids. No field changes.
+- `src/dpr/report/markdown.py`: add `_refs(part, report)` (shown) and, in the function that renders one part by kind, return `_refs(part, report)` for `part.kind == "refs"` before the table and text cases. Keep the fix wave's snippet fencing unchanged.
+
+**Earlier tests updated on purpose:** `tests/reviews/test_rls_tables.py` replaced its single "Relevance" part expectation with the six reduced-relevance parts.
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/fixture_builder.py`, replace:
+
+```python
+    "fastapi-bad": _fastapi_bad_extras,
+    "fastapi-good": _fastapi_good_extras,
+    "django-bad": _commit,
+}
+
+
+```
+
+with:
+
+```python
+    "fastapi-bad": _fastapi_bad_extras,
+    "fastapi-good": _fastapi_good_extras,
+    "django-bad": _commit,
+    "express-prisma": _commit,
+}
+
+
+```
+
+`tests/fixtures/express-prisma/expected.yaml`:
+
+```yaml
+# Every finding the scan must report, and nothing else.
+findings:
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 4, tag: CONFIRMED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: src/index.ts, line: 4, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: src/index.ts, line: 4, tag: UNVERIFIED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: src/routes/orders.ts, line: 8, tag: CONFIRMED}
+```
+
+`tests/fixtures/express-prisma/infra/main.tf`:
+
+```hcl
+resource "aws_db_instance" "main" {
+  identifier          = "shop"
+  engine              = "postgres"
+  publicly_accessible = true
+}
+```
+
+`tests/fixtures/express-prisma/package-lock.json`:
+
+```json
+{
+  "name": "express-prisma",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {}
+}
+```
+
+`tests/fixtures/express-prisma/package.json`:
+
+```json
+{
+  "name": "express-prisma",
+  "private": true,
+  "scripts": {
+    "start": "prisma migrate deploy && node dist/index.js"
+  },
+  "dependencies": {
+    "@prisma/client": "5.14.0",
+    "bcryptjs": "2.4.3",
+    "express": "4.19.2",
+    "jsonwebtoken": "9.0.2",
+    "nodemailer": "6.9.13",
+    "zod": "3.23.8"
+  }
+}
+```
+
+`tests/fixtures/express-prisma/prisma/migrations/20240101000000_init/migration.sql`:
+
+```sql
+CREATE TABLE "User" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "email" TEXT NOT NULL UNIQUE,
+    "passwordHash" TEXT NOT NULL,
+    "fullName" TEXT NOT NULL,
+    "phone" TEXT,
+    "resetToken" TEXT,
+    "verifyToken" TEXT,
+    "verified" BOOLEAN NOT NULL DEFAULT false
+);
+
+CREATE TABLE "Order" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "total" DECIMAL NOT NULL,
+    "shippingAddress" TEXT NOT NULL
+);
+
+GRANT ALL ON ALL TABLES IN SCHEMA public TO app_user;
+```
+
+`tests/fixtures/express-prisma/prisma/schema.prisma`:
+
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  fullName     String
+  phone        String?
+  resetToken   String?
+  verifyToken  String?
+  verified     Boolean   @default(false)
+  orders       Order[]
+}
+
+model Order {
+  id              String  @id @default(uuid())
+  userId          String
+  total           Decimal
+  shippingAddress String
+  user            User    @relation(fields: [userId], references: [id])
+}
+```
+
+`tests/fixtures/express-prisma/src/index.ts`:
+
+```ts
+import express from "express"
+import orderRoutes from "./routes/orders.js"
+
+const app = express()
+app.disable("x-powered-by")
+app.use(express.json())
+app.use("/api/orders", orderRoutes)
+
+app.listen(3000)
+```
+
+`tests/fixtures/express-prisma/src/lib/db.ts`:
+
+```ts
+import { PrismaClient } from "@prisma/client"
+
+export const prisma = new PrismaClient()
+```
+
+`tests/fixtures/express-prisma/src/middleware/auth.ts`:
+
+```ts
+import jwt from "jsonwebtoken"
+
+export function requireUser(req, res, next) {
+  const token = req.cookies?.session
+  if (!token) return res.status(401).json({ error: "Sign in" })
+  req.user = jwt.verify(token, process.env.JWT_SECRET)
+  next()
+}
+```
+
+`tests/fixtures/express-prisma/src/routes/orders.ts`:
+
+```ts
+import { Router } from "express"
+import { prisma } from "../lib/db.js"
+import { requireUser } from "../middleware/auth.js"
+
+const router = Router()
+
+router.get("/:id", requireUser, async (req, res) => {
+  const order = await prisma.order.findUnique({ where: { id: req.params.id } })
+  if (!order) return res.status(404).json({ error: "Not found" })
+  return res.json({ id: order.id, total: order.total })
+})
+
+export default router
+```
+
+`tests/reviews/test_rls_server.py`:
+
+```python
+from dpr import reviews, rules
+from dpr.api import review
+from dpr.discovery.detect import detect
+from dpr.report.markdown import render_markdown
+from dpr.walk import RepoIndex
+from tests.fixture_builder import build
+from tests.reviews.helpers import write
+
+
+def section(root):
+    reviews.available()
+    index = RepoIndex(root)
+    ctx = rules.Context(index=index, detection=detect(index))
+    return {p.title: p for p in reviews.available()["rls"].run(ctx).parts}
+
+
+def two_apis(root):
+    write(root, "azure-pipelines.yml", "steps:\n  - script: cd api && pytest\n")
+    write(root, "api/requirements.txt", "fastapi\nsqlalchemy\nasyncpg\n")
+    write(
+        root,
+        "api/app/models.py",
+        "class User(Base):\n    __tablename__ = 'users'\n    id = Column(String, primary_key=True)\n"
+        "class Note(Base):\n    __tablename__ = 'notes'\n    id = Column(String, primary_key=True)\n",
+    )
+    write(
+        root,
+        "api/alembic/versions/002_rls.py",
+        "from alembic import op\n\ndef upgrade():\n"
+        "    op.execute('ALTER TABLE notes ENABLE ROW LEVEL SECURITY')\n"
+        "    op.execute('GRANT SELECT ON notes TO reporting')\n",
+    )
+    write(root, "api/startup.sh", "alembic upgrade head\ngunicorn app.main:app\n")
+    write(root, "worker/requirements.txt", "sqlalchemy\n")
+    write(
+        root,
+        "worker/models.py",
+        "class Job(Base):\n    __tablename__ = 'jobs'\n    id = Column(String, primary_key=True)\n",
+    )
+    write(
+        root,
+        "infra/main.tf",
+        'resource "azurerm_postgresql_flexible_server" "db" {\n  name = "db"\n}\n',
+    )
+    return root
+
+
+def test_reduced_section_groups_tables_per_app_and_rls_state(tmp_path):
+    parts = section(two_apis(tmp_path))
+    rows = parts["Table protection status"].rows
+    assert [r[:3] for r in rows] == [
+        ("api: users", "no", "0"),
+        ("api: notes", "yes", "0"),
+        ("worker: jobs", "no", "0"),
+    ]
+    assert rows[0][3:5] == (
+        "no, no client-side key",
+        "protected only by application code and database credentials",
+    )
+    assert rows[1][5] == "models in api/app; RLS or policy statements found in api/alembic/versions"
+
+
+def test_least_privilege_sql_grants_migrations_and_cloud_commands(tmp_path):
+    parts = section(two_apis(tmp_path))
+    body = parts["Missing policies (runnable SQL)"].body
+    assert "create role app_runtime login" in body
+    assert (
+        "- `api/alembic/versions/002_rls.py:5`: grant select on table public.notes to reporting"
+        in body
+    )
+    assert "Move migrations to a deploy step first: `api/startup.sh:1`." in body
+    confirm = parts["How to confirm from outside the app"].body
+    assert "select current_user;" in confirm
+    assert "az postgres flexible-server firewall-rule list" in confirm
+
+
+def test_mysql_and_unknown_engines(tmp_path):
+    write(tmp_path, "requirements.txt", "flask\npymysql\nsqlalchemy\n")
+    write(
+        tmp_path,
+        "app/models.py",
+        "class User(Base):\n    __tablename__ = 'users'\n    id = Column(String, primary_key=True)\n",
+    )
+    assert "create user 'app_runtime'" in section(tmp_path)["Missing policies (runnable SQL)"].body
+    write(tmp_path, "requirements.txt", "flask\nsqlalchemy\n")
+    body = section(tmp_path)["Missing policies (runnable SQL)"].body
+    assert "database engine was not recognised" in body
+
+
+def test_exposure_findings_are_cross_referenced_in_section_2(tmp_path):
+    root = build("express-prisma", tmp_path)
+    text = render_markdown(review(root))
+    part = text[text.index("### Database exposure and privilege") :]
+    part = part[: part.index("### Missing policies")]
+    assert "(medium, CONFIRMED, reported in review 4): `infra/main.tf:4`" in part
+
+
+def test_refs_part_without_findings_prints_its_note(tmp_path):
+    write(tmp_path, "requirements.txt", "fastapi\nsqlalchemy\n")
+    write(
+        tmp_path,
+        "app/models.py",
+        "class User(Base):\n    __tablename__ = 'users'\n    id = Column(String, primary_key=True)\n",
+    )
+    text = render_markdown(review(tmp_path, reviews=["rls"]))
+    assert "No database firewall, public access or admin connection string finding" in text
+```
+
+Modify `tests/reviews/test_rls_tables.py`, replace:
+
+```python
+    index = RepoIndex(root)
+    ctx = rules.Context(index=index, detection=detect(index))
+    section = reviews.available()["rls"].run(ctx)
+    assert [p.title for p in section.parts] == ["Relevance"]
+
+
+def test_not_applicable(tmp_path):
+```
+
+with:
+
+```python
+    index = RepoIndex(root)
+    ctx = rules.Context(index=index, detection=detect(index))
+    section = reviews.available()["rls"].run(ctx)
+    assert [p.title for p in section.parts] == [
+        "Relevance",
+        "Table protection status",
+        "Policy defects",
+        "Database exposure and privilege",
+        "Missing policies (runnable SQL)",
+        "How to confirm from outside the app",
+    ]
+
+
+def test_not_applicable(tmp_path):
+```
+
+Modify `tests/test_fixtures.py`, replace:
+
+```python
+from dpr.api import review
+from tests.fixture_builder import FIXTURES, build
+
+BAD = ("next-supabase-bad", "django-bad", "fastapi-bad")
+GOOD = {
+    "next-supabase-good": {"leaks", "rls", "baseline", "owasp", "abuse"},
+    "fastapi-good": {"leaks", "rls", "baseline", "owasp", "abuse"},
+```
+
+with:
+
+```python
+from dpr.api import review
+from tests.fixture_builder import FIXTURES, build
+
+BAD = ("next-supabase-bad", "django-bad", "fastapi-bad", "express-prisma")
+GOOD = {
+    "next-supabase-good": {"leaks", "rls", "baseline", "owasp", "abuse"},
+    "fastapi-good": {"leaks", "rls", "baseline", "owasp", "abuse"},
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_rls_server.py tests/reviews/test_rls_tables.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 6 failed, 14 passed)
+
+- [ ] **Step 3: Write the reduced section and the refs renderer**
+
+Modify `src/dpr/model.py`, replace:
+
+```python
+
+@dataclass(frozen=True)
+class Part:
+    kind: str  # "table" | "text" | "findings"
+    title: str
+    columns: tuple[str, ...] = ()
+    rows: tuple[tuple[str, ...], ...] = ()
+```
+
+with:
+
+```python
+
+@dataclass(frozen=True)
+class Part:
+    kind: str  # "table" | "text" | "findings" | "refs" (columns hold rule ids)
+    title: str
+    columns: tuple[str, ...] = ()
+    rows: tuple[tuple[str, ...], ...] = ()
+```
+
+Modify `src/dpr/report/markdown.py`, replace:
+
+```python
+    return "\n".join(lines)
+
+
+def _part_body(slug: str, part: Part, report: Report) -> str:
+    if part.kind == "table":
+        return _table(part.columns, part.rows)
+    if part.kind == "findings":
+        items = order_for_section(slug, report.findings)
+        if not items:
+```
+
+with:
+
+```python
+    return "\n".join(lines)
+
+
+def _refs(part: Part, report: Report) -> str:
+    items = [f for f in report.findings if f.rule_id in part.columns]
+    if not items:
+        return part.body
+    lines = [
+        f"- {f.title} ({f.severity.value}, {f.tag.value}, reported in review "
+        f"{number(f.review)}): " + ", ".join(f"`{loc}`" for loc in f.locations[:5])
+        for f in items
+    ]
+    return "\n".join(lines)
+
+
+def _part_body(slug: str, part: Part, report: Report) -> str:
+    if part.kind == "table":
+        return _table(part.columns, part.rows)
+    if part.kind == "refs":
+        return _refs(part, report)
+    if part.kind == "findings":
+        items = order_for_section(slug, report.findings)
+        if not items:
+```
+
+Modify `src/dpr/reviews/rls.py`, replace:
+
+```python
+    state_for,
+    table_location,
+)
+from dpr.rules import Context, make_finding, rule
+from dpr.walk import line_of
+
+```
+
+with:
+
+```python
+    state_for,
+    table_location,
+)
+from dpr.reviews.rls_server import reduced_section
+from dpr.rules import Context, make_finding, rule
+from dpr.walk import line_of
+
+```
+
+Modify `src/dpr/reviews/rls.py`, replace:
+
+```python
+    "above. Save the output to a file and pass it with `--db-dump` to make it the source "
+    "of truth.\n\n"
+)
+SERVER_ONLY = (
+    "No public database key or Supabase client was found. The database appears to be "
+    "reachable only from the server, so row level security matters less here. "
+    "No RLS findings are reported."
+)
+
+
+def _rls_tables(ctx: Context) -> set[str]:
+```
+
+with:
+
+```python
+    "above. Save the output to a file and pass it with `--db-dump` to make it the source "
+    "of truth.\n\n"
+)
+
+
+def _rls_tables(ctx: Context) -> set[str]:
+```
+
+Modify `src/dpr/reviews/rls.py`, replace:
+
+```python
+        )
+        return None
+    if not client_facing(ctx):
+        return ReviewSection("rls", [Part("text", "Relevance", body=SERVER_ONLY)])
+    tables = public_tables(ctx)
+    parts = [
+        Part(
+```
+
+with:
+
+```python
+        )
+        return None
+    if not client_facing(ctx):
+        return reduced_section(ctx)
+    tables = public_tables(ctx)
+    parts = [
+        Part(
+```
+
+`src/dpr/reviews/rls_server.py`:
+
+````python
+"""Review 2 at reduced relevance: the database is reached only by the server."""
+
+from __future__ import annotations
+
+import re
+from pathlib import PurePosixPath
+
+from dpr.discovery.approots import root_of
+from dpr.model import Location, Part, ReviewSection
+from dpr.parsing import hcl
+from dpr.parsing.pymigrations import migration_folders, python_migration_state
+from dpr.reviews.baseline_accounts import START_FILES
+from dpr.reviews.rls_common import state_for
+from dpr.rules import Context
+from dpr.walk import line_of
+
+RELEVANCE = (
+    "Reduced relevance. No public database key and no Supabase, PostgREST or Firebase client was "
+    "found, so the browser cannot query tables directly and the attack this review is built "
+    "around (a stranger reading tables with the public key) does not apply. What remains is "
+    "defence in depth inside the database and the database's own network exposure. No row "
+    "level security findings are reported."
+)
+EXPOSURE_RULES = ("BASE-DB-NETWORK-OPEN", "BASE-DB-ADMIN-LOGIN")
+NO_EXPOSURE = "No database firewall, public access or admin connection string finding was reported."
+POSTGRES_SQL = """```sql
+-- Run as the database owner, once per database. Adapt the names.
+create role app_runtime login password '<from your secret store>';
+grant connect on database <database> to app_runtime;
+grant usage on schema public to app_runtime;
+grant select, insert, update, delete on all tables in schema public to app_runtime;
+grant usage, select on all sequences in schema public to app_runtime;
+alter default privileges in schema public
+  grant select, insert, update, delete on tables to app_runtime;
+alter default privileges in schema public grant usage, select on sequences to app_runtime;
+revoke create on schema public from public;
+-- Keep the owner login for migrations only.
+-- Then point the app's connection string at app_runtime.
+```"""
+MYSQL_SQL = """```sql
+-- Run as an administrator. Adapt the names.
+create user 'app_runtime'@'%' identified by '<from your secret store>';
+grant select, insert, update, delete on <database>.* to 'app_runtime'@'%';
+-- Keep the administrator login for migrations only, then point the app at app_runtime.
+```"""
+LEAST_PRIVILEGE = (
+    "Row level security is not the first control to add when the server is the only client. "
+    "The highest-value database change is a least-privilege login for the running app, so a "
+    "SQL injection or leaked connection string does not carry owner rights and DDL."
+)
+POSTGRES_CONFIRM = """```sql
+select schemaname, tablename, rowsecurity from pg_tables
+where schemaname not in ('pg_catalog','information_schema') order by rowsecurity, tablename;
+
+select current_user;  -- run through the app's own connection string
+select rolname, rolsuper, rolcreaterole, rolcreatedb from pg_roles where rolcanlogin;
+```
+"""
+POSTGRES_PASS = (
+    "Pass: the app's `current_user` is not the owner or an administrator, and has no create "
+    "rights. Fail: `current_user` is the owner or administrator login."
+)
+CLOUD_COMMANDS = {
+    "azurerm_postgresql_flexible_server": (
+        "az postgres flexible-server firewall-rule list -g <resource-group> -n <server> -o table"
+    ),
+    "azurerm_mysql_flexible_server": (
+        "az mysql flexible-server firewall-rule list -g <resource-group> -n <server> -o table"
+    ),
+    "aws_db_instance": (
+        "aws rds describe-db-instances "
+        '--query "DBInstances[].[DBInstanceIdentifier,PubliclyAccessible]"'
+    ),
+    "google_sql_database_instance": (
+        'gcloud sql instances describe <instance> --format="value(settings.ipConfiguration)"'
+    ),
+}
+MIGRATE_AT_START = re.compile(
+    r"alembic\s+upgrade|manage\.py\s+migrate|prisma\s+migrate\s+deploy|drizzle-kit\s+(?:migrate|push)"
+    r"|knex\s+migrate|sequelize\s+db:migrate"
+)
+
+
+def _engine(ctx: Context) -> str:
+    databases = set(ctx.detection.databases)
+    prisma = " ".join(ctx.index.text(f.rel) for f in ctx.index.glob("*.prisma"))
+    if "postgres" in databases or 'provider = "postgresql"' in prisma:
+        return "postgres"
+    if "mysql" in databases or 'provider = "mysql"' in prisma:
+        return "mysql"
+    return "other"
+
+
+def _status_rows(ctx: Context) -> tuple[tuple[str, ...], ...]:
+    scanned = python_migration_state(ctx.index)
+    sql = state_for(ctx)
+    folders = migration_folders(ctx.index)
+    groups: dict[tuple[str, bool], list[tuple[str, Location]]] = {}
+    seen = set()
+    tables = [(m.table.split(".")[-1], m.location) for m in ctx.detection.models]
+    tables += [(t.name, t.location) for t in sql.tables.values()]
+    for name, location in tables:
+        home = root_of(ctx.detection.app_roots, location.file)
+        root = home.path if home is not None else ""
+        if (root, name) in seen:
+            continue
+        seen.add((root, name))
+        key = f"public.{name}"
+        rls = any(s.tables.get(key) is not None and s.tables[key].rls for s in (scanned, sql))
+        groups.setdefault((root, rls), []).append((name, location))
+    rows = []
+    for (root, rls), items in sorted(groups.items()):
+        names = ", ".join(sorted({n for n, _ in items}))
+        label = f"{root or 'repository root'}: {names}"
+        policies = sum(len(s.policies_for(f"public.{n}")) for n, _ in items for s in (scanned, sql))
+        where = sorted({str(PurePosixPath(loc.file).parent) for _, loc in items})
+        local = [f for f, _ in folders if not root or f.startswith(root + "/")]
+        statements = (
+            "RLS or policy statements found" if rls or policies else "no RLS or policy statements"
+        )
+        places = ", ".join(local) or "any migration"
+        evidence = f"models in {', '.join(where[:3])}; {statements} in {places}"
+        verdict = (
+            "row level security on; enforced for every database login without BYPASSRLS"
+            if rls
+            else "protected only by application code and database credentials"
+        )
+        rows.append(
+            (
+                label,
+                "yes" if rls else "no",
+                str(policies),
+                "no, no client-side key",
+                verdict,
+                evidence,
+            )
+        )
+    return tuple(rows)
+
+
+def _grants_text(ctx: Context) -> str:
+    grants = [*state_for(ctx).grants, *python_migration_state(ctx.index).grants]
+    if not grants:
+        return "No GRANT or REVOKE statements were found in migrations."
+    lines = [
+        f"- `{g.location}`: {g.action} {', '.join(g.privileges)} on {g.kind} "
+        f"{', '.join(g.objects)} {'to' if g.action == 'grant' else 'from'} {', '.join(g.roles)}"
+        for g in grants[:10]
+    ]
+    return "Grants and revokes found in migrations:\n\n" + "\n".join(lines)
+
+
+def _migrations_at_start(ctx: Context) -> list[Location]:
+    found = []
+    for entry in ctx.index.named(*START_FILES):
+        text = ctx.index.text(entry.rel)
+        found += [
+            Location(entry.rel, line_of(text, m.start())) for m in MIGRATE_AT_START.finditer(text)
+        ]
+    return found
+
+
+def _cloud_commands(ctx: Context) -> list[str]:
+    kinds = set()
+    for entry in ctx.index.with_suffix(".tf"):
+        for block in hcl.blocks(ctx.index.text(entry.rel)):
+            if block.kind == "resource" and block.labels and block.labels[0] in CLOUD_COMMANDS:
+                kinds.add(block.labels[0])
+    return [CLOUD_COMMANDS[k] for k in sorted(kinds)]
+
+
+def reduced_section(ctx: Context) -> ReviewSection:
+    engine = _engine(ctx)
+    sql = {"postgres": POSTGRES_SQL, "mysql": MYSQL_SQL}.get(
+        engine, "No SQL is given because the database engine was not recognised."
+    )
+    body = f"{LEAST_PRIVILEGE}\n\n{sql}\n\n{_grants_text(ctx)}"
+    starts = _migrations_at_start(ctx)
+    if starts:
+        body += (
+            "\n\nThese start commands run migrations with the app's own credentials, which "
+            "breaks once the runtime login loses DDL rights. Move migrations to a deploy step "
+            "first: " + ", ".join(f"`{loc}`" for loc in starts[:5]) + "."
+        )
+    confirm = (
+        POSTGRES_CONFIRM + "\n" + POSTGRES_PASS
+        if engine == "postgres"
+        else "Ask the database which login the app connects as and confirm it is not an "
+        "administrator."
+    )
+    commands = _cloud_commands(ctx)
+    if commands:
+        confirm += (
+            "\n\nNetwork exposure, run by the owner:\n\n```bash\n" + "\n".join(commands) + "\n```"
+        )
+    defects = (
+        "No database policies are defined, so none can be defective. Access control is enforced "
+        "in application code; review 5 lists routes that load records without an owner check."
+    )
+    return ReviewSection(
+        "rls",
+        [
+            Part("text", "Relevance", body=RELEVANCE),
+            Part(
+                "table",
+                "Table protection status",
+                (
+                    "Table(s)",
+                    "RLS enabled",
+                    "Policy count",
+                    "Reachable by anon key",
+                    "Verdict",
+                    "Evidence",
+                ),
+                _status_rows(ctx),
+            ),
+            Part("text", "Policy defects", body=defects),
+            Part(
+                "refs", "Database exposure and privilege", columns=EXPOSURE_RULES, body=NO_EXPOSURE
+            ),
+            Part("text", "Missing policies (runnable SQL)", body=body),
+            Part("text", "How to confirm from outside the app", body=confirm),
+        ],
+    )
+````
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (323 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/model.py src/dpr/report/markdown.py src/dpr/reviews/rls.py src/dpr/reviews/rls_server.py tests/fixture_builder.py tests/fixtures/express-prisma/expected.yaml tests/fixtures/express-prisma/infra/main.tf tests/fixtures/express-prisma/package-lock.json tests/fixtures/express-prisma/package.json tests/fixtures/express-prisma/prisma/migrations/20240101000000_init/migration.sql tests/fixtures/express-prisma/prisma/schema.prisma tests/fixtures/express-prisma/src/index.ts tests/fixtures/express-prisma/src/lib/db.ts tests/fixtures/express-prisma/src/middleware/auth.ts tests/fixtures/express-prisma/src/routes/orders.ts tests/reviews/test_rls_server.py tests/reviews/test_rls_tables.py tests/test_fixtures.py
+git commit -m "Run review 2 at reduced relevance for server-only databases"
+```
+
+---
+
+### Task 63: Review 3 scaffold: flows, cases and the section
+
+Judge gap 1 and spec 10.3. Review 3 finds the account flows in routes (login, logout, refresh, register, forgot and reset password, email verification, self profile update), follows each handler two calls deep into services, and renders the twelve failure-path cases from `auth_cases.yaml`. Each case shows FAILS when an `AUTH-*` finding decides it, PASSES when a rule recorded a pass with evidence, UNVERIFIED when the code shape is right but only a live test can prove it, and UNKNOWN when no flow exists. Rules arrive in Tasks 64 to 67; the named `AUTH-*` rule ids replace the `AUTH-CASE-n` placeholders the spec sketched. The review is not applicable only when there are no sign-in, signup or reset routes and no auth provider.
+
+**Files:**
+- Create: `src/dpr/data/auth_cases.yaml`, `src/dpr/reviews/auth.py`, `src/dpr/reviews/auth_flows.py`
+- Modify: `src/dpr/model.py` (`EXPLOIT_ORDER` for case ordering)
+- Modify: `src/dpr/reviews/__init__.py` (auth finding label is AUTH)
+- Test: `tests/reviews/auth_app.py`, `tests/reviews/test_auth_flows.py`, `tests/reviews/test_auth_section.py`
+- Modify test: `tests/test_api.py` (auth review is now available)
+- Modify test: `tests/test_fixtures.py` (good fixtures run review 3)
+
+**Interfaces:**
+- Consumes: `access()` from Milestone 2 Task 39, `_helper` resolution from Task 39, `managed` auth providers (Task 53)
+- Produces:
+  - `dpr.reviews.auth`:
+
+```python
+@dataclass(frozen=True)
+class Outcome:
+    result: str
+    tag: str
+    text: str
+    order: int
+def record_pass(ctx: Context, case: int | str, tag: Tag, text: str, location: Location) -> None: ...
+def case_blocks(ctx: Context, findings: list[Finding]) -> str: ...
+def run(ctx: Context) -> ReviewSection | None: ...
+def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None: ...
+```
+
+  - `dpr.reviews.auth_flows`:
+
+```python
+@dataclass(frozen=True)
+class Code:
+    rel: str
+    node: object = field(compare=False)
+    tree: object = field(compare=False)
+    line: int = 0
+    @property
+    def python(self) -> bool: ...
+    def text(self) -> str: ...
+@dataclass(frozen=True)
+class Flow:
+    kind: str
+    route: Route
+    code: tuple[Code, ...]
+    @property
+    def location(self) -> Location: ...
+def managed_provider(ctx: Context) -> str | None: ...
+def flows(ctx: Context) -> list[Flow]: ...
+def flows_of(ctx: Context, *kinds: str) -> list[Flow]: ...
+def user_models(ctx: Context) -> list[DataModel]: ...
+def lifetimes(ctx: Context) -> list[tuple[str, str, Location]]: ...
+```
+
+
+**Edits to files the Milestone 1 fix wave also changes.** Apply each replacement below by its intent if the exact old text differs:
+
+- `src/dpr/model.py`: add the module constant `EXPLOIT_ORDER = ("high", "medium", "low")` after the enums. No other change.
+
+**Earlier tests updated on purpose:** `tests/test_api.py` expects review 3's not-applicable reason instead of "not available in this version"; `tests/test_fixtures.py` adds `auth` to both good fixtures.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/reviews/auth_app.py`:
+
+```python
+"""A small FastAPI auth app shared by the review 3 tests."""
+
+from tests.reviews.helpers import write
+
+ROUTES = """from fastapi import APIRouter, Depends, HTTPException
+
+from app.services.auth_service import AuthService
+
+router = APIRouter(prefix="/auth")
+
+
+@router.post("/login")
+async def login(data: LoginRequest):
+    user = await AuthService().authenticate_user(data.email, data.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    return {"ok": True}
+
+
+@router.post("/register")
+async def register(data: RegisterRequest):
+    return await AuthService().register_user(data)
+
+
+@router.post("/register/admin")
+async def register_admin(data: RegisterRequest, admin=Depends(get_admin_user)):
+    return await AuthService().register_user(data)
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    response.delete_cookie("access_token")
+    return {"ok": True}
+
+
+@router.post("/refresh")
+async def refresh(token: str):
+    return {"ok": True}
+
+
+@router.post("/forgot-password")
+async def forgot_password(data: ForgotRequest):
+    await AuthService().initiate_password_reset(data.email)
+    return {"message": "If the address exists, we sent a link"}
+
+
+@router.post("/reset-password")
+async def reset_password(data: ResetRequest):
+    return await AuthService().reset_password(data.token, data.new_password)
+
+
+@router.post("/verify-email")
+async def verify_email(data: VerifyRequest):
+    return await AuthService().verify_email(data.token)
+"""
+
+SERVICE = """class AuthService:
+    async def authenticate_user(self, email, password):
+        user = await self.get_user_by_email(email)
+        if user is None:
+            return None
+        if not verify_password(password, user.password_hash):
+            return None
+        return user
+
+    async def get_user_by_email(self, email):
+        return None
+
+    async def register_user(self, data):
+        existing = await self.get_user_by_email(data.email)
+        if existing:
+            raise ValueError("Check your email to continue")
+        return None
+
+    async def initiate_password_reset(self, email):
+        user = await self.get_user_by_email(email)
+        return user
+
+    async def reset_password(self, token, new_password):
+        return None
+
+    async def verify_email(self, token):
+        return None
+"""
+
+USERS = """from typing import Annotated
+
+from fastapi import APIRouter, Depends
+
+router = APIRouter(prefix="/users")
+CurrentUser = Annotated[dict, Depends(get_current_user)]
+
+
+@router.put("/{user_id}")
+async def update_user(user_id: str, data: UserUpdate, current_user: CurrentUser):
+    return {"ok": True}
+
+
+@router.post("/data/refresh")
+async def refresh_data(current_user: CurrentUser):
+    return {"ok": True}
+"""
+
+
+def auth_app(root, routes=ROUTES, service=SERVICE, users=USERS):
+    write(root, "api/requirements.txt", "fastapi\npython-jose\npasslib\npytest\n")
+    write(root, "api/app/routes/auth.py", routes)
+    write(root, "api/app/routes/users.py", users)
+    write(root, "api/app/services/auth_service.py", service)
+    write(
+        root,
+        "api/app/config.py",
+        "class Settings(BaseSettings):\n"
+        "    jwt_access_token_expire_minutes: int = 30\n"
+        "    jwt_refresh_token_expire_days: int = 7\n",
+    )
+    return root
+```
+
+`tests/reviews/test_auth_flows.py`:
+
+```python
+from dpr import reviews, rules
+from dpr.discovery.detect import detect
+from dpr.reviews.auth_flows import flows, lifetimes, managed_provider, user_models
+from dpr.walk import RepoIndex
+from tests.reviews.auth_app import auth_app
+from tests.reviews.helpers import write
+
+
+def context(root):
+    reviews.available()
+    index = RepoIndex(root)
+    return rules.Context(index=index, detection=detect(index))
+
+
+def test_flow_kinds_from_paths_and_access(tmp_path):
+    ctx = context(auth_app(tmp_path))
+    kinds = sorted((f.kind, f.route.method, f.route.path) for f in flows(ctx))
+    assert kinds == [
+        ("forgot", "POST", "/auth/forgot-password"),
+        ("login", "POST", "/auth/login"),
+        ("logout", "POST", "/auth/logout"),
+        ("refresh", "POST", "/auth/refresh"),
+        ("register", "POST", "/auth/register"),
+        ("reset", "POST", "/auth/reset-password"),
+        ("update_self", "PUT", "/users/{user_id}"),
+        ("verify", "POST", "/auth/verify-email"),
+    ]
+
+
+def test_flow_code_follows_service_methods(tmp_path):
+    ctx = context(auth_app(tmp_path))
+    [login] = [f for f in flows(ctx) if f.kind == "login"]
+    names = [getattr(c.node, "name", "") for c in login.code]
+    assert names == ["login", "authenticate_user", "get_user_by_email"]
+    assert login.code[1].rel == "api/app/services/auth_service.py"
+    assert "verify_password" in login.code[1].text()
+
+
+def test_javascript_flows_follow_local_helpers(tmp_path):
+    write(
+        tmp_path,
+        "server/routes.js",
+        "function findUser(email) { return db.user.findFirst({ where: { email } }) }\n"
+        "router.post('/signup', async (req, res) => {\n"
+        "  const user = await findUser(req.body.email)\n  res.json({ ok: !user })\n})\n",
+    )
+    ctx = context(tmp_path)
+    [signup] = flows(ctx)
+    assert signup.kind == "register"
+    assert [c.line for c in signup.code] == [2, 1]
+
+
+def test_managed_provider_user_models_and_lifetimes(tmp_path):
+    auth_app(tmp_path)
+    write(
+        tmp_path,
+        "api/app/models.py",
+        "class User(Base):\n    __tablename__ = 'users'\n    email = Column(String, unique=True)\n"
+        "class Invoice(Base):\n    __tablename__ = 'invoices'\n    id = Column(String)\n",
+    )
+    write(tmp_path, "web/lib/token.ts", "jwt.sign(payload, secret, { expiresIn: '30d' })\n")
+    ctx = context(tmp_path)
+    assert managed_provider(ctx) is None
+    assert [m.name for m in user_models(ctx)] == ["User"]
+    assert [(n, v, str(loc)) for n, v, loc in lifetimes(ctx)] == [
+        ("jwt_access_token_expire_minutes", "30", "api/app/config.py:2"),
+        ("jwt_refresh_token_expire_days", "7", "api/app/config.py:3"),
+        ("expiresIn", "'30d'", "web/lib/token.ts:1"),
+    ]
+    write(tmp_path, "web/lib/auth.ts", "const { data } = await supabase.auth.getUser()\n")
+    assert managed_provider(context(tmp_path)) == "Supabase Auth"
+```
+
+`tests/reviews/test_auth_section.py`:
+
+```python
+from dpr import reviews, rules
+from dpr.api import review
+from dpr.discovery.detect import detect
+from dpr.model import Finding, Location, Tag
+from dpr.report.markdown import render_markdown
+from dpr.reviews import auth
+from dpr.walk import RepoIndex
+from tests.reviews.auth_app import auth_app
+from tests.reviews.helpers import write
+
+
+def context(root):
+    reviews.available()
+    index = RepoIndex(root)
+    return rules.Context(index=index, detection=detect(index))
+
+
+def cases_text(root):
+    report = review(root, reviews=["auth"])
+    parts = {p.title: p for p in report.sections["auth"].parts}
+    return report, parts
+
+
+def test_ten_cases_and_extras_are_always_written(tmp_path):
+    report, parts = cases_text(auth_app(tmp_path))
+    body = parts["Cases"].body
+    for number in range(1, 11):
+        assert f"#### CASE {number}: " in body
+    assert "#### CASE 11: Public signup that no screen uses (UNKNOWN)" in body
+    assert "#### CASE 12: Second factor for staff and admin accounts (UNKNOWN)" in body
+    assert "committed-passwords" not in body and "CASE 13" not in body
+    assert "This app: UNKNOWN. The flow is at `api/app/routes/auth.py:9`" in body
+    assert list(parts) == [
+        "How to read the cases",
+        "Flows read",
+        "Cases",
+        "Findings",
+        "Executable tests",
+    ]
+    assert "- login: POST /auth/login (`api/app/routes/auth.py:9`)" in parts["Flows read"].body
+    text = render_markdown(report)
+    assert "## 3. Failure path test plan" in text
+
+
+def test_managed_provider_cases_are_unverified(tmp_path):
+    write(
+        tmp_path, "package.json", '{"dependencies": {"next": "14", "@supabase/supabase-js": "2"}}'
+    )
+    write(tmp_path, "lib/auth.ts", "export const user = () => supabase.auth.getUser()\n")
+    _, parts = cases_text(tmp_path)
+    assert (
+        "#### CASE 2: Reset requested for an email that was never registered (UNVERIFIED)"
+        in parts["Cases"].body
+    )
+    assert "Handled by Supabase Auth; check the provider settings" in parts["Cases"].body
+
+
+def test_not_applicable_without_flows_or_provider(tmp_path):
+    write(tmp_path, "app.py", "x = 1\n")
+    report = review(tmp_path, reviews=["auth"])
+    assert "auth" not in report.sections
+    assert (
+        "Review 3 (auth): not applicable, no sign-in, signup or reset routes and no auth provider "
+        "found"
+    ) in report.not_covered
+
+
+def finding(rule_id, exploitability, line):
+    return Finding(
+        rule_id=rule_id,
+        review="auth",
+        title=f"{rule_id} title",
+        tag=Tag.CONFIRMED,
+        severity="medium",
+        exploitability=exploitability,
+        effort_minutes=5,
+        locations=(Location("api/app/services/auth_service.py", line),),
+        detail="d",
+        fix="f",
+    )
+
+
+def test_failing_cases_come_first_by_exploitability_and_passes_are_named(tmp_path):
+    ctx = context(auth_app(tmp_path))
+    auth.record_pass(
+        ctx, 7, Tag.CONFIRMED, "The reset request carries only the token", Location("a.py", 3)
+    )
+    findings = [
+        finding("AUTH-ENUM-SIGNUP-MESSAGE", "medium", 15),
+        finding("AUTH-EMAIL-CHANGE-UNVERIFIED", "high", 24),
+    ]
+    body = auth.case_blocks(ctx, findings)
+    assert (
+        body.index("CASE 9: Email change (FAILS)")
+        < body.index("CASE 4: Signup with")
+        < body.index("CASE 1: Wrong password")
+    )
+    assert (
+        "This app: CONFIRMED. AUTH-ENUM-SIGNUP-MESSAGE title (`api/app/services/auth_service.py:15`, AUTH-ENUM-SIGNUP-MESSAGE)."
+        in body
+    )
+    assert "#### CASE 7: Reset token that belongs to someone else (PASSES)" in body
+    assert "This app: CONFIRMED. The reset request carries only the token (`a.py:3`)." in body
+```
+
+Modify `tests/test_api.py`, replace:
+
+```python
+    assert dict(report.meta.applicability) == {
+        "inventory": "not available in this version",
+        "rls": "runs",
+        "auth": "not available in this version",
+        "baseline": "runs",
+        "owasp": "runs",
+        "leaks": "runs",
+```
+
+with:
+
+```python
+    assert dict(report.meta.applicability) == {
+        "inventory": "not available in this version",
+        "rls": "runs",
+        "auth": "not applicable, no sign-in, signup or reset routes and no auth provider found",
+        "baseline": "runs",
+        "owasp": "runs",
+        "leaks": "runs",
+```
+
+Modify `tests/test_fixtures.py`, replace:
+
+```python
+
+BAD = ("next-supabase-bad", "django-bad", "fastapi-bad", "express-prisma")
+GOOD = {
+    "next-supabase-good": {"leaks", "rls", "baseline", "owasp", "abuse"},
+    "fastapi-good": {"leaks", "rls", "baseline", "owasp", "abuse"},
+}
+
+
+```
+
+with:
+
+```python
+
+BAD = ("next-supabase-bad", "django-bad", "fastapi-bad", "express-prisma")
+GOOD = {
+    "next-supabase-good": {"leaks", "rls", "auth", "baseline", "owasp", "abuse"},
+    "fastapi-good": {"leaks", "rls", "auth", "baseline", "owasp", "abuse"},
+}
+
+
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_auth_flows.py tests/reviews/test_auth_section.py tests/test_api.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 2 errors; collection stops at `ImportError: cannot import name 'auth' from 'dpr.reviews'`)
+
+- [ ] **Step 3: Write the flow finder and the review module**
+
+`src/dpr/data/auth_cases.yaml`:
+
+```yaml
+# Review 3 case templates. Rules list the rule ids that decide a case; kinds list the flows it needs.
+cases:
+  - number: 1
+    title: Wrong password five times in a row
+    kinds: [login]
+    rules: [AUTH-NO-LOCKOUT, AUTH-ENUM-LOCKOUT-STATUS, AUTH-ENUM-TIMING]
+    expected: Attempts are throttled per account and per IP, the response and its timing are the same for a wrong password, an unknown account and a locked account, lockout cannot be used to deny the owner indefinitely, and the event is logged.
+    risk: Password guessing without a throttle, or an oracle that confirms which accounts exist and lets anyone keep a known account locked.
+    test: Send eleven wrong passwords for a real account and eleven for an unknown address; the status, body and median latency must match, and requests after the limit must be refused.
+  - number: 2
+    title: Reset requested for an email that was never registered
+    kinds: [forgot]
+    rules: [AUTH-ENUM-RESET-MESSAGE, AUTH-ENUM-TIMING]
+    expected: The same response and the same timing as for a registered address, and no email to the unregistered address.
+    risk: A free account enumeration oracle.
+    test: Time twenty reset requests for a known and an unknown address against a local stack; the responses and latency distributions must match.
+  - number: 3
+    title: Verification link clicked twice
+    kinds: [verify]
+    rules: [AUTH-VERIFY-REUSABLE, AUTH-VERIFY-NO-EXPIRY, AUTH-TOKEN-PLAINTEXT]
+    expected: The first click verifies and consumes the token, the second lands on an already-verified state, the token expires, and the stored value is a hash.
+    risk: A link left in an old mailbox or read by a mail-scanning proxy stays usable.
+    test: Verify an account, replay the same link, and replay a link older than the intended lifetime; both replays must be refused without an error page.
+  - number: 4
+    title: Signup with an address that already has an account
+    kinds: [register]
+    rules: [AUTH-ENUM-SIGNUP-MESSAGE]
+    expected: A generic check-your-email response and a notice to the existing owner; nothing in the response differs from a new address.
+    risk: The cleanest enumeration oracle in the product, used to validate credential stuffing lists.
+    test: Sign up twice with the same address; the second response must match the first.
+  - number: 5
+    title: Session left open for a week
+    kinds: [login, refresh, logout]
+    rules: [AUTH-REFRESH-NO-ABSOLUTE-CAP, AUTH-LOGOUT-NO-REVOKE]
+    expected: An absolute session lifetime that activity cannot extend, refresh that rotates and revokes the previous token, logout and password change that end every session, and HttpOnly, Secure, SameSite cookies.
+    risk: A stolen token or refresh token keeps working indefinitely and survives logout.
+    test: Log out, then call the refresh endpoint with the refresh token issued before logout; expect 401.
+  - number: 6
+    title: Reset link opened after it expired
+    kinds: [reset]
+    rules: [AUTH-RESET-NO-EXPIRY, AUTH-TOKEN-PLAINTEXT]
+    expected: Expiry is enforced on the server, the token is single use, a new request invalidates the previous token, and the stored token is a hash.
+    risk: Old reset links in mailboxes, logs or browser history reset the password at any time.
+    test: Request a reset, age the token past its lifetime in the database, and submit it; expect a clear expiry message and no password change.
+  - number: 7
+    title: Reset token that belongs to someone else
+    kinds: [reset]
+    rules: [AUTH-RESET-TRUSTS-EMAIL]
+    expected: The token alone identifies the account on the server; an email field on the reset form is ignored.
+    risk: Setting a password on any account whose email the attacker knows.
+    test: Submit a valid token for account A together with the email of account B; only account A may change.
+  - number: 8
+    title: Concurrent and out-of-order operations
+    kinds: [register]
+    rules: [AUTH-EMAIL-NOT-UNIQUE]
+    expected: Two simultaneous signups for one email produce one account because the database enforces uniqueness, and a completed reset invalidates any other pending reset.
+    risk: Two rows for one address and undefined sign-in behaviour.
+    test: Fire two signup requests for the same address in parallel; exactly one account must exist.
+  - number: 9
+    title: Email change
+    kinds: [update_self]
+    rules: [AUTH-EMAIL-CHANGE-UNVERIFIED]
+    expected: The change commits only after the new address is verified, both addresses are told, the old address can revoke, and the current password is asked for.
+    risk: A hijacked session becomes a permanent takeover by moving the account to the attacker's address.
+    test: As a signed-in user, change the email through the API; expect a pending state until the new address confirms.
+  - number: 10
+    title: Logout and back button
+    kinds: [logout]
+    rules: [AUTH-LOGOUT-NO-REVOKE]
+    expected: The server-side session or token is revoked, authenticated responses carry Cache-Control no-store, and cached pages cannot be restored from history.
+    risk: Tokens keep working after logout, and shared browsers show the previous user's data.
+    test: Log out, press back, and replay an authenticated request with the old token; expect a sign-in prompt and 401.
+extra:
+  - key: signup-no-ui
+    title: Public signup that no screen uses
+    kinds: [register]
+    rules: [AUTH-SIGNUP-NO-UI]
+    expected: Endpoints that no product flow uses are not reachable.
+    risk: A foothold for account-based attacks, free sends from the company's email domain, and an enumeration surface.
+    test: POST to the signup route against a local stack; expect 404 when public signup is not a product feature.
+  - key: mfa
+    title: Second factor for staff and admin accounts
+    kinds: [login]
+    rules: [AUTH-NO-MFA]
+    expected: Accounts that can read every customer's data sign in with a second factor.
+    risk: One reused or phished password opens every record the account can reach.
+    test: Sign in as an admin with the correct password only; expect a second-factor challenge.
+  - key: committed-passwords
+    title: Accounts created with passwords written in the repository
+    kinds: []
+    rules: [BASE-LITERAL-PASSWORD-HASH, BASE-SEED-ON-START]
+    expected: No account can be signed in to with a password that appears in the repository, documentation or seed data.
+    risk: Anyone with repository access, or a leaked clone, signs in to those accounts.
+    test: Run a query that counts accounts whose password hash still verifies against the committed text, without printing it; expect zero.
+```
+
+Modify `src/dpr/model.py`, replace:
+
+```python
+    LOW = "low"
+
+
+NO_JSON = {"json": False}
+
+
+```
+
+with:
+
+```python
+    LOW = "low"
+
+
+EXPLOIT_ORDER = ("high", "medium", "low")
+
+
+NO_JSON = {"json": False}
+
+
+```
+
+Modify `src/dpr/reviews/__init__.py`, replace:
+
+```python
+LABELS = {
+    "inventory": "INV",
+    "rls": "RLS",
+    "auth": "CASE",
+    "baseline": "FIX",
+    "owasp": "FINDING",
+    "leaks": "LEAK",
+```
+
+with:
+
+```python
+LABELS = {
+    "inventory": "INV",
+    "rls": "RLS",
+    "auth": "AUTH",
+    "baseline": "FIX",
+    "owasp": "FINDING",
+    "leaks": "LEAK",
+```
+
+`src/dpr/reviews/auth.py`:
+
+```python
+"""Review 3, failure path test plan: ten fixed cases plus cases for flows the repository has."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from dpr.data import load
+from dpr.model import EXPLOIT_ORDER, Finding, Location, Part, ReviewSection, Tag
+from dpr.reviews.auth_flows import flows, flows_of, lifetimes, managed_provider
+from dpr.rules import Context
+
+INTRO = (
+    "Each case states what a secure app does, what this repository shows, the risk and a test "
+    "to write. Failing cases come first, ordered by exploitability. A case is UNVERIFIED when a "
+    "managed provider handles it, and UNKNOWN when the flow it needs was not found in code."
+)
+TAG_ORDER = (Tag.CONFIRMED, Tag.INFERRED, Tag.UNVERIFIED)
+
+
+@dataclass(frozen=True)
+class Outcome:
+    result: str  # "FAILS" | "PASSES" | "UNVERIFIED" | "UNKNOWN"
+    tag: str
+    text: str
+    order: int
+
+
+def record_pass(ctx: Context, case: int | str, tag: Tag, text: str, location: Location) -> None:
+    """Rules call this with evidence that a case holds, so the section can say PASSES."""
+    ctx.facts.setdefault("auth_passes", {}).setdefault(case, []).append((tag, text, location))
+
+
+def _flow_lines(ctx: Context) -> str:
+    lines = []
+    provider = managed_provider(ctx)
+    if provider:
+        lines.append(f"- Managed provider: {provider}.")
+    for flow in flows(ctx):
+        route = flow.route
+        lines.append(f"- {flow.kind}: {route.method} {route.path} (`{flow.location}`)")
+    for name, value, location in lifetimes(ctx)[:8]:
+        lines.append(f"- Lifetime setting {name} = {value} (`{location}`)")
+    return "\n".join(lines) or "No sign-in, signup, reset or session code was found."
+
+
+def _outcome(ctx: Context, key: int | str, case: dict, findings: list[Finding]) -> Outcome:
+    mine = [f for f in findings if f.rule_id in case["rules"]]
+    passes = ctx.facts.get("auth_passes", {}).get(key, [])
+    found_flows = flows_of(ctx, *case["kinds"]) if case["kinds"] else []
+    if mine:
+        tag = min((f.tag for f in mine), key=TAG_ORDER.index).value
+        text = " ".join(
+            f"{f.title} (`{f.locations[0]}`, {f.rule_id})." if f.locations else f"{f.title}."
+            for f in mine
+        )
+        order = min(EXPLOIT_ORDER.index(f.exploitability.value) for f in mine)
+        return Outcome("FAILS", tag, text, order)
+    if passes:
+        tag = min((t for t, _, _ in passes), key=TAG_ORDER.index).value
+        text = " ".join(f"{text} (`{loc}`)." for _, text, loc in passes)
+        return Outcome("PASSES", tag, text, 9)
+    provider = managed_provider(ctx)
+    if provider and not found_flows:
+        text = f"Handled by {provider}; check the provider settings for this case."
+        return Outcome("UNVERIFIED", "UNVERIFIED", text, 9)
+    if found_flows:
+        where = ", ".join(f"`{f.location}`" for f in found_flows[:3])
+        text = f"The flow is at {where}, but this case could not be decided from the code."
+        return Outcome("UNKNOWN", "UNKNOWN", text, 9)
+    kinds = ", ".join(case["kinds"]) or "matching"
+    return Outcome("UNKNOWN", "UNKNOWN", f"No {kinds} route was found.", 9)
+
+
+def _block(label: str, case: dict, outcome: Outcome) -> str:
+    return "\n".join(
+        [
+            f"#### {label}: {case['title']} ({outcome.result})",
+            "",
+            f"Expected: {case['expected']}",
+            "",
+            f"This app: {outcome.tag}. {outcome.text}",
+            "",
+            f"Risk: {case['risk']}",
+            "",
+            f"Test: {case['test']}",
+        ]
+    )
+
+
+def _extra_relevant(ctx: Context, case: dict, findings: list[Finding]) -> bool:
+    if any(f.rule_id in case["rules"] for f in findings):
+        return True
+    if case["key"] in ctx.facts.get("auth_passes", {}):
+        return True
+    return bool(case["kinds"]) and bool(flows_of(ctx, *case["kinds"]))
+
+
+def case_blocks(ctx: Context, findings: list[Finding]) -> str:
+    data = load("auth_cases.yaml")
+    blocks = []
+    for case in data["cases"]:
+        outcome = _outcome(ctx, case["number"], case, findings)
+        blocks.append(
+            (outcome.order, case["number"], _block(f"CASE {case['number']}", case, outcome))
+        )
+    for position, case in enumerate(data["extra"], start=len(data["cases"]) + 1):
+        if _extra_relevant(ctx, case, findings):
+            outcome = _outcome(ctx, case["key"], case, findings)
+            blocks.append((outcome.order, position, _block(f"CASE {position}", case, outcome)))
+    return "\n\n".join(text for _, _, text in sorted(blocks))
+
+
+def run(ctx: Context) -> ReviewSection | None:
+    if not flows(ctx) and not ctx.detection.auth_providers:
+        ctx.not_covered.append(
+            "Review 3 (auth): not applicable, no sign-in, signup or reset routes and no auth "
+            "provider found"
+        )
+        return None
+    return ReviewSection(
+        "auth",
+        [
+            Part("text", "How to read the cases", body=INTRO),
+            Part("text", "Flows read", body=_flow_lines(ctx)),
+            Part("findings", "Findings"),
+        ],
+    )
+
+
+def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None:
+    position = next(i for i, p in enumerate(section.parts) if p.kind == "findings")
+    section.parts.insert(position, Part("text", "Cases", body=case_blocks(ctx, findings)))
+    if ctx.detection.test_frameworks:
+        frameworks = ", ".join(ctx.detection.test_frameworks)
+        note = (
+            f"The repository has {frameworks}. The failing cases can be written as executable "
+            "tests there; this review did not write them."
+        )
+        section.parts.append(Part("text", "Executable tests", body=note))
+```
+
+`src/dpr/reviews/auth_flows.py`:
+
+```python
+"""Review 3 inputs: which routes carry each account flow, and the code each flow runs."""
+
+from __future__ import annotations
+
+import ast
+import re
+from dataclasses import dataclass, field
+
+from dpr.model import DataModel, Location, Route
+from dpr.parsing import jsts, pyast
+from dpr.parsing.routes_js import _function_named
+from dpr.reviews.access import ADMIN, PUBLIC, access
+from dpr.reviews.lookups import _helper
+from dpr.reviews.paid import _js_function_index
+from dpr.reviews.paths import is_test
+from dpr.rules import Context
+from dpr.walk import line_of
+
+KINDS = (
+    ("logout", re.compile(r"log-?out|sign-?out")),
+    ("refresh", re.compile(r"(?:auth|token|session)\S*refresh|refresh\S*(?:token|session)")),
+    ("register", re.compile(r"sign-?up|register|create-?account")),
+    ("forgot", re.compile(r"forgot|request-?reset|reset-?request|send-?reset|recover")),
+    ("reset", re.compile(r"reset")),
+    ("verify", re.compile(r"verif|confirm-?email|activate")),
+    ("login", re.compile(r"log-?in|sign-?in|/token$|authenticate")),
+)
+WRITE_METHODS = ("POST", "PUT", "PATCH", "ANY", "ACTION")
+SELF_PATH = re.compile(r"/(?:users?|me|profile|account|settings)(?:/|$)")
+USER_MODEL = re.compile(
+    r"(?i)^(?:auth_?)?(?:user|users|account|accounts|member|members|customer|customers|profile|profiles)$"
+)
+MANAGED = {
+    "supabase-auth": "Supabase Auth",
+    "clerk": "Clerk",
+    "auth0": "Auth0",
+    "nextauth": "Auth.js",
+    "firebase-auth": "Firebase Authentication",
+    "better-auth": "Better Auth",
+}
+LIFETIME_NAME = re.compile(
+    r"(?i)(?:access|refresh|session|jwt|token|cookie)\w*(?:expire|expiry|expiration|lifetime|max_?age|ttl|age)\w*"
+    r"|SESSION_COOKIE_AGE"
+)
+JS_EXPIRES = re.compile(r"""\b(expiresIn|maxAge)\s*:\s*(['"][^'"]+['"]|\d[\d_*\s]*)""")
+GENERIC_CALLS = frozenset(
+    {"get", "items", "keys", "values", "append", "extend", "add", "commit", "execute", "refresh",
+     "close", "copy", "update", "pop", "setdefault", "scalars", "scalar_one_or_none", "all",
+     "first", "one", "flush", "delete", "merge", "format", "strip", "lower", "upper", "split",
+     "join", "encode", "decode", "startswith", "endswith", "replace", "model_dump", "dict"}
+)  # fmt: skip
+
+
+@dataclass(frozen=True)
+class Code:
+    rel: str
+    node: object = field(compare=False)
+    tree: object = field(compare=False)
+    line: int = 0
+
+    @property
+    def python(self) -> bool:
+        return isinstance(self.node, ast.AST)
+
+    def text(self) -> str:
+        return ast.unparse(self.node) if self.python else jsts.node_text(self.node)
+
+
+@dataclass(frozen=True)
+class Flow:
+    kind: str
+    route: Route
+    code: tuple[Code, ...]
+
+    @property
+    def location(self) -> Location:
+        return Location(self.route.file, self.route.line)
+
+
+def managed_provider(ctx: Context) -> str | None:
+    names = [MANAGED[p] for p in ctx.detection.auth_providers if p in MANAGED]
+    return ", ".join(names) or None
+
+
+def _kind(ctx: Context, route: Route) -> str | None:
+    name = getattr(route.handler, "name", "")
+    name = name if isinstance(name, str) else ""
+    subject = f"{route.path} {name}".lower()
+    level = access(ctx, route).level
+    for kind, pattern in KINDS:
+        if pattern.search(subject):
+            if kind != "verify" and route.method not in WRITE_METHODS:
+                return None
+            if kind in ("register", "login", "forgot", "reset") and level != PUBLIC:
+                return None
+            return kind
+    if route.method in ("PUT", "PATCH") and SELF_PATH.search(route.path) and level != ADMIN:
+        return "update_self" if level != PUBLIC else None
+    return None
+
+
+def _py_code(ctx: Context, route: Route) -> list[Code]:
+    found = [Code(route.file, route.handler, route.tree, route.line)]
+    queue = [(route.file, route.handler, 0)]
+    seen = {(route.file, route.line)}
+    while queue:
+        rel, fn, depth = queue.pop(0)
+        if depth >= 2:
+            continue
+        for call in [n for n in ast.walk(fn) if isinstance(n, ast.Call)]:
+            if (pyast.dotted(call.func) or "").split(".")[-1] in GENERIC_CALLS:
+                continue
+            helper = _helper(ctx, rel, call, fn)
+            if helper is None or is_test(helper[0]):
+                continue
+            key = (helper[0], helper[1].lineno)
+            if key in seen:
+                continue
+            seen.add(key)
+            tree = pyast.parse_file(ctx.index, helper[0])
+            found.append(Code(helper[0], helper[1], tree, helper[1].lineno))
+            queue.append((helper[0], helper[1], depth + 1))
+    return found
+
+
+def _js_code(ctx: Context, route: Route) -> list[Code]:
+    handler = route.handler
+    if handler is None or getattr(handler, "type", "") not in jsts.FUNCTION_TYPES:
+        return []
+    found = [Code(route.file, handler, route.tree, route.line)]
+    queue = [(route.tree, handler, 0)]
+    seen = {(route.file, handler.start_byte)}
+    while queue:
+        tree, fn, depth = queue.pop(0)
+        if depth >= 2:
+            continue
+        for call in jsts.walk(fn, {"call_expression"}):
+            name = jsts.callee(call).split(".")[-1]
+            local = _function_named(tree, name)
+            targets = (
+                [(tree, local)] if local is not None else _js_function_index(ctx).get(name, [])[:1]
+            )
+            for target_tree, target in targets:
+                key = (target_tree.rel, target.start_byte)
+                if target is fn or key in seen or is_test(target_tree.rel):
+                    continue
+                seen.add(key)
+                found.append(
+                    Code(target_tree.rel, target, target_tree, jsts.line(target_tree, target))
+                )
+                queue.append((target_tree, target, depth + 1))
+    return found
+
+
+def flows(ctx: Context) -> list[Flow]:
+    if "auth_flows" not in ctx.facts:
+        found = []
+        for route in ctx.detection.routes:
+            if is_test(route.file):
+                continue
+            kind = _kind(ctx, route)
+            if kind is None:
+                continue
+            code = (
+                _py_code(ctx, route) if isinstance(route.handler, ast.AST) else _js_code(ctx, route)
+            )
+            if code:
+                found.append(Flow(kind, route, tuple(code)))
+        ctx.facts["auth_flows"] = found
+    return ctx.facts["auth_flows"]
+
+
+def flows_of(ctx: Context, *kinds: str) -> list[Flow]:
+    return [f for f in flows(ctx) if f.kind in kinds]
+
+
+def user_models(ctx: Context) -> list[DataModel]:
+    return [
+        m
+        for m in ctx.detection.models
+        if USER_MODEL.match(m.name) or USER_MODEL.match(m.table.split(".")[-1])
+    ]
+
+
+def lifetimes(ctx: Context) -> list[tuple[str, str, Location]]:
+    """Session and token lifetimes written as constants: (name, value, location)."""
+    found = []
+    for entry in ctx.index.py_files:
+        text = ctx.index.text(entry.rel)
+        if is_test(entry.rel) or not LIFETIME_NAME.search(text):
+            continue
+        tree = pyast.parse_file(ctx.index, entry.rel)
+        for node in ast.walk(tree) if tree else []:
+            target = (
+                node.target
+                if isinstance(node, ast.AnnAssign)
+                else (node.targets[0] if isinstance(node, ast.Assign) else None)
+            )
+            if not isinstance(target, ast.Name) or not LIFETIME_NAME.fullmatch(target.id):
+                continue
+            value = node.value
+            if isinstance(value, ast.Constant | ast.BinOp) and not isinstance(
+                pyast.constant(value, None), str | bool
+            ):
+                found.append((target.id, ast.unparse(value), Location(entry.rel, node.lineno)))
+    for entry in ctx.index.js_files:
+        text = ctx.index.text(entry.rel)
+        if is_test(entry.rel):
+            continue
+        for match in JS_EXPIRES.finditer(text):
+            found.append(
+                (
+                    match.group(1),
+                    match.group(2).strip(),
+                    Location(entry.rel, line_of(text, match.start())),
+                )
+            )
+    return found
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (331 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/auth_cases.yaml src/dpr/model.py src/dpr/reviews/__init__.py src/dpr/reviews/auth.py src/dpr/reviews/auth_flows.py tests/reviews/auth_app.py tests/reviews/test_auth_flows.py tests/reviews/test_auth_section.py tests/test_api.py tests/test_fixtures.py
+git commit -m "Add review 3 with account flow discovery and failure path cases"
+```
+
+---
+
+### Task 64: Account enumeration rules and fixture auth flows
+
+Judge gap 1. `AUTH-ENUM-SIGNUP-MESSAGE` and `AUTH-ENUM-RESET-MESSAGE` report a caller-visible message or status that differs for existing accounts (CONFIRMED at the literal). `AUTH-ENUM-LOCKOUT-STATUS` reports HTTP 423 or a "locked" message on login. `AUTH-ENUM-TIMING` reports a login that returns before any password verify for unknown accounts with no dummy hash, and a forgot-password handler that sends mail inline only for existing accounts (INFERRED, UNVERIFIED case text). Paid-route checks skip public email and SMS forms, which the form rule already covers, and one-time tokens are no longer treated as record keys. The bad fixtures gain realistic account routes and the good fixture gains the safe versions (dummy hash, constant messages, background mail).
+
+**Files:**
+- Create: `src/dpr/data/rule_text/auth_enum.yaml`, `src/dpr/reviews/auth_code.py`, `src/dpr/reviews/auth_enum.py`
+- Modify: `src/dpr/reviews/abuse_paid.py` (public email and SMS forms belong to the form rule)
+- Modify: `src/dpr/reviews/auth.py` (import the rule module)
+- Modify: `src/dpr/reviews/auth_flows.py` (`record_pass` moves here to avoid an import cycle)
+- Modify: `src/dpr/reviews/lookups.py` (one-time tokens are not record keys)
+- Test: `tests/reviews/test_auth_enum.py`
+- Fixture files: `tests/fixtures/express-prisma/src/lib/mail.ts`, `tests/fixtures/express-prisma/src/routes/auth.ts`, `tests/fixtures/fastapi-bad/api/app/routes/account.py`, `tests/fixtures/fastapi-bad/api/app/services/accounts.py`, `tests/fixtures/fastapi-bad/api/app/services/mailer.py`, `tests/fixtures/fastapi-bad/web/src/Signup.tsx`, `tests/fixtures/fastapi-bad/web/src/api.ts`, `tests/fixtures/fastapi-good/api/app/routes/account.py`, `tests/fixtures/fastapi-good/api/app/services/accounts.py`, `tests/fixtures/fastapi-good/api/app/services/mailer.py`, `tests/fixtures/fastapi-good/web/src/Signup.tsx`, `tests/fixtures/fastapi-good/web/src/api.ts`
+- Modify fixture: `tests/fixtures/express-prisma/expected.yaml` (new auth findings)
+- Modify fixture: `tests/fixtures/express-prisma/src/index.ts` (mount the auth router)
+- Modify fixture: `tests/fixtures/fastapi-bad/api/app/models.py` (token and lock columns)
+- Modify fixture: `tests/fixtures/fastapi-bad/expected.yaml` (new auth findings)
+- Modify fixture: `tests/fixtures/fastapi-good/api/app/core/security.py` (random dummy hash and verify helper)
+- Modify fixture: `tests/fixtures/fastapi-good/api/requirements.txt` (pyotp and python-jose)
+- Modify fixture: `tests/fixtures/fastapi-good/expected.yaml` (enumeration rules must not report)
+- Modify fixture: `tests/fixtures/next-supabase-bad/app/api/signup/route.ts` (signup returns 409 with an existing-account message)
+- Modify fixture: `tests/fixtures/next-supabase-bad/expected.yaml` (signup message finding)
+- Modify fixture: `tests/fixtures/next-supabase-good/expected.yaml` (signup message must not report)
+- Modify test: `tests/reviews/test_auth_section.py` (import `record_pass` from its new module)
+
+**Interfaces:**
+- Consumes: flows and `record_pass` (Task 63), `lookups.js_keys` from Milestone 2 Task 39
+- Produces:
+  - `dpr.reviews.auth_code`:
+
+```python
+def caller_literals(code: Code) -> Iterator[tuple[str, Location]]: ...
+def status_codes(code: Code, values: tuple[int, ...]) -> Iterator[Location]: ...
+def early_exit_before(code: Code, pattern: re.Pattern[str]) -> Location | None: ...
+def has_dummy_hash(code: Code) -> bool: ...
+def call_names(code: Code) -> list[tuple[str, int]]: ...
+```
+
+  - `dpr.reviews.auth_enum`:
+
+```python
+@rule('AUTH-ENUM-SIGNUP-MESSAGE', review='auth', severity='medium', exploitability='medium', owasp='A07')
+def signup_message(ctx: Context) -> Iterator[Finding]: ...
+@rule('AUTH-ENUM-RESET-MESSAGE', review='auth', severity='medium', exploitability='medium', owasp='A07')
+def reset_message(ctx: Context) -> Iterator[Finding]: ...
+@rule('AUTH-ENUM-LOCKOUT-STATUS', review='auth', severity='medium', exploitability='medium', owasp='A07')
+def lockout_status(ctx: Context) -> Iterator[Finding]: ...
+@rule('AUTH-ENUM-TIMING', review='auth', severity='low', exploitability='low', owasp='A07')
+def enumeration_timing(ctx: Context) -> Iterator[Finding]: ...
+```
+
+  - `dpr.reviews.auth_flows`:
+
+```python
+def record_pass(ctx: Context, case: int | str, tag: Tag, text: str, location: Location) -> None: ...
+```
+
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/fixtures/express-prisma/expected.yaml`, replace:
+
+```yaml
+# Every finding the scan must report, and nothing else.
+findings:
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 4, tag: CONFIRMED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: src/index.ts, line: 4, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: src/index.ts, line: 4, tag: UNVERIFIED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: src/routes/orders.ts, line: 8, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+# Every finding the scan must report, and nothing else.
+findings:
+  - {rule: ABUSE-FORM-NO-CHALLENGE, file: src/routes/auth.ts, line: 11, tag: INFERRED}
+  - {rule: ABUSE-NO-KILL-SWITCH, file: src/routes/auth.ts, line: 35, tag: INFERRED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: src/routes/auth.ts, line: 35, tag: INFERRED}
+  - {rule: AUTH-ENUM-RESET-MESSAGE, file: src/routes/auth.ts, line: 37, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: src/routes/auth.ts, line: 13, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 22, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 37, tag: INFERRED}
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 4, tag: CONFIRMED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: src/index.ts, line: 5, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: src/index.ts, line: 5, tag: UNVERIFIED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: src/routes/orders.ts, line: 8, tag: CONFIRMED}
+  - {rule: OWASP-A09-NO-AUTH-FAIL-LOG, file: src/routes/auth.ts, line: 20, tag: INFERRED}
+```
+
+Modify `tests/fixtures/express-prisma/src/index.ts`, replace:
+
+```ts
+import express from "express"
+import orderRoutes from "./routes/orders.js"
+
+const app = express()
+app.disable("x-powered-by")
+app.use(express.json())
+app.use("/api/orders", orderRoutes)
+
+app.listen(3000)
+```
+
+with:
+
+```ts
+import express from "express"
+import orderRoutes from "./routes/orders.js"
+import authRoutes from "./routes/auth.js"
+
+const app = express()
+app.disable("x-powered-by")
+app.use(express.json())
+app.use("/api/orders", orderRoutes)
+app.use("/api/auth", authRoutes)
+
+app.listen(3000)
+```
+
+`tests/fixtures/express-prisma/src/lib/mail.ts`:
+
+```ts
+import nodemailer from "nodemailer"
+
+const transport = nodemailer.createTransport({ host: process.env.SMTP_HOST })
+
+export async function sendMail(to: string, subject: string, text: string) {
+  await transport.sendMail({ to, subject, text })
+}
+```
+
+`tests/fixtures/express-prisma/src/routes/auth.ts`:
+
+```ts
+import { Router } from "express"
+import bcrypt from "bcryptjs"
+import jwt from "jsonwebtoken"
+import crypto from "node:crypto"
+import { prisma } from "../lib/db.js"
+import { sendMail } from "../lib/mail.js"
+import { requireUser } from "../middleware/auth.js"
+
+const router = Router()
+
+router.post("/signup", async (req, res) => {
+  const existing = await prisma.user.findUnique({ where: { email: req.body.email } })
+  if (existing) return res.status(409).json({ error: "Email already registered" })
+  const passwordHash = await bcrypt.hash(req.body.password, 12)
+  const verifyToken = crypto.randomBytes(32).toString("hex")
+  await prisma.user.create({ data: { email: req.body.email, fullName: req.body.fullName, passwordHash, verifyToken } })
+  return res.status(201).json({ ok: true })
+})
+
+router.post("/login", async (req, res) => {
+  const user = await prisma.user.findUnique({ where: { email: req.body.email } })
+  if (!user) return res.status(401).json({ error: "Invalid email or password" })
+  const valid = await bcrypt.compare(req.body.password, user.passwordHash)
+  if (!valid) return res.status(401).json({ error: "Invalid email or password" })
+  const token = jwt.sign({ sub: user.id }, process.env.JWT_SECRET, { expiresIn: "30d" })
+  res.cookie("session", token, { httpOnly: true, secure: true, sameSite: "lax" })
+  return res.json({ ok: true })
+})
+
+router.post("/logout", (req, res) => {
+  res.clearCookie("session")
+  return res.json({ ok: true })
+})
+
+router.post("/forgot-password", async (req, res) => {
+  const user = await prisma.user.findUnique({ where: { email: req.body.email } })
+  if (!user) return res.status(404).json({ error: "No account with that email" })
+  const resetToken = crypto.randomBytes(32).toString("hex")
+  await prisma.user.update({ where: { id: user.id }, data: { resetToken } })
+  await sendMail(user.email, "Reset your password", resetToken)
+  return res.json({ ok: true })
+})
+
+router.post("/reset-password", async (req, res) => {
+  const user = await prisma.user.findFirst({ where: { resetToken: req.body.token } })
+  if (!user) return res.status(400).json({ error: "Invalid link" })
+  const passwordHash = await bcrypt.hash(req.body.password, 12)
+  await prisma.user.update({ where: { email: req.body.email }, data: { passwordHash, resetToken: null } })
+  return res.json({ ok: true })
+})
+
+router.get("/verify", async (req, res) => {
+  const user = await prisma.user.findFirst({ where: { verifyToken: req.query.token } })
+  if (!user) return res.status(400).json({ error: "Invalid link" })
+  await prisma.user.update({ where: { id: user.id }, data: { verified: true } })
+  return res.json({ ok: true })
+})
+
+router.patch("/me", requireUser, async (req, res) => {
+  await prisma.user.update({ where: { id: req.user.sub }, data: { email: req.body.email, phone: req.body.phone } })
+  return res.json({ ok: true })
+})
+
+export default router
+```
+
+Modify `tests/fixtures/fastapi-bad/api/app/models.py`, replace:
+
+```python
+from sqlalchemy import Column, String
+
+from app.db.base import Base
+
+```
+
+with:
+
+```python
+from sqlalchemy import Column, DateTime, Integer, String
+
+from app.db.base import Base
+
+```
+
+Modify `tests/fixtures/fastapi-bad/api/app/models.py`, replace:
+
+```python
+    id = Column(String, primary_key=True)
+    email = Column(String, unique=True)
+    password_hash = Column(String)
+
+
+class Client(Base):
+```
+
+with:
+
+```python
+    id = Column(String, primary_key=True)
+    email = Column(String, unique=True)
+    password_hash = Column(String)
+    reset_token = Column(String)
+    verify_token = Column(String)
+    locked_until = Column(DateTime)
+    failed_logins = Column(Integer)
+
+
+class Client(Base):
+```
+
+`tests/fixtures/fastapi-bad/api/app/routes/account.py`:
+
+```python
+from fastapi import APIRouter, HTTPException, Response, status
+
+from app.core.deps import CurrentUser
+from app.services.accounts import AccountService
+
+router = APIRouter(prefix="/account")
+
+
+@router.post("/signup")
+async def signup(data: SignupRequest):
+    return await AccountService().create_account(data)
+
+
+@router.post("/login")
+async def login(data: LoginRequest, response: Response):
+    try:
+        user = await AccountService().authenticate(data.email, data.password)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc))
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    access, refresh = AccountService().issue_tokens(user)
+    response.set_cookie("session", access, httponly=True, secure=True, samesite="lax")
+    return {"refresh_token": refresh}
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    response.delete_cookie("session")
+    return {"ok": True}
+
+
+@router.post("/token/refresh")
+async def refresh_session(refresh_token: str):
+    return AccountService().refresh(refresh_token)
+
+
+@router.post("/forgot-password")
+async def forgot_password(data: ForgotRequest):
+    await AccountService().send_reset(data.email)
+    return {"message": "If the address has an account, a link is on its way"}
+
+
+@router.post("/reset-password")
+async def reset_password(data: ResetRequest):
+    return await AccountService().reset_password(data.email, data.token, data.new_password)
+
+
+@router.post("/verify-email")
+async def verify_email(token: str):
+    return await AccountService().verify_email(token)
+
+
+@router.patch("/me")
+async def update_me(data: ProfileUpdate, current_user: CurrentUser):
+    return await AccountService().update_profile(current_user, data)
+```
+
+`tests/fixtures/fastapi-bad/api/app/services/accounts.py`:
+
+```python
+import secrets
+from datetime import timedelta
+
+from fastapi import HTTPException
+from sqlalchemy import select
+
+from app.core.security import create_token, decode_token, hash_password, verify_password
+from app.models import User
+from app.services.mailer import send_email
+
+
+class AccountService:
+    def __init__(self, db=None):
+        self.db = db
+
+    async def find_by_email(self, email):
+        result = await self.db.execute(select(User).where(User.email == email))
+        return result.scalar_one_or_none()
+
+    async def create_account(self, data):
+        if await self.find_by_email(data.email):
+            raise HTTPException(status_code=409, detail="An account with this email already exists")
+        token = secrets.token_urlsafe(32)
+        self.db.add(User(email=data.email, password_hash=hash_password(data.password), verify_token=token))
+        return {"ok": True}
+
+    async def authenticate(self, email, password):
+        user = await self.find_by_email(email)
+        if user is None:
+            return None
+        if user.locked_until is not None:
+            raise PermissionError("Account is locked. Try again in 15 minutes")
+        if not verify_password(password, user.password_hash):
+            user.failed_logins += 1
+            return None
+        return user
+
+    def issue_tokens(self, user):
+        access = create_token({"sub": user.id, "type": "access"}, timedelta(minutes=30))
+        refresh = create_token({"sub": user.id, "type": "refresh"}, timedelta(days=7))
+        return access, refresh
+
+    def refresh(self, refresh_token):
+        payload = decode_token(refresh_token)
+        access = create_token({"sub": payload["sub"], "type": "access"}, timedelta(minutes=30))
+        renewed = create_token({"sub": payload["sub"], "type": "refresh"}, timedelta(days=7))
+        return {"access_token": access, "refresh_token": renewed}
+
+    async def send_reset(self, email):
+        user = await self.find_by_email(email)
+        if not user:
+            return None
+        user.reset_token = secrets.token_urlsafe(32)
+        await send_email(user.email, "Reset your password", user.reset_token)
+
+    async def reset_password(self, email, token, new_password):
+        query = select(User).where(User.email == email, User.reset_token == token)
+        user = (await self.db.execute(query)).scalar_one_or_none()
+        if user is None:
+            raise HTTPException(status_code=400, detail="Invalid link")
+        user.password_hash = hash_password(new_password)
+        return {"ok": True}
+
+    async def verify_email(self, token):
+        result = await self.db.execute(select(User).where(User.verify_token == token))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise HTTPException(status_code=400, detail="Invalid link")
+        user.verified = True
+        return {"ok": True}
+
+    async def update_profile(self, user, data):
+        allowed_fields = {"full_name", "email", "phone"}
+        for field, value in data.model_dump(exclude_unset=True).items():
+            if field in allowed_fields:
+                setattr(user, field, value)
+        return {"ok": True}
+```
+
+`tests/fixtures/fastapi-bad/api/app/services/mailer.py`:
+
+```python
+async def send_email(to_address, subject, body):
+    return None
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+# Every finding the scan must report, and nothing else.
+findings:
+  - {rule: ABUSE-ERROR-LEAK, file: api/app/main.py, line: 30, tag: CONFIRMED}
+  - {rule: ABUSE-FORM-NO-CHALLENGE, file: api/app/routes/auth.py, line: 13, tag: INFERRED}
+  - {rule: ABUSE-INMEMORY-LIMITER, file: api/app/core/rate_limit.py, line: 12, tag: INFERRED}
+  - {rule: ABUSE-LIMITER-NOT-APPLIED, file: api/app/core/rate_limit.py, line: 15, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+# Every finding the scan must report, and nothing else.
+findings:
+  - {rule: ABUSE-ERROR-LEAK, file: api/app/main.py, line: 30, tag: CONFIRMED}
+  - {rule: ABUSE-FORM-NO-CHALLENGE, file: api/app/routes/account.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-FORM-NO-CHALLENGE, file: api/app/routes/auth.py, line: 13, tag: INFERRED}
+  - {rule: ABUSE-INMEMORY-LIMITER, file: api/app/core/rate_limit.py, line: 12, tag: INFERRED}
+  - {rule: ABUSE-LIMITER-NOT-APPLIED, file: api/app/core/rate_limit.py, line: 15, tag: CONFIRMED}
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: ABUSE-NO-KILL-SWITCH, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-UPLOAD-UNBOUNDED, file: api/app/routes/files.py, line: 17, tag: CONFIRMED}
+  - {rule: BASE-DB-ADMIN-LOGIN, file: infra/main.tf, line: 9, tag: INFERRED}
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 1, tag: CONFIRMED}
+  - {rule: BASE-DEBUG-ON, file: api/app/config.py, line: 5, tag: INFERRED}
+```
+
+with:
+
+```yaml
+  - {rule: ABUSE-NO-KILL-SWITCH, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-UPLOAD-UNBOUNDED, file: api/app/routes/files.py, line: 17, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-LOCKOUT-STATUS, file: api/app/routes/account.py, line: 19, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 29, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 51, tag: INFERRED}
+  - {rule: BASE-DB-ADMIN-LOGIN, file: infra/main.tf, line: 9, tag: INFERRED}
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 1, tag: CONFIRMED}
+  - {rule: BASE-DEBUG-ON, file: api/app/config.py, line: 5, tag: INFERRED}
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: OWASP-A08-UNPINNED-DEPS, file: api/requirements.txt, line: 1, tag: CONFIRMED}
+  - {rule: OWASP-A08-UNPINNED-INSTALL, file: .github/workflows/deploy.yml, line: 8, tag: CONFIRMED}
+  - {rule: OWASP-A08-UNPINNED-INSTALL, file: api/startup.sh, line: 2, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: OWASP-A08-UNPINNED-DEPS, file: api/requirements.txt, line: 1, tag: CONFIRMED}
+  - {rule: OWASP-A08-UNPINNED-INSTALL, file: .github/workflows/deploy.yml, line: 8, tag: CONFIRMED}
+  - {rule: OWASP-A08-UNPINNED-INSTALL, file: api/startup.sh, line: 2, tag: CONFIRMED}
+  - {rule: OWASP-A09-NO-AUTH-FAIL-LOG, file: api/app/routes/account.py, line: 15, tag: INFERRED}
+```
+
+`tests/fixtures/fastapi-bad/web/src/Signup.tsx`:
+
+```tsx
+import { signup } from "./api"
+
+export function SignupForm() {
+  return <form onSubmit={(event) => signup(new FormData(event.currentTarget))} />
+}
+```
+
+`tests/fixtures/fastapi-bad/web/src/api.ts`:
+
+```ts
+export const signup = (body: unknown) =>
+  fetch("/account/signup", { method: "POST", body: JSON.stringify(body) })
+```
+
+Modify `tests/fixtures/fastapi-good/api/app/core/security.py`, replace:
+
+```python
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+```
+
+with:
+
+```python
+import secrets
+
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+```
+
+Modify `tests/fixtures/fastapi-good/api/app/core/security.py`, replace:
+
+```python
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+```
+
+with:
+
+```python
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+DUMMY_HASH = pwd_context.hash(secrets.token_urlsafe(32))
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    return pwd_context.verify(password, hashed)
+```
+
+`tests/fixtures/fastapi-good/api/app/routes/account.py`:
+
+```python
+import logging
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
+
+from app.core.deps import CurrentUser
+from app.core.rate_limit import limiter
+from app.services.accounts import GENERIC, AccountService
+from app.services.turnstile import verify_turnstile
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/account")
+
+
+@router.post("/signup")
+@limiter.limit("3/hour")
+async def signup(request: Request, data: SignupRequest, background: BackgroundTasks):
+    await verify_turnstile(data.turnstile_token)
+    return await AccountService().create_account(data, background)
+
+
+@router.post("/login")
+@limiter.limit("5/minute")
+async def login(request: Request, data: LoginRequest, response: Response):
+    await verify_turnstile(data.turnstile_token)
+    user = await AccountService().authenticate(data.email, data.password, data.totp_code)
+    if user is None:
+        logger.warning("failed sign-in")
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    response.set_cookie("session", AccountService().issue(user), httponly=True, secure=True, samesite="lax")
+    return {"ok": True}
+
+
+@router.post("/logout")
+async def logout(response: Response, current_user: CurrentUser):
+    await AccountService().revoke_sessions(current_user)
+    response.delete_cookie("session")
+    return {"ok": True}
+
+
+@router.post("/token/refresh")
+async def refresh_session(refresh_token: str):
+    return AccountService().refresh(refresh_token)
+
+
+@router.post("/forgot-password")
+@limiter.limit("3/hour")
+async def forgot_password(request: Request, data: ForgotRequest, background: BackgroundTasks):
+    await verify_turnstile(data.turnstile_token)
+    background.add_task(AccountService().send_reset, data.email)
+    return {"message": GENERIC}
+
+
+@router.post("/reset-password")
+@limiter.limit("10/hour")
+async def reset_password(request: Request, data: ResetRequest):
+    await verify_turnstile(data.turnstile_token)
+    return await AccountService().reset_password(data.token, data.new_password)
+
+
+@router.post("/verify-email")
+@limiter.limit("10/hour")
+async def verify_email(request: Request, token: str):
+    return await AccountService().verify_email(token)
+
+
+@router.patch("/me")
+async def update_me(data: ProfileUpdate, current_user: CurrentUser):
+    return await AccountService().update_profile(current_user, data)
+
+
+@router.post("/me/email")
+async def change_email(data: EmailChange, current_user: CurrentUser, background: BackgroundTasks):
+    return await AccountService().request_email_change(current_user, data, background)
+```
+
+`tests/fixtures/fastapi-good/api/app/services/accounts.py`:
+
+```python
+import hashlib
+import secrets
+from datetime import datetime, timedelta, timezone
+
+import pyotp
+from fastapi import HTTPException
+from sqlalchemy import select
+
+from app.core.security import DUMMY_HASH, create_token, decode_token, hash_password, verify_password
+from app.models import User
+from app.services.mailer import send_email
+
+GENERIC = "Check your email to continue"
+SESSION_LIMIT = timedelta(days=7)
+LINK_LIFETIME = timedelta(hours=1)
+
+
+def digest(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+class AccountService:
+    def __init__(self, db=None):
+        self.db = db
+
+    async def find_by_email(self, email):
+        result = await self.db.execute(select(User).where(User.email == email))
+        return result.scalar_one_or_none()
+
+    async def create_account(self, data, background):
+        if await self.find_by_email(data.email):
+            background.add_task(send_email, data.email, "Someone tried to sign up", "")
+            return {"message": GENERIC}
+        token = secrets.token_urlsafe(32)
+        self.db.add(User(email=data.email, password_hash=hash_password(data.password), verify_token_hash=digest(token)))
+        background.add_task(send_email, data.email, "Confirm your email", token)
+        return {"message": GENERIC}
+
+    async def authenticate(self, email, password, totp_code):
+        user = await self.find_by_email(email)
+        if user is None:
+            verify_password(password, DUMMY_HASH)
+            return None
+        if not verify_password(password, user.password_hash):
+            return None
+        if user.totp_secret and not pyotp.TOTP(user.totp_secret).verify(totp_code):
+            return None
+        return user
+
+    def issue(self, user):
+        now = datetime.now(timezone.utc)
+        return create_token({"sub": user.id, "auth_time": now.timestamp()}, timedelta(minutes=30))
+
+    async def revoke_sessions(self, user):
+        user.tokens_invalidated_at = datetime.now(timezone.utc)
+
+    def refresh(self, refresh_token):
+        payload = decode_token(refresh_token)
+        started = datetime.fromtimestamp(payload["auth_time"], timezone.utc)
+        if datetime.now(timezone.utc) - started > SESSION_LIMIT:
+            raise HTTPException(status_code=401, detail="Sign in again")
+        claims = {"sub": payload["sub"], "auth_time": payload["auth_time"]}
+        return {"access_token": create_token(claims, timedelta(minutes=30))}
+
+    async def send_reset(self, email):
+        user = await self.find_by_email(email)
+        if user is None:
+            return None
+        token = secrets.token_urlsafe(32)
+        user.reset_token_hash = digest(token)
+        user.reset_sent_at = datetime.now(timezone.utc)
+        await send_email(user.email, "Reset your password", token)
+
+    async def reset_password(self, token, new_password):
+        query = select(User).where(User.reset_token_hash == digest(token))
+        user = (await self.db.execute(query)).scalar_one_or_none()
+        if user is None or datetime.now(timezone.utc) - user.reset_sent_at > LINK_LIFETIME:
+            raise HTTPException(status_code=400, detail="This link has expired")
+        user.password_hash = hash_password(new_password)
+        user.reset_token_hash = None
+        return {"ok": True}
+
+    async def verify_email(self, token):
+        query = select(User).where(User.verify_token_hash == digest(token))
+        user = (await self.db.execute(query)).scalar_one_or_none()
+        if user is None or datetime.now(timezone.utc) - user.created_at > LINK_LIFETIME:
+            raise HTTPException(status_code=400, detail="This link has expired")
+        user.verified = True
+        user.verify_token_hash = None
+        return {"ok": True}
+
+    async def update_profile(self, user, data):
+        allowed_fields = {"full_name", "phone"}
+        for field, value in data.model_dump(exclude_unset=True).items():
+            if field in allowed_fields:
+                setattr(user, field, value)
+        return {"ok": True}
+
+    async def request_email_change(self, user, data, background):
+        if not verify_password(data.current_password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Password required")
+        token = secrets.token_urlsafe(32)
+        user.pending_email = data.new_email
+        user.email_change_token_hash = digest(token)
+        background.add_task(send_email, data.new_email, "Confirm your new email", token)
+        return {"message": GENERIC}
+```
+
+`tests/fixtures/fastapi-good/api/app/services/mailer.py`:
+
+```python
+async def send_email(to_address, subject, body):
+    return None
+```
+
+Modify `tests/fixtures/fastapi-good/api/requirements.txt`, replace:
+
+```text
+passlib[bcrypt]==1.7.4
+openpyxl==3.1.2
+defusedxml==0.7.1
+```
+
+with:
+
+```text
+passlib[bcrypt]==1.7.4
+openpyxl==3.1.2
+defusedxml==0.7.1
+pyotp==2.9.0
+python-jose==3.3.0
+```
+
+Modify `tests/fixtures/fastapi-good/expected.yaml`, replace:
+
+```yaml
+  - ABUSE-PAID-UNAUTH
+  - ABUSE-PAID-UNLIMITED
+  - ABUSE-UPLOAD-UNBOUNDED
+  - BASE-COOKIE-HTTPONLY
+  - BASE-COOKIE-SAMESITE
+  - BASE-COOKIE-SECURE
+```
+
+with:
+
+```yaml
+  - ABUSE-PAID-UNAUTH
+  - ABUSE-PAID-UNLIMITED
+  - ABUSE-UPLOAD-UNBOUNDED
+  - AUTH-ENUM-LOCKOUT-STATUS
+  - AUTH-ENUM-RESET-MESSAGE
+  - AUTH-ENUM-SIGNUP-MESSAGE
+  - AUTH-ENUM-TIMING
+  - BASE-COOKIE-HTTPONLY
+  - BASE-COOKIE-SAMESITE
+  - BASE-COOKIE-SECURE
+```
+
+`tests/fixtures/fastapi-good/web/src/Signup.tsx`:
+
+```tsx
+import { signup } from "./api"
+
+export function SignupForm() {
+  return <form onSubmit={(event) => signup(new FormData(event.currentTarget))} />
+}
+```
+
+`tests/fixtures/fastapi-good/web/src/api.ts`:
+
+```ts
+export const signup = (body: unknown) =>
+  fetch("/account/signup", { method: "POST", body: JSON.stringify(body) })
+```
+
+Modify `tests/fixtures/next-supabase-bad/app/api/signup/route.ts`, replace:
+
+```ts
+    cookies().set("session", String(user.id), { path: "/" })
+  } catch (err) {
+    console.error("signup failed", body)
+    return NextResponse.json({ error: "failed" }, { status: 500 })
+  }
+  return NextResponse.json({ ok: true })
+}
+```
+
+with:
+
+```ts
+    cookies().set("session", String(user.id), { path: "/" })
+  } catch (err) {
+    console.error("signup failed", body)
+    return NextResponse.json({ error: "Email already registered" }, { status: 409 })
+  }
+  return NextResponse.json({ ok: true })
+}
+```
+
+Modify `tests/fixtures/next-supabase-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: ABUSE-NO-KILL-SWITCH, file: app/api/generate/route.ts, line: 6, tag: INFERRED}
+  - {rule: ABUSE-PAID-UNAUTH, file: app/api/generate/route.ts, line: 6, tag: CONFIRMED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: app/api/generate/route.ts, line: 6, tag: INFERRED}
+  - {rule: BASE-COOKIE-HTTPONLY, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+  - {rule: BASE-COOKIE-SAMESITE, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+  - {rule: BASE-COOKIE-SECURE, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: ABUSE-NO-KILL-SWITCH, file: app/api/generate/route.ts, line: 6, tag: INFERRED}
+  - {rule: ABUSE-PAID-UNAUTH, file: app/api/generate/route.ts, line: 6, tag: CONFIRMED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: app/api/generate/route.ts, line: 6, tag: INFERRED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: app/api/signup/route.ts, line: 12, tag: CONFIRMED}
+  - {rule: BASE-COOKIE-HTTPONLY, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+  - {rule: BASE-COOKIE-SAMESITE, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+  - {rule: BASE-COOKIE-SECURE, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+```
+
+Modify `tests/fixtures/next-supabase-good/expected.yaml`, replace:
+
+```yaml
+  - ABUSE-PAID-UNAUTH
+  - ABUSE-PAID-UNLIMITED
+  - ABUSE-UPLOAD-UNBOUNDED
+  - BASE-COOKIE-HTTPONLY
+  - BASE-COOKIE-SAMESITE
+  - BASE-COOKIE-SECURE
+```
+
+with:
+
+```yaml
+  - ABUSE-PAID-UNAUTH
+  - ABUSE-PAID-UNLIMITED
+  - ABUSE-UPLOAD-UNBOUNDED
+  - AUTH-ENUM-SIGNUP-MESSAGE
+  - BASE-COOKIE-HTTPONLY
+  - BASE-COOKIE-SAMESITE
+  - BASE-COOKIE-SECURE
+```
+
+`tests/reviews/test_auth_enum.py`:
+
+```python
+from tests.reviews.auth_app import SERVICE, auth_app
+from tests.reviews.helpers import findings_for, write
+
+
+def locations(found):
+    return sorted(str(f.locations[0]) for f in found)
+
+
+def test_signup_message_that_confirms_an_account(tmp_path):
+    service = SERVICE.replace(
+        'raise ValueError("Check your email to continue")',
+        'raise ValueError("An account with this email already exists")',
+    )
+    auth_app(tmp_path, service=service)
+    [finding] = findings_for(tmp_path, "auth", "AUTH-ENUM-SIGNUP-MESSAGE")
+    assert (finding.tag.value, str(finding.locations[0])) == (
+        "CONFIRMED",
+        "api/app/services/auth_service.py:16",
+    )
+    assert str(finding.locations[-1]) == "api/app/routes/auth.py:17"
+
+
+def test_generic_signup_message_and_logged_text_are_not_reported(tmp_path):
+    service = SERVICE.replace(
+        'raise ValueError("Check your email to continue")',
+        'logger.info("user already exists")\n            return {"message": "Check your email"}',
+    )
+    auth_app(tmp_path, service=service)
+    assert findings_for(tmp_path, "auth", "AUTH-ENUM-SIGNUP-MESSAGE") == []
+
+
+def test_javascript_signup_and_reset_messages(tmp_path):
+    write(
+        tmp_path,
+        "server/auth.js",
+        "router.post('/signup', async (req, res) => {\n"
+        "  if (await db.user.findFirst({ where: { email: req.body.email } })) {\n"
+        "    console.log('email already registered')\n"
+        "    return res.status(409).json({ error: 'Email already registered' })\n  }\n"
+        "  res.json({ ok: true })\n})\n"
+        "router.post('/forgot-password', async (req, res) => {\n"
+        "  return res.status(404).json({ error: 'No account with that email' })\n})\n"
+        "router.post('/password/forgot', async (req, res) => res.json({ message: 'Check your inbox' }))\n",
+    )
+    assert locations(findings_for(tmp_path, "auth", "AUTH-ENUM-SIGNUP-MESSAGE")) == [
+        "server/auth.js:4"
+    ]
+    assert locations(findings_for(tmp_path, "auth", "AUTH-ENUM-RESET-MESSAGE")) == [
+        "server/auth.js:9"
+    ]
+
+
+def test_locked_account_status_and_message(tmp_path):
+    routes_423 = (
+        "from fastapi import APIRouter, HTTPException, status\nrouter = APIRouter()\n"
+        "@router.post('/login')\nasync def login(data):\n"
+        "    if await is_locked(data.email):\n"
+        "        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail='Try later')\n"
+        "    raise HTTPException(status_code=401, detail='Invalid email or password')\n"
+    )
+    write(tmp_path, "a/routes.py", routes_423)
+    write(
+        tmp_path,
+        "b/routes.js",
+        "router.post('/signin', (req, res) => {\n"
+        "  if (locked) return res.status(403).json({ error: 'Too many failed attempts' })\n})\n",
+    )
+    assert locations(findings_for(tmp_path, "auth", "AUTH-ENUM-LOCKOUT-STATUS")) == [
+        "a/routes.py:6",
+        "b/routes.js:2",
+    ]
+
+
+def test_lock_recorded_server_side_with_a_generic_response_is_fine(tmp_path):
+    write(
+        tmp_path,
+        "a/routes.py",
+        "from fastapi import APIRouter, HTTPException\nrouter = APIRouter()\n"
+        "@router.post('/login')\nasync def login(data):\n"
+        "    if await is_locked(data.email):\n"
+        "        logger.warning('account locked until later')\n"
+        "        raise HTTPException(status_code=401, detail='Invalid email or password')\n",
+    )
+    assert findings_for(tmp_path, "auth", "AUTH-ENUM-LOCKOUT-STATUS") == []
+
+
+def test_sign_in_timing_needs_an_early_return_without_a_dummy_hash(tmp_path):
+    auth_app(tmp_path)
+    [finding] = findings_for(tmp_path, "auth", "AUTH-ENUM-TIMING")
+    assert (finding.tag.value, str(finding.locations[0])) == (
+        "INFERRED",
+        "api/app/services/auth_service.py:4",
+    )
+    assert finding.title == "Sign-in response time reveals whether an account exists"
+    dummy = SERVICE.replace(
+        "        if user is None:\n            return None\n",
+        "        if user is None:\n            verify_password(password, DUMMY_HASH)\n"
+        "            return None\n",
+    )
+    auth_app(tmp_path, service=dummy)
+    assert findings_for(tmp_path, "auth", "AUTH-ENUM-TIMING") == []
+
+
+def test_reset_timing_inline_send_versus_background_task(tmp_path):
+    inline = SERVICE.replace(
+        "    async def initiate_password_reset(self, email):\n"
+        "        user = await self.get_user_by_email(email)\n        return user\n",
+        "    async def initiate_password_reset(self, email):\n"
+        "        user = await self.get_user_by_email(email)\n"
+        "        if not user:\n            return None\n"
+        "        await mailer.send_reset_email(user.email)\n",
+    )
+    auth_app(tmp_path, service=inline)
+    found = findings_for(tmp_path, "auth", "AUTH-ENUM-TIMING")
+    assert "Reset request response time reveals whether an account exists" in [
+        f.title for f in found
+    ]
+    queued = inline.replace(
+        "        await mailer.send_reset_email(user.email)\n",
+        "        await queue.enqueue(mailer.send_reset_email, user.email)\n",
+    )
+    auth_app(tmp_path, service=queued)
+    assert all(
+        f.title.startswith("Sign-in") for f in findings_for(tmp_path, "auth", "AUTH-ENUM-TIMING")
+    )
+
+
+def test_one_time_token_lookup_is_not_an_unscoped_record(tmp_path):
+    write(
+        tmp_path,
+        "server/verify.js",
+        "router.get('/verify', async (req, res) => {\n"
+        "  const user = await prisma.user.findFirst({ where: { verifyToken: req.query.token } })\n"
+        "  res.json({ ok: !!user })\n})\n",
+    )
+    assert findings_for(tmp_path, "owasp", "OWASP-A01-UNSCOPED-QUERY") == []
+
+
+def test_public_email_form_is_not_reported_as_paid_without_sign_in(tmp_path):
+    write(tmp_path, "package.json", '{"dependencies": {"express": "4", "nodemailer": "6"}}')
+    write(
+        tmp_path,
+        "server/app.js",
+        "import nodemailer from 'nodemailer'\nconst mail = nodemailer.createTransport({})\n"
+        "app.post('/forgot-password', async (req, res) => {\n"
+        "  await mail.sendMail({ to: req.body.email })\n  res.json({ ok: true })\n})\n"
+        "app.post('/campaigns/send', async (req, res) => {\n"
+        "  await mail.sendMail({ to: req.body.list })\n  res.json({ ok: true })\n})\n",
+    )
+    found = findings_for(tmp_path, "abuse", "ABUSE-PAID-UNAUTH")
+    assert [str(f.locations[0]) for f in found] == ["server/app.js:7"]
+    assert len(findings_for(tmp_path, "abuse", "ABUSE-PAID-UNLIMITED")) == 2
+```
+
+Modify `tests/reviews/test_auth_section.py`, replace:
+
+```python
+from dpr.model import Finding, Location, Tag
+from dpr.report.markdown import render_markdown
+from dpr.reviews import auth
+from dpr.walk import RepoIndex
+from tests.reviews.auth_app import auth_app
+from tests.reviews.helpers import write
+```
+
+with:
+
+```python
+from dpr.model import Finding, Location, Tag
+from dpr.report.markdown import render_markdown
+from dpr.reviews import auth
+from dpr.reviews.auth_flows import record_pass
+from dpr.walk import RepoIndex
+from tests.reviews.auth_app import auth_app
+from tests.reviews.helpers import write
+```
+
+Modify `tests/reviews/test_auth_section.py`, replace:
+
+```python
+
+def test_failing_cases_come_first_by_exploitability_and_passes_are_named(tmp_path):
+    ctx = context(auth_app(tmp_path))
+    auth.record_pass(
+        ctx, 7, Tag.CONFIRMED, "The reset request carries only the token", Location("a.py", 3)
+    )
+    findings = [
+```
+
+with:
+
+```python
+
+def test_failing_cases_come_first_by_exploitability_and_passes_are_named(tmp_path):
+    ctx = context(auth_app(tmp_path))
+    record_pass(
+        ctx, 7, Tag.CONFIRMED, "The reset request carries only the token", Location("a.py", 3)
+    )
+    findings = [
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_auth_enum.py tests/reviews/test_auth_section.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 1 error; collection stops at `ImportError: cannot import name 'record_pass' from 'dpr.reviews.auth_flows'`)
+
+- [ ] **Step 3: Write the code helpers and the enumeration rules**
+
+`src/dpr/data/rule_text/auth_enum.yaml`:
+
+```yaml
+AUTH-ENUM-SIGNUP-MESSAGE:
+  title: Signup tells the caller an address is already registered
+  effort_minutes: 20
+  detail: ${route} answers with a distinct message when the email already has an account (first location), so anyone can test which addresses are customers.
+  attack: Submit a list of email addresses to the signup endpoint and keep the ones that return the already-registered message; use them for credential stuffing or phishing.
+  blast: The list of every registered email address.
+  fix: Return the same "check your email to continue" response for new and existing addresses, and email the existing owner that someone tried to sign up.
+  verify: Sign up twice with the same address and confirm both responses are identical.
+AUTH-ENUM-RESET-MESSAGE:
+  title: Reset request tells the caller an address is not registered
+  effort_minutes: 15
+  detail: ${route} answers with a distinct message when no account matches the address (first location).
+  attack: Request resets for a list of addresses and keep the ones that do not return the not-found message.
+  blast: The list of every registered email address.
+  fix: Return one generic message ("if the address has an account, a link is on its way") whether or not the account exists.
+  verify: Request a reset for a registered and an unregistered address and confirm the responses are identical.
+AUTH-ENUM-LOCKOUT-STATUS:
+  title: Locked accounts get a different sign-in response
+  effort_minutes: 20
+  detail: ${route} returns a distinct status code or message when an account is locked (first location). Only real accounts can be locked, so the response confirms the account exists, and repeating failures keeps a known account locked.
+  attack: Fail sign-in on an address until the locked response appears to confirm it exists, then keep failing on schedule to lock the owner out.
+  blast: Account enumeration for every address, and a denial of service against any known account.
+  fix: Return the same 401 and message for wrong passwords, unknown accounts and locked accounts; record the lock server side and tell the owner by email.
+  verify: Lock a test account and confirm the response matches a wrong password on an unknown address.
+AUTH-ENUM-TIMING:
+  title: ${flow} response time reveals whether an account exists
+  effort_minutes: 30
+  detail: ${what} Route ${route}.
+  proof_needed: Time twenty requests for a registered and an unregistered address against a local stack and compare the distributions.
+  attack: Measure response times for candidate addresses and keep the slower ones.
+  blast: The list of registered email addresses.
+  fix: On sign-in, verify the password against a fixed dummy hash when no account matches. On reset, send the email from a background task or queue so both paths return in the same time.
+  verify: Compare median latency for known and unknown addresses; they should be within noise.
+```
+
+Modify `src/dpr/reviews/abuse_paid.py`, replace:
+
+```python
+def paid_unauth(ctx: Context) -> Iterator[Finding]:
+    for paid in paid_routes(ctx):
+        route = paid.route
+        if access(ctx, route).level == PUBLIC and not is_test(route.file):
+            yield make_finding(
+                "ABUSE-PAID-UNAUTH",
+```
+
+with:
+
+```python
+def paid_unauth(ctx: Context) -> Iterator[Finding]:
+    for paid in paid_routes(ctx):
+        route = paid.route
+        if route.is_public_form and paid.sdk.category in ("email", "sms"):
+            continue
+        if access(ctx, route).level == PUBLIC and not is_test(route.file):
+            yield make_finding(
+                "ABUSE-PAID-UNAUTH",
+```
+
+Modify `src/dpr/reviews/auth.py`, replace:
+
+```python
+
+from dataclasses import dataclass
+
+from dpr.data import load
+from dpr.model import EXPLOIT_ORDER, Finding, Location, Part, ReviewSection, Tag
+from dpr.reviews.auth_flows import flows, flows_of, lifetimes, managed_provider
+from dpr.rules import Context
+
+```
+
+with:
+
+```python
+
+from dataclasses import dataclass
+
+import dpr.reviews.auth_enum  # noqa: F401  (registers rules)
+from dpr.data import load
+from dpr.model import EXPLOIT_ORDER, Finding, Part, ReviewSection, Tag
+from dpr.reviews.auth_flows import flows, flows_of, lifetimes, managed_provider
+from dpr.rules import Context
+
+```
+
+Modify `src/dpr/reviews/auth.py`, replace:
+
+```python
+    order: int
+
+
+def record_pass(ctx: Context, case: int | str, tag: Tag, text: str, location: Location) -> None:
+    """Rules call this with evidence that a case holds, so the section can say PASSES."""
+    ctx.facts.setdefault("auth_passes", {}).setdefault(case, []).append((tag, text, location))
+
+
+def _flow_lines(ctx: Context) -> str:
+    lines = []
+    provider = managed_provider(ctx)
+```
+
+with:
+
+```python
+    order: int
+
+
+def _flow_lines(ctx: Context) -> str:
+    lines = []
+    provider = managed_provider(ctx)
+```
+
+`src/dpr/reviews/auth_code.py`:
+
+```python
+"""Small readers over the code of an auth flow: literals sent to the caller, early exits, calls."""
+
+from __future__ import annotations
+
+import ast
+import re
+from collections.abc import Iterator
+
+from dpr.model import Location
+from dpr.parsing import jsts, pyast
+from dpr.reviews.auth_flows import Code
+
+RESPONSE_CALL = re.compile(
+    r"(?:^|\.)(?:HTTPException|JSONResponse|Response|jsonify|abort|make_response|ValueError"
+    r"|ValidationError|PermissionError|json|send|status|NextResponse|redirect|render)$"
+)
+LOG_CALL = re.compile(r"(?:^|\.)(?:logger|logging|log|console|print)\b|^print$")
+MISSING_TEST = re.compile(r"\bis None\b|^not \w+$|== None|^!\w+$|=== null|== null|^!\w+\.\w+$")
+PASSWORD_VERIFY = re.compile(
+    r"(?:^|\.)(?:verify_password|check_password|checkpw|compare|compareSync)$"
+    r"|(?:pwd_context|password_context|context|hasher|argon2|bcrypt|crypt_context|ph)\.verify$"
+)
+DUMMY = re.compile(r"(?i)dummy|fake_hash|timing")
+
+
+def _py_parents(root: ast.AST) -> dict[ast.AST, ast.AST]:
+    return {child: node for node in ast.walk(root) for child in ast.iter_child_nodes(node)}
+
+
+def _py_to_caller(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
+    current = parents.get(node)
+    while current is not None:
+        if isinstance(current, ast.Call):
+            name = pyast.dotted(current.func) or ""
+            if LOG_CALL.search(name):
+                return False
+            if RESPONSE_CALL.search(name):
+                return True
+        if isinstance(current, ast.Raise | ast.Return):
+            return True
+        if isinstance(current, ast.stmt):
+            return False
+        current = parents.get(current)
+    return False
+
+
+def _js_to_caller(node) -> bool:
+    current = node.parent
+    while current is not None:
+        if current.type == "call_expression":
+            name = jsts.callee(current)
+            if LOG_CALL.search(name):
+                return False
+            if RESPONSE_CALL.search(name):
+                return True
+        if current.type in ("return_statement", "throw_statement", "new_expression"):
+            return True
+        if current.type.endswith("statement") or current.type in jsts.FUNCTION_TYPES:
+            return False
+        current = current.parent
+    return False
+
+
+def caller_literals(code: Code) -> Iterator[tuple[str, Location]]:
+    """String literals that reach the HTTP response or an exception, not a log call."""
+    if code.python:
+        parents = _py_parents(code.node)
+        for node in ast.walk(code.node):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                owner = parents.get(node)
+                anchor = owner if isinstance(owner, ast.JoinedStr) else node
+                if _py_to_caller(anchor, parents):
+                    yield node.value, Location(code.rel, node.lineno)
+        return
+    for node in jsts.walk(code.node, {"string", "template_string"}):
+        if _js_to_caller(node):
+            yield jsts.node_text(node).strip("'\"`"), Location(code.rel, jsts.line(code.tree, node))
+
+
+def status_codes(code: Code, values: tuple[int, ...]) -> Iterator[Location]:
+    """Places where the flow sets one of these HTTP status codes."""
+    names = {f"HTTP_{v}" for v in values}
+    if code.python:
+        for node in ast.walk(code.node):
+            if isinstance(node, ast.Attribute) and any(node.attr.startswith(n) for n in names):
+                yield Location(code.rel, node.lineno)
+            if isinstance(node, ast.keyword) and node.arg in ("status_code", "status"):
+                if pyast.constant(node.value, None) in values:
+                    yield Location(code.rel, node.value.lineno)
+        return
+    for call in jsts.walk(code.node, {"call_expression"}):
+        args = jsts.arguments(call)
+        if (
+            jsts.callee(call).endswith("status")
+            and args
+            and jsts.node_text(args[0]) in map(str, values)
+        ):
+            yield Location(code.rel, jsts.line(code.tree, call))
+    for pair in jsts.walk(code.node, {"pair"}):
+        key = jsts.node_text(pair.child_by_field_name("key"))
+        value = jsts.node_text(pair.child_by_field_name("value"))
+        if key == "status" and value in map(str, values):
+            yield Location(code.rel, jsts.line(code.tree, pair))
+
+
+def early_exit_before(code: Code, pattern: re.Pattern[str]) -> Location | None:
+    """An exit taken when a looked-up record is missing, before a call matching the pattern."""
+    if code.python:
+        calls = [n for n in ast.walk(code.node) if isinstance(n, ast.Call)]
+        targets = [c.lineno for c in calls if pattern.search(pyast.dotted(c.func) or "")]
+        if not targets:
+            return None
+        for node in ast.walk(code.node):
+            if not isinstance(node, ast.If) or node.lineno >= min(targets):
+                continue
+            exits = any(isinstance(s, ast.Return | ast.Raise) for s in node.body)
+            inside = any(
+                pattern.search(pyast.dotted(c.func) or "")
+                for s in node.body
+                for c in ast.walk(s)
+                if isinstance(c, ast.Call)
+            )
+            if exits and not inside and MISSING_TEST.search(ast.unparse(node.test)):
+                return Location(code.rel, node.lineno)
+        return None
+    calls = list(jsts.walk(code.node, {"call_expression"}))
+    targets = [jsts.line(code.tree, c) for c in calls if pattern.search(jsts.callee(c))]
+    if not targets:
+        return None
+    for node in jsts.walk(code.node, {"if_statement"}):
+        line = jsts.line(code.tree, node)
+        condition = jsts.node_text(node.child_by_field_name("condition")).strip("() ")
+        body = jsts.node_text(node.child_by_field_name("consequence"))
+        exits = "return" in body or "throw" in body
+        if line < min(targets) and exits and MISSING_TEST.search(condition):
+            if not pattern.search(body):
+                return Location(code.rel, line)
+    return None
+
+
+def has_dummy_hash(code: Code) -> bool:
+    return bool(DUMMY.search(code.text()))
+
+
+def call_names(code: Code) -> list[tuple[str, int]]:
+    if code.python:
+        return [
+            (pyast.dotted(n.func) or "", n.lineno)
+            for n in ast.walk(code.node)
+            if isinstance(n, ast.Call)
+        ]
+    return [
+        (jsts.callee(c), jsts.line(code.tree, c)) for c in jsts.walk(code.node, {"call_expression"})
+    ]
+```
+
+`src/dpr/reviews/auth_enum.py`:
+
+```python
+"""Review 3: responses and timing that tell a caller whether an account exists."""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Iterator
+
+from dpr.model import Finding, Tag
+from dpr.redact import snippet
+from dpr.reviews.auth_code import (
+    PASSWORD_VERIFY,
+    call_names,
+    caller_literals,
+    early_exit_before,
+    has_dummy_hash,
+    status_codes,
+)
+from dpr.reviews.auth_flows import Flow, flows_of, record_pass
+from dpr.rules import Context, make_finding, rule
+
+EXISTS = re.compile(
+    r"(?i)already (?:registered|exists|in use|taken|signed up)"
+    r"|(?:email|account|user(?:name)?) (?:is )?(?:already )?(?:taken|exists|in use)"
+    r"|account with (?:this|that) email"
+)
+NOT_FOUND = re.compile(
+    r"(?i)no (?:account|user)s? (?:found|exists?|with|for)|(?:not|isn't|is not) registered"
+    r"|does(?:n't| not) exist|(?:email|account|user) (?:was )?not found"
+    r"|unknown (?:email|account|user)"
+)
+LOCKED = re.compile(
+    r"(?i)account (?:is )?(?:temporarily )?locked|locked (?:out|until)|too many (?:failed )?"
+    r"(?:login |sign-?in )?attempts|try again (?:after|in)"
+)
+SEND = re.compile(r"(?:^|\.)(?:send\w*|deliver\w*|mail)$")
+BACKGROUND = re.compile(
+    r"add_task|BackgroundTasks|\.delay\(|apply_async|enqueue|queue|setImmediate|nextTick|waitUntil"
+)
+
+
+def _message_findings(
+    ctx: Context, flow: Flow, rule_id: str, pattern: re.Pattern[str]
+) -> Finding | None:
+    hits = [
+        loc for code in flow.code for text, loc in caller_literals(code) if pattern.search(text)
+    ]
+    if not hits:
+        return None
+    locations = sorted(set(hits), key=lambda loc: (loc.file, loc.line))
+    first = locations[0]
+    return make_finding(
+        rule_id,
+        tag=Tag.CONFIRMED,
+        locations=[*locations, flow.location],
+        snippet=snippet(ctx.index.text(first.file), first.line),
+        route=f"{flow.route.method} {flow.route.path}",
+    )
+
+
+@rule(
+    "AUTH-ENUM-SIGNUP-MESSAGE",
+    review="auth",
+    severity="medium",
+    exploitability="medium",
+    owasp="A07",
+)
+def signup_message(ctx: Context) -> Iterator[Finding]:
+    for flow in flows_of(ctx, "register"):
+        finding = _message_findings(ctx, flow, "AUTH-ENUM-SIGNUP-MESSAGE", EXISTS)
+        if finding:
+            yield finding
+        else:
+            record_pass(
+                ctx,
+                4,
+                Tag.INFERRED,
+                "No response in the signup flow says the address is already registered",
+                flow.location,
+            )
+
+
+@rule(
+    "AUTH-ENUM-RESET-MESSAGE",
+    review="auth",
+    severity="medium",
+    exploitability="medium",
+    owasp="A07",
+)
+def reset_message(ctx: Context) -> Iterator[Finding]:
+    for flow in flows_of(ctx, "forgot"):
+        finding = _message_findings(ctx, flow, "AUTH-ENUM-RESET-MESSAGE", NOT_FOUND)
+        if finding:
+            yield finding
+        else:
+            record_pass(
+                ctx,
+                2,
+                Tag.INFERRED,
+                "No response in the reset request flow says the address is unknown",
+                flow.location,
+            )
+
+
+@rule(
+    "AUTH-ENUM-LOCKOUT-STATUS",
+    review="auth",
+    severity="medium",
+    exploitability="medium",
+    owasp="A07",
+)
+def lockout_status(ctx: Context) -> Iterator[Finding]:
+    for flow in flows_of(ctx, "login"):
+        hits = [loc for code in flow.code for loc in status_codes(code, (423,))]
+        hits += [
+            loc for code in flow.code for text, loc in caller_literals(code) if LOCKED.search(text)
+        ]
+        if not hits:
+            continue
+        locations = sorted(set(hits), key=lambda loc: (loc.file, loc.line))
+        yield make_finding(
+            "AUTH-ENUM-LOCKOUT-STATUS",
+            tag=Tag.CONFIRMED,
+            locations=[*locations, flow.location],
+            snippet=snippet(ctx.index.text(locations[0].file), locations[0].line),
+            route=f"{flow.route.method} {flow.route.path}",
+        )
+
+
+def _timing(ctx: Context, flow: Flow) -> Finding | None:
+    if flow.kind == "login":
+        for code in flow.code:
+            exit_at = early_exit_before(code, PASSWORD_VERIFY)
+            if exit_at and not has_dummy_hash(code):
+                what = (
+                    "The sign-in code returns as soon as no account matches, before any password "
+                    "hash is checked, so unknown addresses answer measurably faster."
+                )
+                return _timing_finding(ctx, flow, exit_at, what, "Sign-in")
+        return None
+    for code in flow.code:
+        exit_at = early_exit_before(code, SEND)
+        sends = [line for name, line in call_names(code) if SEND.search(name)]
+        if exit_at and sends and not BACKGROUND.search(code.text()):
+            what = (
+                "The reset request returns early when no account matches, and only real accounts "
+                "wait for the email to be sent inside the request, so response time reveals which "
+                "addresses are registered."
+            )
+            return _timing_finding(ctx, flow, exit_at, what, "Reset request")
+    return None
+
+
+def _timing_finding(ctx: Context, flow: Flow, exit_at, what: str, name: str) -> Finding:
+    return make_finding(
+        "AUTH-ENUM-TIMING",
+        tag=Tag.INFERRED,
+        locations=[exit_at, flow.location],
+        snippet=snippet(ctx.index.text(exit_at.file), exit_at.line),
+        route=f"{flow.route.method} {flow.route.path}",
+        flow=name,
+        what=what,
+    )
+
+
+@rule("AUTH-ENUM-TIMING", review="auth", severity="low", exploitability="low", owasp="A07")
+def enumeration_timing(ctx: Context) -> Iterator[Finding]:
+    for flow in flows_of(ctx, "login", "forgot"):
+        finding = _timing(ctx, flow)
+        if finding:
+            yield finding
+```
+
+Modify `src/dpr/reviews/auth_flows.py`, replace:
+
+```python
+import re
+from dataclasses import dataclass, field
+
+from dpr.model import DataModel, Location, Route
+from dpr.parsing import jsts, pyast
+from dpr.parsing.routes_js import _function_named
+from dpr.reviews.access import ADMIN, PUBLIC, access
+```
+
+with:
+
+```python
+import re
+from dataclasses import dataclass, field
+
+from dpr.model import DataModel, Location, Route, Tag
+from dpr.parsing import jsts, pyast
+from dpr.parsing.routes_js import _function_named
+from dpr.reviews.access import ADMIN, PUBLIC, access
+```
+
+Modify `src/dpr/reviews/auth_flows.py`, replace:
+
+```python
+        return Location(self.route.file, self.route.line)
+
+
+def managed_provider(ctx: Context) -> str | None:
+    names = [MANAGED[p] for p in ctx.detection.auth_providers if p in MANAGED]
+    return ", ".join(names) or None
+```
+
+with:
+
+```python
+        return Location(self.route.file, self.route.line)
+
+
+def record_pass(ctx: Context, case: int | str, tag: Tag, text: str, location: Location) -> None:
+    """Rules call this with evidence that a case holds, so the section can say PASSES."""
+    ctx.facts.setdefault("auth_passes", {}).setdefault(case, []).append((tag, text, location))
+
+
+def managed_provider(ctx: Context) -> str | None:
+    names = [MANAGED[p] for p in ctx.detection.auth_providers if p in MANAGED]
+    return ", ".join(names) or None
+```
+
+Modify `src/dpr/reviews/lookups.py`, replace:
+
+```python
+    return result
+
+
+def js_keys(handler) -> set[str]:
+    text = jsts.node_text(handler)
+    keys = {next(g for g in m.groups() if g) for m in JS_KEY.finditer(text)}
+    for match in re.finditer(r"\{\s*([\w\s,:]+)\}\s*=\s*(?:await\s+)?(?:\w+\.)?params\b", text):
+        keys.update(n.strip().split(":")[-1].strip() for n in match.group(1).split(","))
+    return {k for k in keys if k}
+
+
+def js_lookups(route: Route, subjects: tuple[str, ...]) -> list[Lookup]:
+```
+
+with:
+
+```python
+    return result
+
+
+ONE_TIME_KEYS = re.compile(r"(?i)token|code|otp|nonce|signature|secret")
+
+
+def js_keys(handler) -> set[str]:
+    text = jsts.node_text(handler)
+    keys = {next(g for g in m.groups() if g) for m in JS_KEY.finditer(text)}
+    for match in re.finditer(r"\{\s*([\w\s,:]+)\}\s*=\s*(?:await\s+)?(?:\w+\.)?params\b", text):
+        keys.update(n.strip().split(":")[-1].strip() for n in match.group(1).split(","))
+    return {k for k in keys if k and not ONE_TIME_KEYS.search(k)}
+
+
+def js_lookups(route: Route, subjects: tuple[str, ...]) -> list[Lookup]:
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (340 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/rule_text/auth_enum.yaml src/dpr/reviews/abuse_paid.py src/dpr/reviews/auth.py src/dpr/reviews/auth_code.py src/dpr/reviews/auth_enum.py src/dpr/reviews/auth_flows.py src/dpr/reviews/lookups.py tests/fixtures/express-prisma/expected.yaml tests/fixtures/express-prisma/src/index.ts tests/fixtures/express-prisma/src/lib/mail.ts tests/fixtures/express-prisma/src/routes/auth.ts tests/fixtures/fastapi-bad/api/app/models.py tests/fixtures/fastapi-bad/api/app/routes/account.py tests/fixtures/fastapi-bad/api/app/services/accounts.py tests/fixtures/fastapi-bad/api/app/services/mailer.py tests/fixtures/fastapi-bad/expected.yaml tests/fixtures/fastapi-bad/web/src/Signup.tsx tests/fixtures/fastapi-bad/web/src/api.ts tests/fixtures/fastapi-good/api/app/core/security.py tests/fixtures/fastapi-good/api/app/routes/account.py tests/fixtures/fastapi-good/api/app/services/accounts.py tests/fixtures/fastapi-good/api/app/services/mailer.py tests/fixtures/fastapi-good/api/requirements.txt tests/fixtures/fastapi-good/expected.yaml tests/fixtures/fastapi-good/web/src/Signup.tsx tests/fixtures/fastapi-good/web/src/api.ts tests/fixtures/next-supabase-bad/app/api/signup/route.ts tests/fixtures/next-supabase-bad/expected.yaml tests/fixtures/next-supabase-good/expected.yaml tests/reviews/test_auth_enum.py tests/reviews/test_auth_section.py
+git commit -m "Report account enumeration through messages, lockout status and timing"
+```
+
+---
+
+### Task 65: Reset and verification token rules
+
+Judge gap 1. `AUTH-TOKEN-PLAINTEXT` reports reset or verification tokens stored and looked up by the raw value (no digest before the write or the query). `AUTH-VERIFY-NO-EXPIRY` and `AUTH-RESET-NO-EXPIRY` report token lookups with no expiry comparison. `AUTH-RESET-TRUSTS-EMAIL` (high) reports a reset that sets a password from an email in the request with no token check. `AUTH-VERIFY-REUSABLE` reports a verification that never clears or marks the token used. Each rule records a pass with evidence when the safe shape is present.
+
+**Files:**
+- Create: `src/dpr/data/rule_text/auth_tokens.yaml`, `src/dpr/reviews/auth_tokens.py`
+- Modify: `src/dpr/data/auth_cases.yaml` (cases 3 and 6 name the token rules)
+- Modify: `src/dpr/reviews/auth.py` (import the rule module)
+- Test: `tests/reviews/test_auth_tokens.py`
+- Modify fixture: `tests/fixtures/express-prisma/expected.yaml` (new token findings)
+- Modify fixture: `tests/fixtures/fastapi-bad/expected.yaml` (new token findings)
+- Modify fixture: `tests/fixtures/fastapi-good/expected.yaml` (token rules must not report)
+
+**Interfaces:**
+- Consumes: flows, `Code`, `record_pass` (Tasks 63 and 64), `auth_code` helpers (Task 64)
+- Produces:
+  - `dpr.reviews.auth_tokens`:
+
+```python
+def token_column(name: str) -> bool: ...
+def plaintext_matches(flow: Flow) -> list[tuple[str, Location]]: ...
+@rule('AUTH-TOKEN-PLAINTEXT', review='auth', severity='low', exploitability='low', owasp='A02')
+def token_plaintext(ctx: Context) -> Iterator[Finding]: ...
+def expiry_checks(flow: Flow) -> list[Location]: ...
+@rule('AUTH-VERIFY-NO-EXPIRY', review='auth', severity='low', exploitability='low', owasp='A07')
+def verify_no_expiry(ctx: Context) -> Iterator[Finding]: ...
+@rule('AUTH-RESET-NO-EXPIRY', review='auth', severity='medium', exploitability='medium', owasp='A07')
+def reset_no_expiry(ctx: Context) -> Iterator[Finding]: ...
+@rule('AUTH-RESET-TRUSTS-EMAIL', review='auth', severity='high', exploitability='high', owasp='A07')
+def reset_trusts_email(ctx: Context) -> Iterator[Finding]: ...
+@rule('AUTH-VERIFY-REUSABLE', review='auth', severity='low', exploitability='low', owasp='A07')
+def verify_reusable(ctx: Context) -> Iterator[Finding]: ...
+```
+
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/fixtures/express-prisma/expected.yaml`, replace:
+
+```yaml
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: src/routes/auth.ts, line: 13, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 22, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 37, tag: INFERRED}
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 4, tag: CONFIRMED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: src/index.ts, line: 5, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: src/index.ts, line: 5, tag: UNVERIFIED}
+```
+
+with:
+
+```yaml
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: src/routes/auth.ts, line: 13, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 22, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 37, tag: INFERRED}
+  - {rule: AUTH-RESET-NO-EXPIRY, file: src/routes/auth.ts, line: 44, tag: INFERRED}
+  - {rule: AUTH-RESET-TRUSTS-EMAIL, file: src/routes/auth.ts, line: 48, tag: INFERRED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: src/routes/auth.ts, line: 45, tag: CONFIRMED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: src/routes/auth.ts, line: 53, tag: CONFIRMED}
+  - {rule: AUTH-VERIFY-NO-EXPIRY, file: src/routes/auth.ts, line: 52, tag: INFERRED}
+  - {rule: AUTH-VERIFY-REUSABLE, file: src/routes/auth.ts, line: 52, tag: INFERRED}
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 4, tag: CONFIRMED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: src/index.ts, line: 5, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: src/index.ts, line: 5, tag: UNVERIFIED}
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 29, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 51, tag: INFERRED}
+  - {rule: BASE-DB-ADMIN-LOGIN, file: infra/main.tf, line: 9, tag: INFERRED}
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 1, tag: CONFIRMED}
+  - {rule: BASE-DEBUG-ON, file: api/app/config.py, line: 5, tag: INFERRED}
+```
+
+with:
+
+```yaml
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 29, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 51, tag: INFERRED}
+  - {rule: AUTH-RESET-NO-EXPIRY, file: api/app/routes/account.py, line: 45, tag: INFERRED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: api/app/services/accounts.py, line: 57, tag: CONFIRMED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: api/app/services/accounts.py, line: 65, tag: CONFIRMED}
+  - {rule: AUTH-VERIFY-NO-EXPIRY, file: api/app/routes/account.py, line: 50, tag: INFERRED}
+  - {rule: AUTH-VERIFY-REUSABLE, file: api/app/routes/account.py, line: 50, tag: INFERRED}
+  - {rule: BASE-DB-ADMIN-LOGIN, file: infra/main.tf, line: 9, tag: INFERRED}
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 1, tag: CONFIRMED}
+  - {rule: BASE-DEBUG-ON, file: api/app/config.py, line: 5, tag: INFERRED}
+```
+
+Modify `tests/fixtures/fastapi-good/expected.yaml`, replace:
+
+```yaml
+  - AUTH-ENUM-RESET-MESSAGE
+  - AUTH-ENUM-SIGNUP-MESSAGE
+  - AUTH-ENUM-TIMING
+  - BASE-COOKIE-HTTPONLY
+  - BASE-COOKIE-SAMESITE
+  - BASE-COOKIE-SECURE
+```
+
+with:
+
+```yaml
+  - AUTH-ENUM-RESET-MESSAGE
+  - AUTH-ENUM-SIGNUP-MESSAGE
+  - AUTH-ENUM-TIMING
+  - AUTH-RESET-NO-EXPIRY
+  - AUTH-RESET-TRUSTS-EMAIL
+  - AUTH-TOKEN-PLAINTEXT
+  - AUTH-VERIFY-NO-EXPIRY
+  - AUTH-VERIFY-REUSABLE
+  - BASE-COOKIE-HTTPONLY
+  - BASE-COOKIE-SAMESITE
+  - BASE-COOKIE-SECURE
+```
+
+`tests/reviews/test_auth_tokens.py`:
+
+```python
+from dpr.api import review
+from dpr.reviews.auth_tokens import token_column
+from tests.reviews.helpers import findings_for, write
+
+ROUTES = (
+    "from fastapi import APIRouter\nfrom app.service import Accounts\nrouter = APIRouter()\n\n"
+    "@router.post('/reset-password')\nasync def reset(data):\n"
+    "    return await Accounts().reset(data)\n\n"
+    "@router.post('/verify-email')\nasync def verify(token: str):\n"
+    "    return await Accounts().verify(token)\n"
+)
+
+
+def app(root, service):
+    write(root, "api/requirements.txt", "fastapi\n")
+    write(root, "api/app/routes.py", ROUTES)
+    write(root, "api/app/service.py", service)
+    return root
+
+
+PLAIN = (
+    "class Accounts:\n"
+    "    async def reset(self, data):\n"
+    "        query = select(User).where(User.password_reset_token == data.token)\n"
+    "        user = (await self.db.execute(query)).scalar_one()\n"
+    "        user.password_hash = hash_password(data.new_password)\n\n"
+    "    async def verify(self, token):\n"
+    "        user = await User.objects.aget(email_verification_token=token)\n"
+    "        user.verified = True\n"
+)
+SAFE = (
+    "class Accounts:\n"
+    "    async def reset(self, data):\n"
+    "        query = select(User).where(User.reset_token_hash == digest(data.token))\n"
+    "        user = (await self.db.execute(query)).scalar_one()\n"
+    "        if datetime.now(timezone.utc) - user.reset_sent_at > LIFETIME:\n"
+    "            raise HTTPException(status_code=400, detail='expired')\n"
+    "        user.reset_token_hash = None\n\n"
+    "    async def verify(self, token):\n"
+    "        user = await User.objects.aget(verification_token_hash=digest(token))\n"
+    "        if user.created_at < now() - LIFETIME:\n            raise Expired()\n"
+    "        user.verification_token_hash = None\n"
+)
+
+
+def test_token_column_names():
+    assert token_column("password_reset_token") and token_column("verifyToken")
+    assert token_column("email_verification_token") and token_column("inviteToken")
+    assert not token_column("reset_token_hash") and not token_column("access_token")
+    assert not token_column("csrf_token")
+
+
+def test_plaintext_comparisons_are_confirmed_per_flow(tmp_path):
+    app(tmp_path, PLAIN)
+    found = {f.title: f for f in findings_for(tmp_path, "auth", "AUTH-TOKEN-PLAINTEXT")}
+    assert set(found) == {
+        "Reset tokens are stored and compared in plain text",
+        "Verification tokens are stored and compared in plain text",
+    }
+    reset = found["Reset tokens are stored and compared in plain text"]
+    assert (reset.tag.value, str(reset.locations[0])) == ("CONFIRMED", "api/app/service.py:3")
+    verify = found["Verification tokens are stored and compared in plain text"]
+    assert str(verify.locations[0]) == "api/app/service.py:8"
+
+
+def test_hashed_tokens_with_expiry_and_consumption_pass(tmp_path):
+    app(tmp_path, SAFE)
+    for rule_id in (
+        "AUTH-TOKEN-PLAINTEXT",
+        "AUTH-RESET-NO-EXPIRY",
+        "AUTH-VERIFY-NO-EXPIRY",
+        "AUTH-VERIFY-REUSABLE",
+        "AUTH-RESET-TRUSTS-EMAIL",
+    ):
+        assert findings_for(tmp_path, "auth", rule_id) == [], rule_id
+    cases = {p.title: p for p in review(tmp_path, reviews=["auth"]).sections["auth"].parts}
+    body = cases["Cases"].body
+    assert "#### CASE 6: Reset link opened after it expired (PASSES)" in body
+    assert "#### CASE 3: Verification link clicked twice (PASSES)" in body
+    assert "#### CASE 7: Reset token that belongs to someone else (PASSES)" in body
+
+
+def test_missing_expiry_and_reuse_are_inferred(tmp_path):
+    app(tmp_path, PLAIN)
+    [reset] = findings_for(tmp_path, "auth", "AUTH-RESET-NO-EXPIRY")
+    [verify] = findings_for(tmp_path, "auth", "AUTH-VERIFY-NO-EXPIRY")
+    [reusable] = findings_for(tmp_path, "auth", "AUTH-VERIFY-REUSABLE")
+    assert (reset.tag.value, reset.severity.value, str(reset.locations[0])) == (
+        "INFERRED",
+        "medium",
+        "api/app/routes.py:6",
+    )
+    assert str(verify.locations[0]) == "api/app/routes.py:10"
+    assert reusable.proof_needed
+
+
+def test_case_3_and_6_split_plaintext_findings_by_flow(tmp_path):
+    service = SAFE.replace(
+        "aget(verification_token_hash=digest(token))", "aget(verification_token=token)"
+    )
+    app(tmp_path, service)
+    body = {p.title: p for p in review(tmp_path, reviews=["auth"]).sections["auth"].parts}[
+        "Cases"
+    ].body
+    assert "#### CASE 3: Verification link clicked twice (FAILS)" in body
+    assert "#### CASE 6: Reset link opened after it expired (PASSES)" in body
+
+
+def test_reset_keyed_by_the_email_field(tmp_path):
+    write(
+        tmp_path,
+        "server/reset.js",
+        "router.post('/reset-password', async (req, res) => {\n"
+        "  const user = await prisma.user.findFirst({ where: { resetToken: req.body.token } })\n"
+        "  if (!user) return res.status(400).json({})\n"
+        "  await prisma.user.update({ where: { email: req.body.email }, data: { hash } })\n})\n",
+    )
+    [finding] = findings_for(tmp_path, "auth", "AUTH-RESET-TRUSTS-EMAIL")
+    assert (finding.tag.value, finding.severity.value) == ("INFERRED", "high")
+    assert [str(loc) for loc in finding.locations[:2]] == ["server/reset.js:4", "server/reset.js:2"]
+
+
+def test_email_and_token_in_one_query_is_not_trusting_email(tmp_path):
+    service = PLAIN.replace(
+        "where(User.password_reset_token == data.token)",
+        "where(User.email == data.email, User.password_reset_token == data.token)",
+    )
+    app(tmp_path, service)
+    assert findings_for(tmp_path, "auth", "AUTH-RESET-TRUSTS-EMAIL") == []
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_auth_tokens.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 1 error; collection stops at `ModuleNotFoundError: No module named 'dpr.reviews.auth_tokens'`)
+
+- [ ] **Step 3: Write the token rules**
+
+Modify `src/dpr/data/auth_cases.yaml`, replace:
+
+```yaml
+  - number: 3
+    title: Verification link clicked twice
+    kinds: [verify]
+    rules: [AUTH-VERIFY-REUSABLE, AUTH-VERIFY-NO-EXPIRY, AUTH-TOKEN-PLAINTEXT]
+    expected: The first click verifies and consumes the token, the second lands on an already-verified state, the token expires, and the stored value is a hash.
+    risk: A link left in an old mailbox or read by a mail-scanning proxy stays usable.
+    test: Verify an account, replay the same link, and replay a link older than the intended lifetime; both replays must be refused without an error page.
+```
+
+with:
+
+```yaml
+  - number: 3
+    title: Verification link clicked twice
+    kinds: [verify]
+    rules: [AUTH-VERIFY-REUSABLE, AUTH-VERIFY-NO-EXPIRY, "AUTH-TOKEN-PLAINTEXT|verification"]
+    expected: The first click verifies and consumes the token, the second lands on an already-verified state, the token expires, and the stored value is a hash.
+    risk: A link left in an old mailbox or read by a mail-scanning proxy stays usable.
+    test: Verify an account, replay the same link, and replay a link older than the intended lifetime; both replays must be refused without an error page.
+```
+
+Modify `src/dpr/data/auth_cases.yaml`, replace:
+
+```yaml
+  - number: 6
+    title: Reset link opened after it expired
+    kinds: [reset]
+    rules: [AUTH-RESET-NO-EXPIRY, AUTH-TOKEN-PLAINTEXT]
+    expected: Expiry is enforced on the server, the token is single use, a new request invalidates the previous token, and the stored token is a hash.
+    risk: Old reset links in mailboxes, logs or browser history reset the password at any time.
+    test: Request a reset, age the token past its lifetime in the database, and submit it; expect a clear expiry message and no password change.
+```
+
+with:
+
+```yaml
+  - number: 6
+    title: Reset link opened after it expired
+    kinds: [reset]
+    rules: [AUTH-RESET-NO-EXPIRY, "AUTH-TOKEN-PLAINTEXT|reset"]
+    expected: Expiry is enforced on the server, the token is single use, a new request invalidates the previous token, and the stored token is a hash.
+    risk: Old reset links in mailboxes, logs or browser history reset the password at any time.
+    test: Request a reset, age the token past its lifetime in the database, and submit it; expect a clear expiry message and no password change.
+```
+
+`src/dpr/data/rule_text/auth_tokens.yaml`:
+
+```yaml
+AUTH-TOKEN-PLAINTEXT:
+  title: ${kind} tokens are stored and compared in plain text
+  effort_minutes: 45
+  detail: ${route} finds the account by comparing the token from the request with the stored column ${column} (first location), so the database holds usable tokens.
+  attack: Read a database backup, a replica or a query log and use any unexpired token to take over the account.
+  blast: Every account with a pending ${kind} token.
+  fix: Store only a SHA-256 hash of the token, compare hashes, and clear the column after use.
+  verify: Request a token, read the column, and confirm it does not equal the value in the emailed link.
+AUTH-VERIFY-NO-EXPIRY:
+  title: Email verification links never expire
+  effort_minutes: 20
+  detail: The verification flow behind ${route} accepts a token without comparing any issue time or expiry.
+  proof_needed: Check that nothing outside this flow, such as a scheduled cleanup, expires old verification tokens.
+  attack: Use an old verification link found in a mailbox, forwarded message or mail-scanning log to activate the account at any time.
+  blast: Accounts activated long after the owner abandoned them, including signups made with someone else's address.
+  fix: Store when the token was sent and reject tokens older than a short window (for example 72 hours), then offer to resend.
+  verify: Set the sent time to eight days ago in a test and confirm verification is refused.
+AUTH-RESET-NO-EXPIRY:
+  title: Password reset links never expire
+  effort_minutes: 20
+  detail: The reset flow behind ${route} accepts a token without comparing any issue time or expiry.
+  proof_needed: Check that nothing outside this flow, such as a scheduled cleanup, expires old reset tokens.
+  attack: Use an old reset link from a mailbox, browser history or log to set a new password.
+  blast: Any account with an unused reset link anywhere.
+  fix: Store when the token was issued, reject tokens older than about one hour, and clear the token after one use or when a new one is issued.
+  verify: Age a reset token past the window in a test and confirm the reset is refused.
+AUTH-RESET-TRUSTS-EMAIL:
+  title: Password reset updates the account named by an email field
+  effort_minutes: 20
+  detail: The reset flow behind ${route} validates a token but looks up or updates the account by the email in the request (first location), so a token for one account can set the password of another.
+  proof_needed: Send a valid token for account A with the email of account B against a local stack and check which password changes.
+  attack: Request a reset for your own account, then submit your token with the victim's email address.
+  blast: Every account whose email address is known.
+  fix: Load the account from the token alone and ignore any email or user id in the reset request.
+  verify: Submit a valid token for account A together with account B's email and confirm only A can change.
+AUTH-VERIFY-REUSABLE:
+  title: Email verification tokens stay valid after use
+  effort_minutes: 15
+  detail: The verification flow behind ${route} never clears, deletes or marks the token as used.
+  proof_needed: Verify an account, replay the same link, and check whether it is accepted again.
+  attack: Replay a verification link from a mailbox or proxy log at any time.
+  blast: Accounts whose verification state can be replayed.
+  fix: Clear the token or record a used-at time in the same update that marks the email verified.
+  verify: Replay a used verification link and confirm it is refused.
+```
+
+Modify `src/dpr/reviews/auth.py`, replace:
+
+```python
+from dataclasses import dataclass
+
+import dpr.reviews.auth_enum  # noqa: F401  (registers rules)
+from dpr.data import load
+from dpr.model import EXPLOIT_ORDER, Finding, Part, ReviewSection, Tag
+from dpr.reviews.auth_flows import flows, flows_of, lifetimes, managed_provider
+```
+
+with:
+
+```python
+from dataclasses import dataclass
+
+import dpr.reviews.auth_enum  # noqa: F401  (registers rules)
+import dpr.reviews.auth_tokens  # noqa: F401  (registers rules)
+from dpr.data import load
+from dpr.model import EXPLOIT_ORDER, Finding, Part, ReviewSection, Tag
+from dpr.reviews.auth_flows import flows, flows_of, lifetimes, managed_provider
+```
+
+Modify `src/dpr/reviews/auth.py`, replace:
+
+```python
+    return "\n".join(lines) or "No sign-in, signup, reset or session code was found."
+
+
+def _outcome(ctx: Context, key: int | str, case: dict, findings: list[Finding]) -> Outcome:
+    mine = [f for f in findings if f.rule_id in case["rules"]]
+    passes = ctx.facts.get("auth_passes", {}).get(key, [])
+    found_flows = flows_of(ctx, *case["kinds"]) if case["kinds"] else []
+    if mine:
+```
+
+with:
+
+```python
+    return "\n".join(lines) or "No sign-in, signup, reset or session code was found."
+
+
+def _decides(rule: str, finding: Finding) -> bool:
+    """A case rule is a rule id, optionally with a word the finding title must contain."""
+    rule_id, _, word = rule.partition("|")
+    return finding.rule_id == rule_id and word.lower() in finding.title.lower()
+
+
+def _outcome(ctx: Context, key: int | str, case: dict, findings: list[Finding]) -> Outcome:
+    mine = [f for f in findings if any(_decides(r, f) for r in case["rules"])]
+    passes = ctx.facts.get("auth_passes", {}).get(key, [])
+    found_flows = flows_of(ctx, *case["kinds"]) if case["kinds"] else []
+    if mine:
+```
+
+Modify `src/dpr/reviews/auth.py`, replace:
+
+```python
+
+
+def _extra_relevant(ctx: Context, case: dict, findings: list[Finding]) -> bool:
+    if any(f.rule_id in case["rules"] for f in findings):
+        return True
+    if case["key"] in ctx.facts.get("auth_passes", {}):
+        return True
+```
+
+with:
+
+```python
+
+
+def _extra_relevant(ctx: Context, case: dict, findings: list[Finding]) -> bool:
+    if any(_decides(r, f) for r in case["rules"] for f in findings):
+        return True
+    if case["key"] in ctx.facts.get("auth_passes", {}):
+        return True
+```
+
+`src/dpr/reviews/auth_tokens.py`:
+
+```python
+"""Review 3: one-time tokens for reset and email verification."""
+
+from __future__ import annotations
+
+import ast
+import re
+from collections.abc import Iterator
+
+from dpr.model import Finding, Location, Tag
+from dpr.parsing import jsts, pyast
+from dpr.redact import snippet
+from dpr.reviews.auth_flows import Code, Flow, flows_of, record_pass
+from dpr.reviews.leaks_logs import words
+from dpr.rules import Context, make_finding, rule
+
+PURPOSE = {
+    "reset", "verify", "verification", "confirm", "confirmation", "invite", "invitation",
+    "activation", "magic", "recovery",
+}  # fmt: skip
+HASHED = {"hash", "hashed", "digest", "sha256"}
+HASH_CALL = re.compile(r"(?i)hash|digest|sha\d+|hmac")
+EXPIRY_WORDS = re.compile(
+    r"(?i)expir|sent_at|sentAt|created_at|createdAt|issued_at|max_age|lifetime|ttl"
+)
+TIME_CALLS = re.compile(
+    r"datetime\.now|utcnow|timezone\.now|time\.time|Date\.now|new Date|timedelta"
+)
+USED_WORDS = re.compile(r"(?i)used_?at|consumed|redeemed")
+
+
+def token_column(name: str) -> bool:
+    parts = set(words(name))
+    return "token" in parts and bool(parts & PURPOSE) and not parts & HASHED
+
+
+def _py_compares(code: Code) -> Iterator[tuple[str, int, ast.AST]]:
+    """(column, line, enclosing call or compare) where a token column is matched to a raw value."""
+    for node in ast.walk(code.node):
+        if isinstance(node, ast.Compare) and isinstance(node.left, ast.Attribute):
+            if token_column(node.left.attr) and not HASH_CALL.search(
+                ast.unparse(node.comparators[0])
+            ):
+                yield node.left.attr, node.lineno, node
+        if isinstance(node, ast.Call):
+            for keyword in node.keywords:
+                if (
+                    keyword.arg
+                    and token_column(keyword.arg)
+                    and not HASH_CALL.search(ast.unparse(keyword.value))
+                ):
+                    if isinstance(keyword.value, ast.Name | ast.Attribute | ast.Subscript):
+                        yield keyword.arg, node.lineno, node
+
+
+def _js_where_pairs(code: Code) -> Iterator[tuple[str, str, int, object]]:
+    """(key, value text, line, where object) for pairs inside `where: { ... }` objects."""
+    for pair in jsts.walk(code.node, {"pair"}):
+        if jsts.node_text(pair.child_by_field_name("key")) != "where":
+            continue
+        where = pair.child_by_field_name("value")
+        for key, value in jsts.object_pairs(where).items():
+            yield key, jsts.node_text(value), jsts.line(code.tree, pair), where
+
+
+def plaintext_matches(flow: Flow) -> list[tuple[str, Location]]:
+    found = []
+    for code in flow.code:
+        if code.python:
+            found += [(col, Location(code.rel, line)) for col, line, _ in _py_compares(code)]
+        else:
+            for key, value, line, _ in _js_where_pairs(code):
+                if token_column(key) and not HASH_CALL.search(value):
+                    found.append((key, Location(code.rel, line)))
+    return found
+
+
+def _label(flow: Flow) -> str:
+    return "Reset" if flow.kind == "reset" else "Verification"
+
+
+@rule("AUTH-TOKEN-PLAINTEXT", review="auth", severity="low", exploitability="low", owasp="A02")
+def token_plaintext(ctx: Context) -> Iterator[Finding]:
+    for flow in flows_of(ctx, "reset", "verify"):
+        matches = plaintext_matches(flow)
+        if not matches:
+            continue
+        locations = sorted({loc for _, loc in matches}, key=lambda loc: (loc.file, loc.line))
+        yield make_finding(
+            "AUTH-TOKEN-PLAINTEXT",
+            tag=Tag.CONFIRMED,
+            locations=[*locations, flow.location],
+            snippet=snippet(ctx.index.text(locations[0].file), locations[0].line),
+            kind=_label(flow),
+            column=", ".join(sorted({col for col, _ in matches})),
+            route=f"{flow.route.method} {flow.route.path}",
+        )
+
+
+def expiry_checks(flow: Flow) -> list[Location]:
+    found = []
+    for code in flow.code:
+        if code.python:
+            for node in ast.walk(code.node):
+                if isinstance(node, ast.Compare):
+                    text = ast.unparse(node)
+                    if (
+                        EXPIRY_WORDS.search(text)
+                        or TIME_CALLS.search(text)
+                        or "total_seconds" in text
+                    ):
+                        found.append(Location(code.rel, node.lineno))
+        else:
+            for node in jsts.walk(code.node, {"binary_expression", "pair"}):
+                text = jsts.node_text(node)
+                comparison = node.type == "binary_expression" and re.search(r"[<>]", text)
+                prisma_gt = node.type == "pair" and re.match(
+                    r"\w*(?:expir|sent|created)\w*\s*:\s*\{\s*gte?:", text, re.I
+                )
+                if (
+                    comparison and (EXPIRY_WORDS.search(text) or TIME_CALLS.search(text))
+                ) or prisma_gt:
+                    found.append(Location(code.rel, jsts.line(code.tree, node)))
+    return found
+
+
+def _no_expiry(ctx: Context, kind: str, rule_id: str, case: int) -> Iterator[Finding]:
+    for flow in flows_of(ctx, kind):
+        checks = expiry_checks(flow)
+        if checks:
+            record_pass(
+                ctx,
+                case,
+                Tag.CONFIRMED,
+                f"The {_label(flow).lower()} flow compares a timestamp before accepting the token",
+                checks[0],
+            )
+            continue
+        yield make_finding(
+            rule_id,
+            tag=Tag.INFERRED,
+            locations=[flow.location, *(Location(c.rel, c.line) for c in flow.code[1:3])],
+            snippet=snippet(ctx.index.text(flow.route.file), flow.route.line),
+            route=f"{flow.route.method} {flow.route.path}",
+        )
+
+
+@rule("AUTH-VERIFY-NO-EXPIRY", review="auth", severity="low", exploitability="low", owasp="A07")
+def verify_no_expiry(ctx: Context) -> Iterator[Finding]:
+    yield from _no_expiry(ctx, "verify", "AUTH-VERIFY-NO-EXPIRY", 3)
+
+
+@rule(
+    "AUTH-RESET-NO-EXPIRY", review="auth", severity="medium", exploitability="medium", owasp="A07"
+)
+def reset_no_expiry(ctx: Context) -> Iterator[Finding]:
+    yield from _no_expiry(ctx, "reset", "AUTH-RESET-NO-EXPIRY", 6)
+
+
+def _email_keyed(flow: Flow) -> list[Location]:
+    """Lookups or writes keyed by email alone inside a token reset flow."""
+    found = []
+    for code in flow.code:
+        if code.python:
+            simple = (ast.Assign, ast.AnnAssign, ast.Expr, ast.Return)
+            for stmt in [n for n in ast.walk(code.node) if isinstance(n, simple)]:
+                text = ast.unparse(stmt)
+                if not re.search(r"\.email\s*==|\bemail\s*=(?!=)", text):
+                    continue
+                if not re.search(r"select|filter|where|get\(|update", text):
+                    continue
+                statement = Code(code.rel, stmt, code.tree)
+                if not any(token_column(col) for col, _, _ in _py_compares(statement)):
+                    found.append(Location(code.rel, stmt.lineno))
+        else:
+            for key, _value, line, where in _js_where_pairs(code):
+                keys = jsts.object_pairs(where)
+                if key == "email" and not any(token_column(k) for k in keys):
+                    found.append(Location(code.rel, line))
+    return found
+
+
+@rule("AUTH-RESET-TRUSTS-EMAIL", review="auth", severity="high", exploitability="high", owasp="A07")
+def reset_trusts_email(ctx: Context) -> Iterator[Finding]:
+    for flow in flows_of(ctx, "reset"):
+        tokens = plaintext_matches(flow) or [(None, loc) for loc in _hashed_lookups(flow)]
+        if not tokens:
+            continue
+        keyed = _email_keyed(flow)
+        if not keyed:
+            record_pass(
+                ctx,
+                7,
+                Tag.CONFIRMED,
+                "The reset flow finds the account by its token, not by an email field",
+                tokens[0][1],
+            )
+            continue
+        yield make_finding(
+            "AUTH-RESET-TRUSTS-EMAIL",
+            tag=Tag.INFERRED,
+            locations=[*keyed, tokens[0][1], flow.location],
+            snippet=snippet(ctx.index.text(keyed[0].file), keyed[0].line),
+            route=f"{flow.route.method} {flow.route.path}",
+        )
+
+
+def _hashed_lookups(flow: Flow) -> list[Location]:
+    found = []
+    for code in flow.code:
+        text_lines = code.text().splitlines()
+        for offset, line in enumerate(text_lines):
+            if re.search(r"(?i)token\w*_?hash\w*\s*==|token_?hash\w*\s*:", line):
+                found.append(Location(code.rel, code.line + offset))
+    return found
+
+
+def _consumed(flow: Flow) -> list[Location]:
+    found = []
+    for code in flow.code:
+        if code.python:
+            for node in ast.walk(code.node):
+                if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Attribute):
+                    attr = node.targets[0].attr
+                    cleared = pyast.constant(node.value, "x") in (None, "")
+                    if (cleared and "token" in words(attr)) or USED_WORDS.search(attr):
+                        found.append(Location(code.rel, node.lineno))
+                if isinstance(node, ast.Call) and (pyast.dotted(node.func) or "").endswith(
+                    "delete"
+                ):
+                    found.append(Location(code.rel, node.lineno))
+        else:
+            for pair in jsts.walk(code.node, {"pair"}):
+                key = jsts.node_text(pair.child_by_field_name("key"))
+                value = jsts.node_text(pair.child_by_field_name("value"))
+                if (
+                    "token" in words(key) and value in ("null", "undefined", '""', "''")
+                ) or USED_WORDS.search(key):
+                    found.append(Location(code.rel, jsts.line(code.tree, pair)))
+            for call in jsts.walk(code.node, {"call_expression"}):
+                if jsts.callee(call).endswith((".delete", ".deleteMany", ".destroy")):
+                    found.append(Location(code.rel, jsts.line(code.tree, call)))
+    return found
+
+
+@rule("AUTH-VERIFY-REUSABLE", review="auth", severity="low", exploitability="low", owasp="A07")
+def verify_reusable(ctx: Context) -> Iterator[Finding]:
+    for flow in flows_of(ctx, "verify"):
+        consumed = _consumed(flow)
+        if consumed:
+            record_pass(
+                ctx,
+                3,
+                Tag.CONFIRMED,
+                "The verification flow clears or consumes the token after use",
+                consumed[0],
+            )
+            continue
+        yield make_finding(
+            "AUTH-VERIFY-REUSABLE",
+            tag=Tag.INFERRED,
+            locations=[flow.location],
+            snippet=snippet(ctx.index.text(flow.route.file), flow.route.line),
+            route=f"{flow.route.method} {flow.route.path}",
+        )
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (347 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/auth_cases.yaml src/dpr/data/rule_text/auth_tokens.yaml src/dpr/reviews/auth.py src/dpr/reviews/auth_tokens.py tests/fixtures/express-prisma/expected.yaml tests/fixtures/fastapi-bad/expected.yaml tests/fixtures/fastapi-good/expected.yaml tests/reviews/test_auth_tokens.py
+git commit -m "Report plaintext, non-expiring and reusable account tokens"
+```
+
+---
+
+### Task 66: Logout, refresh and lockout rules
+
+Judge gap 1. `AUTH-LOGOUT-NO-REVOKE` reports a logout that only clears cookies or returns a response (CONFIRMED when the handler's body calls nothing else). `AUTH-REFRESH-NO-ABSOLUTE-CAP` reports a refresh that issues a new token with no session start or absolute lifetime check. `AUTH-NO-LOCKOUT` (medium) reports a login with no failure counter, lock or limiter. Call-name reading skips decorators, and generic helper names such as `refresh` are only skipped on generic receivers so a service's `refresh()` is still followed.
+
+**Files:**
+- Create: `src/dpr/data/rule_text/auth_sessions.yaml`, `src/dpr/reviews/auth_sessions.py`
+- Modify: `src/dpr/reviews/auth.py` (import the rule module)
+- Modify: `src/dpr/reviews/auth_code.py` (call names from the body only)
+- Modify: `src/dpr/reviews/auth_flows.py` (skip generic calls only on generic receivers)
+- Test: `tests/reviews/test_auth_sessions.py`
+- Modify fixture: `tests/fixtures/express-prisma/expected.yaml` (new session findings)
+- Modify fixture: `tests/fixtures/fastapi-bad/expected.yaml` (new session findings)
+- Modify fixture: `tests/fixtures/fastapi-good/expected.yaml` (session rules must not report)
+
+**Interfaces:**
+- Consumes: flows and `auth_code` helpers (Tasks 63 and 64), `is_limited` from Milestone 2 Task 44
+- Produces:
+  - `dpr.reviews.auth_sessions`:
+
+```python
+@rule('AUTH-LOGOUT-NO-REVOKE', review='auth', severity='low', exploitability='low', owasp='A07')
+def logout_no_revoke(ctx: Context) -> Iterator[Finding]: ...
+@rule('AUTH-REFRESH-NO-ABSOLUTE-CAP', review='auth', severity='low', exploitability='low', owasp='A07')
+def refresh_no_cap(ctx: Context) -> Iterator[Finding]: ...
+@rule('AUTH-NO-LOCKOUT', review='auth', severity='medium', exploitability='high', owasp='A07')
+def no_lockout(ctx: Context) -> Iterator[Finding]: ...
+```
+
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/fixtures/express-prisma/expected.yaml`, replace:
+
+```yaml
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: src/routes/auth.ts, line: 13, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 22, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 37, tag: INFERRED}
+  - {rule: AUTH-RESET-NO-EXPIRY, file: src/routes/auth.ts, line: 44, tag: INFERRED}
+  - {rule: AUTH-RESET-TRUSTS-EMAIL, file: src/routes/auth.ts, line: 48, tag: INFERRED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: src/routes/auth.ts, line: 45, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: src/routes/auth.ts, line: 13, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 22, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 37, tag: INFERRED}
+  - {rule: AUTH-LOGOUT-NO-REVOKE, file: src/routes/auth.ts, line: 30, tag: CONFIRMED}
+  - {rule: AUTH-NO-LOCKOUT, file: src/routes/auth.ts, line: 20, tag: INFERRED}
+  - {rule: AUTH-RESET-NO-EXPIRY, file: src/routes/auth.ts, line: 44, tag: INFERRED}
+  - {rule: AUTH-RESET-TRUSTS-EMAIL, file: src/routes/auth.ts, line: 48, tag: INFERRED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: src/routes/auth.ts, line: 45, tag: CONFIRMED}
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 29, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 51, tag: INFERRED}
+  - {rule: AUTH-RESET-NO-EXPIRY, file: api/app/routes/account.py, line: 45, tag: INFERRED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: api/app/services/accounts.py, line: 57, tag: CONFIRMED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: api/app/services/accounts.py, line: 65, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 29, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 51, tag: INFERRED}
+  - {rule: AUTH-LOGOUT-NO-REVOKE, file: api/app/routes/account.py, line: 28, tag: CONFIRMED}
+  - {rule: AUTH-REFRESH-NO-ABSOLUTE-CAP, file: api/app/routes/account.py, line: 34, tag: INFERRED}
+  - {rule: AUTH-RESET-NO-EXPIRY, file: api/app/routes/account.py, line: 45, tag: INFERRED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: api/app/services/accounts.py, line: 57, tag: CONFIRMED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: api/app/services/accounts.py, line: 65, tag: CONFIRMED}
+```
+
+Modify `tests/fixtures/fastapi-good/expected.yaml`, replace:
+
+```yaml
+  - AUTH-ENUM-RESET-MESSAGE
+  - AUTH-ENUM-SIGNUP-MESSAGE
+  - AUTH-ENUM-TIMING
+  - AUTH-RESET-NO-EXPIRY
+  - AUTH-RESET-TRUSTS-EMAIL
+  - AUTH-TOKEN-PLAINTEXT
+```
+
+with:
+
+```yaml
+  - AUTH-ENUM-RESET-MESSAGE
+  - AUTH-ENUM-SIGNUP-MESSAGE
+  - AUTH-ENUM-TIMING
+  - AUTH-LOGOUT-NO-REVOKE
+  - AUTH-NO-LOCKOUT
+  - AUTH-REFRESH-NO-ABSOLUTE-CAP
+  - AUTH-RESET-NO-EXPIRY
+  - AUTH-RESET-TRUSTS-EMAIL
+  - AUTH-TOKEN-PLAINTEXT
+```
+
+`tests/reviews/test_auth_sessions.py`:
+
+```python
+from tests.reviews.auth_app import ROUTES, SERVICE, auth_app
+from tests.reviews.helpers import findings_for, write
+
+
+def test_logout_that_only_deletes_cookies_is_confirmed(tmp_path):
+    auth_app(tmp_path)
+    [finding] = findings_for(tmp_path, "auth", "AUTH-LOGOUT-NO-REVOKE")
+    assert (finding.tag.value, str(finding.locations[0])) == (
+        "CONFIRMED",
+        "api/app/routes/auth.py:27",
+    )
+
+
+def test_logout_with_a_helper_call_is_inferred(tmp_path):
+    routes = ROUTES.replace(
+        '    response.delete_cookie("access_token")\n',
+        '    response.delete_cookie("access_token")\n    audit_logout(response)\n',
+    )
+    auth_app(tmp_path, routes=routes)
+    [finding] = findings_for(tmp_path, "auth", "AUTH-LOGOUT-NO-REVOKE")
+    assert finding.tag.value == "INFERRED" and finding.proof_needed
+
+
+def test_logout_that_revokes_passes(tmp_path):
+    routes = ROUTES.replace(
+        '    response.delete_cookie("access_token")\n',
+        '    response.delete_cookie("access_token")\n'
+        "    current.tokens_invalidated_at = datetime.now(timezone.utc)\n",
+    )
+    auth_app(tmp_path, routes=routes)
+    assert findings_for(tmp_path, "auth", "AUTH-LOGOUT-NO-REVOKE") == []
+    write(
+        tmp_path,
+        "server/logout.js",
+        "router.post('/logout', (req, res) => { req.session.destroy(() => res.json({})) })\n",
+    )
+    assert findings_for(tmp_path, "auth", "AUTH-LOGOUT-NO-REVOKE") == []
+
+
+def refresh_app(root, body):
+    routes = ROUTES.replace(
+        'async def refresh(token: str):\n    return {"ok": True}\n',
+        "async def refresh(token: str):\n    return AuthService().refresh(token)\n",
+    )
+    service = SERVICE + "\n    def refresh(self, token):\n" + body
+    return auth_app(root, routes=routes, service=service)
+
+
+def test_refresh_that_reissues_without_sign_in_time(tmp_path):
+    refresh_app(
+        tmp_path,
+        "        payload = decode_token(token)\n"
+        "        return create_refresh_token({'sub': payload['sub']})\n",
+    )
+    [finding] = findings_for(tmp_path, "auth", "AUTH-REFRESH-NO-ABSOLUTE-CAP")
+    assert (finding.tag.value, str(finding.locations[0])) == (
+        "INFERRED",
+        "api/app/routes/auth.py:33",
+    )
+
+
+def test_refresh_that_keeps_auth_time_passes(tmp_path):
+    refresh_app(
+        tmp_path,
+        "        payload = decode_token(token)\n"
+        "        if now() - payload['auth_time'] > LIMIT:\n            raise Expired()\n"
+        "        return create_refresh_token({'sub': payload['sub'], 'auth_time': payload['auth_time']})\n",
+    )
+    assert findings_for(tmp_path, "auth", "AUTH-REFRESH-NO-ABSOLUTE-CAP") == []
+
+
+def test_refresh_that_issues_no_new_refresh_token_is_not_judged(tmp_path):
+    refresh_app(
+        tmp_path, "        return {'access_token': create_access_token(decode_token(token))}\n"
+    )
+    assert findings_for(tmp_path, "auth", "AUTH-REFRESH-NO-ABSOLUTE-CAP") == []
+
+
+def test_sign_in_without_limit_or_lockout(tmp_path):
+    auth_app(tmp_path)
+    [finding] = findings_for(tmp_path, "auth", "AUTH-NO-LOCKOUT")
+    assert (finding.tag.value, finding.severity.value) == ("INFERRED", "medium")
+    assert str(finding.locations[0]) == "api/app/routes/auth.py:9"
+
+
+def test_limiter_or_lockout_columns_pass_case_1(tmp_path):
+    limited = ROUTES.replace(
+        '@router.post("/login")\n', '@router.post("/login")\n@limiter.limit("5/minute")\n'
+    )
+    auth_app(tmp_path, routes=limited)
+    assert findings_for(tmp_path, "auth", "AUTH-NO-LOCKOUT") == []
+    auth_app(tmp_path, routes=ROUTES)
+    write(
+        tmp_path,
+        "api/app/models.py",
+        "class User(Base):\n    __tablename__ = 'users'\n    failed_login_attempts = Column(Integer)\n",
+    )
+    assert findings_for(tmp_path, "auth", "AUTH-NO-LOCKOUT") == []
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_auth_sessions.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 6 failed, 11 passed)
+
+- [ ] **Step 3: Write the session rules**
+
+`src/dpr/data/rule_text/auth_sessions.yaml`:
+
+```yaml
+AUTH-LOGOUT-NO-REVOKE:
+  title: Logout only deletes cookies
+  effort_minutes: 45
+  detail: ${route} removes the session cookies from the browser but revokes nothing on the server, so a token copied before logout keeps working until it expires.
+  proof_needed: Call the API with a token issued before logout and check whether it is accepted.
+  attack: Copy a token from a shared computer, a proxy log or an XSS payload; the owner logging out does not stop it.
+  blast: The account for the remaining lifetime of every token issued to it.
+  fix: On logout, record a revocation (a tokens-invalidated-at time, a token version or a denylisted token id) and check it on every request and refresh.
+  verify: Log out, then call an authenticated endpoint and the refresh endpoint with the old tokens; both must return 401.
+AUTH-REFRESH-NO-ABSOLUTE-CAP:
+  title: Refresh renews sessions with no absolute limit
+  effort_minutes: 45
+  detail: ${route} issues a new refresh token with a fresh expiry and carries no original sign-in time, so an active or stolen session can be renewed forever.
+  proof_needed: Check whether anything outside this flow ends sessions a fixed time after sign-in.
+  attack: Keep calling refresh with a stolen refresh token before it expires; each call extends it.
+  blast: The account, for as long as the attacker keeps refreshing.
+  fix: Put the original sign-in time (auth_time) in every token, reject refresh once it is older than the absolute limit, and store refresh token ids so the previous one is revoked on rotation.
+  verify: Set auth_time eight days back in a test token and confirm refresh returns 401.
+AUTH-NO-LOCKOUT:
+  title: Sign-in has no rate limit and no lockout
+  effort_minutes: 30
+  detail: ${route} has no rate limit on the route and no failed-attempt counter or lockout in the sign-in code or the user model.
+  proof_needed: Check whether a WAF, edge rule or provider throttles this endpoint.
+  attack: Guess passwords or replay leaked credential lists against any account as fast as the server answers.
+  blast: Every account with a weak or reused password.
+  fix: Limit sign-in per IP and per account (for example 5 per minute per IP, 10 per 15 minutes per account) with a shared store, and add backoff after repeated failures without revealing the lock in the response.
+  verify: Send eleven wrong passwords in a minute and confirm the later requests are refused.
+```
+
+Modify `src/dpr/reviews/auth.py`, replace:
+
+```python
+from dataclasses import dataclass
+
+import dpr.reviews.auth_enum  # noqa: F401  (registers rules)
+import dpr.reviews.auth_tokens  # noqa: F401  (registers rules)
+from dpr.data import load
+from dpr.model import EXPLOIT_ORDER, Finding, Part, ReviewSection, Tag
+```
+
+with:
+
+```python
+from dataclasses import dataclass
+
+import dpr.reviews.auth_enum  # noqa: F401  (registers rules)
+import dpr.reviews.auth_sessions  # noqa: F401  (registers rules)
+import dpr.reviews.auth_tokens  # noqa: F401  (registers rules)
+from dpr.data import load
+from dpr.model import EXPLOIT_ORDER, Finding, Part, ReviewSection, Tag
+```
+
+Modify `src/dpr/reviews/auth_code.py`, replace:
+
+```python
+
+def call_names(code: Code) -> list[tuple[str, int]]:
+    if code.python:
+        return [
+            (pyast.dotted(n.func) or "", n.lineno)
+            for n in ast.walk(code.node)
+            if isinstance(n, ast.Call)
+        ]
+    return [
+```
+
+with:
+
+```python
+
+def call_names(code: Code) -> list[tuple[str, int]]:
+    if code.python:
+        body = getattr(code.node, "body", [code.node])
+        return [
+            (pyast.dotted(n.func) or "", n.lineno)
+            for stmt in body
+            for n in ast.walk(stmt)
+            if isinstance(n, ast.Call)
+        ]
+    return [
+```
+
+Modify `src/dpr/reviews/auth_flows.py`, replace:
+
+```python
+    r"|SESSION_COOKIE_AGE"
+)
+JS_EXPIRES = re.compile(r"""\b(expiresIn|maxAge)\s*:\s*(['"][^'"]+['"]|\d[\d_*\s]*)""")
+GENERIC_CALLS = frozenset(
+    {"get", "items", "keys", "values", "append", "extend", "add", "commit", "execute", "refresh",
+     "close", "copy", "update", "pop", "setdefault", "scalars", "scalar_one_or_none", "all",
+```
+
+with:
+
+```python
+    r"|SESSION_COOKIE_AGE"
+)
+JS_EXPIRES = re.compile(r"""\b(expiresIn|maxAge)\s*:\s*(['"][^'"]+['"]|\d[\d_*\s]*)""")
+GENERIC_RECEIVER = re.compile(
+    r"(?i)^(?:self|db|session|conn|connection|cursor|dict|data|payload|result|request|response"
+    r"|cache|redis|client|settings|os|json|\w*_?(?:db|session|dict|list|map))$"
+)
+GENERIC_CALLS = frozenset(
+    {"get", "items", "keys", "values", "append", "extend", "add", "commit", "execute", "refresh",
+     "close", "copy", "update", "pop", "setdefault", "scalars", "scalar_one_or_none", "all",
+```
+
+Modify `src/dpr/reviews/auth_flows.py`, replace:
+
+```python
+        if depth >= 2:
+            continue
+        for call in [n for n in ast.walk(fn) if isinstance(n, ast.Call)]:
+            if (pyast.dotted(call.func) or "").split(".")[-1] in GENERIC_CALLS:
+                continue
+            helper = _helper(ctx, rel, call, fn)
+            if helper is None or is_test(helper[0]):
+```
+
+with:
+
+```python
+        if depth >= 2:
+            continue
+        for call in [n for n in ast.walk(fn) if isinstance(n, ast.Call)]:
+            parts = (pyast.dotted(call.func) or "").split(".")
+            receiver = parts[-2] if len(parts) > 1 else ""
+            if parts[-1] in GENERIC_CALLS and (not receiver or GENERIC_RECEIVER.search(receiver)):
+                continue
+            helper = _helper(ctx, rel, call, fn)
+            if helper is None or is_test(helper[0]):
+```
+
+`src/dpr/reviews/auth_sessions.py`:
+
+```python
+"""Review 3: sessions that outlive logout, refresh with no absolute limit, unthrottled sign-in."""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Iterator
+
+from dpr.model import Finding, Location, Tag
+from dpr.redact import snippet
+from dpr.reviews.abuse_paid import is_limited
+from dpr.reviews.auth_code import call_names
+from dpr.reviews.auth_flows import Flow, flows_of, record_pass, user_models
+from dpr.rules import Context, make_finding, rule
+from dpr.walk import line_of
+
+COOKIE_OPS = re.compile(
+    r"delete_cookie|set_cookie|clearCookie|clear_cookie|cookies\(\)\.delete|cookies\.delete|\.cookie\("
+)
+REVOKE_CALL = re.compile(
+    r"(?i)invalidat|revoke|deny_?list|black_?list|block_?list|destroy|flush|sign_?out"
+    r"|(?:^|\.)logout$|(?:^|\.)(?:delete|remove|pop|clear)$"
+)
+REVOKE_WRITE = re.compile(r"(?i)invalidated_?at|token_?version|revoked_?at|\bjti\b")
+RESPONSE_ONLY = re.compile(
+    r"(?:^|\.)(?:json|status|send|JSONResponse|Response|jsonify|redirect|NextResponse|end)$"
+)
+REFRESH_ISSUED = re.compile(
+    r"create_refresh_token|refresh_token\s*=|[\"']type[\"']\s*:\s*[\"']refresh|new_refresh"
+    r"|refreshToken\s*=|signRefresh|create_tokens|issue_tokens|generate_tokens|RefreshToken\.for_user"
+)
+ABSOLUTE_CAP = re.compile(
+    r"(?i)auth_?time|orig_?iat|original_?iat|session_?start|absolute|max_?session|login_?at"
+    r"|authenticated_?at|session_?expires|rotat"
+)
+LOCKOUT = re.compile(
+    r"(?i)failed_?(?:login_?)?attempts|failed_?logins|failedLogins|locked_?until|lock_?until"
+    r"|lockout|login_?attempts|brute"
+)
+LOCKOUT_PACKAGES = {"django-axes", "express-brute", "rate-limiter-flexible", "flask-limiter"}
+
+
+def _removed_cookie_text(flow: Flow) -> str:
+    return COOKIE_OPS.sub(" ", "\n".join(code.text() for code in flow.code))
+
+
+@rule("AUTH-LOGOUT-NO-REVOKE", review="auth", severity="low", exploitability="low", owasp="A07")
+def logout_no_revoke(ctx: Context) -> Iterator[Finding]:
+    for flow in flows_of(ctx, "logout"):
+        names = [name for code in flow.code for name, _ in call_names(code)]
+        revoke = any(REVOKE_CALL.search(n) and not COOKIE_OPS.search(n) for n in names)
+        if revoke or REVOKE_WRITE.search(_removed_cookie_text(flow)):
+            for case in (5, 10):
+                record_pass(
+                    ctx,
+                    case,
+                    Tag.INFERRED,
+                    "Logout calls server-side revocation or session removal",
+                    flow.location,
+                )
+            continue
+        calls = [name for name, _ in call_names(flow.code[0])]
+        only_cookies = len(flow.code) == 1 and all(
+            COOKIE_OPS.search(name) or RESPONSE_ONLY.search(name) for name in calls
+        )
+        yield make_finding(
+            "AUTH-LOGOUT-NO-REVOKE",
+            tag=Tag.CONFIRMED if only_cookies else Tag.INFERRED,
+            locations=[flow.location],
+            snippet=snippet(ctx.index.text(flow.route.file), flow.route.line),
+            proof_needed=None
+            if only_cookies
+            else "Call the API with a token issued before logout and check whether it is accepted.",
+            route=f"{flow.route.method} {flow.route.path}",
+        )
+
+
+@rule(
+    "AUTH-REFRESH-NO-ABSOLUTE-CAP", review="auth", severity="low", exploitability="low", owasp="A07"
+)
+def refresh_no_cap(ctx: Context) -> Iterator[Finding]:
+    for flow in flows_of(ctx, "refresh"):
+        text = "\n".join(code.text() for code in flow.code)
+        if not REFRESH_ISSUED.search(text):
+            continue
+        cap = ABSOLUTE_CAP.search(text)
+        if cap:
+            record_pass(
+                ctx,
+                5,
+                Tag.INFERRED,
+                "Refresh carries the original sign-in time or rotates tokens",
+                flow.location,
+            )
+            continue
+        yield make_finding(
+            "AUTH-REFRESH-NO-ABSOLUTE-CAP",
+            tag=Tag.INFERRED,
+            locations=[flow.location, *(_issue_sites(flow))][:5],
+            snippet=snippet(ctx.index.text(flow.route.file), flow.route.line),
+            route=f"{flow.route.method} {flow.route.path}",
+        )
+
+
+def _issue_sites(flow: Flow) -> list[Location]:
+    found = []
+    for code in flow.code[1:]:
+        text = code.text()
+        match = REFRESH_ISSUED.search(text)
+        if match:
+            found.append(Location(code.rel, code.line + line_of(text, match.start()) - 1))
+    return found
+
+
+def _lockout_evidence(ctx: Context, flow: Flow) -> Location | None:
+    for code in flow.code:
+        match = LOCKOUT.search(code.text())
+        if match:
+            return Location(code.rel, code.line + line_of(code.text(), match.start()) - 1)
+    for model in user_models(ctx):
+        field = next((f for f in model.fields if LOCKOUT.search(f.name)), None)
+        if field is not None:
+            return field.location
+    return None
+
+
+@rule("AUTH-NO-LOCKOUT", review="auth", severity="medium", exploitability="high", owasp="A07")
+def no_lockout(ctx: Context) -> Iterator[Finding]:
+    if LOCKOUT_PACKAGES & ctx.detection.packages:
+        return
+    for flow in flows_of(ctx, "login"):
+        if is_limited(ctx, flow.route):
+            record_pass(ctx, 1, Tag.CONFIRMED, "Sign-in has a rate limit", flow.location)
+            continue
+        evidence = _lockout_evidence(ctx, flow)
+        if evidence is not None:
+            record_pass(
+                ctx, 1, Tag.INFERRED, "Failed sign-ins are counted toward a lockout", evidence
+            )
+            continue
+        yield make_finding(
+            "AUTH-NO-LOCKOUT",
+            tag=Tag.INFERRED,
+            locations=[flow.location],
+            snippet=snippet(ctx.index.text(flow.route.file), flow.route.line),
+            route=f"{flow.route.method} {flow.route.path}",
+        )
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (355 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/rule_text/auth_sessions.yaml src/dpr/reviews/auth.py src/dpr/reviews/auth_code.py src/dpr/reviews/auth_flows.py src/dpr/reviews/auth_sessions.py tests/fixtures/express-prisma/expected.yaml tests/fixtures/fastapi-bad/expected.yaml tests/fixtures/fastapi-good/expected.yaml tests/reviews/test_auth_sessions.py
+git commit -m "Report logouts that do not revoke, uncapped refresh and missing lockout"
+```
+
+---
+
+### Task 67: Email change, unique email, signup without UI and MFA rules
+
+Judge gap 1. `AUTH-EMAIL-CHANGE-UNVERIFIED` reports a self-service update that writes `email` with no password re-entry or verification step. `AUTH-EMAIL-NOT-UNIQUE` reports a user model whose email column is neither unique nor indexed unique. `AUTH-SIGNUP-NO-UI` reports a public register route that no frontend file calls or references (INFERRED). `AUTH-NO-MFA` reports, per app root, sign-in with no TOTP, WebAuthn or second-factor code anywhere. Token matching is narrowed so the plaintext rule points at the lines that store or query the token.
+
+**Files:**
+- Create: `src/dpr/data/rule_text/auth_account.yaml`, `src/dpr/reviews/auth_account.py`
+- Modify: `src/dpr/reviews/auth.py` (import the rule module)
+- Modify: `src/dpr/reviews/auth_sessions.py` (any `*Response` constructor counts as response-only)
+- Modify: `src/dpr/reviews/auth_tokens.py` (locations from the matched store and query lines)
+- Test: `tests/reviews/test_auth_account.py`
+- Fixture files: `tests/fixtures/next-supabase-good/components/SignupForm.tsx`
+- Modify fixture: `tests/fixtures/express-prisma/expected.yaml` (new account findings)
+- Modify fixture: `tests/fixtures/fastapi-bad/expected.yaml` (new account findings)
+- Modify fixture: `tests/fixtures/fastapi-good/expected.yaml` (account rules must not report)
+- Modify fixture: `tests/fixtures/fastapi-good/web/src/Signup.tsx` (an invite form uses the register call)
+- Modify fixture: `tests/fixtures/fastapi-good/web/src/api.ts` (register call in the API client)
+- Modify fixture: `tests/fixtures/next-supabase-bad/expected.yaml` (MFA finding)
+- Modify fixture: `tests/fixtures/next-supabase-good/expected.yaml` (account rules must not report)
+- Modify test: `tests/reviews/test_auth_section.py` (case 12 now decided by `AUTH-NO-MFA`)
+
+**Interfaces:**
+- Consumes: flows (Task 63), user models and `record_pass` (Tasks 63 and 64), app roots (Task 54)
+- Produces:
+  - `dpr.reviews.auth_account`:
+
+```python
+@rule('AUTH-EMAIL-CHANGE-UNVERIFIED', review='auth', severity='medium', exploitability='medium', owasp='A07')
+def email_change_unverified(ctx: Context) -> Iterator[Finding]: ...
+@rule('AUTH-EMAIL-NOT-UNIQUE', review='auth', severity='medium', exploitability='low', owasp='A07')
+def email_not_unique(ctx: Context) -> Iterator[Finding]: ...
+@rule('AUTH-SIGNUP-NO-UI', review='auth', severity='medium', exploitability='medium', owasp='A04')
+def signup_no_ui(ctx: Context) -> Iterator[Finding]: ...
+@rule('AUTH-NO-MFA', review='auth', severity='low', exploitability='low', owasp='A07')
+def no_mfa(ctx: Context) -> Iterator[Finding]: ...
+```
+
+
+**Earlier tests updated on purpose:** `tests/reviews/test_auth_section.py` (from Task 63) now expects case 12 to FAIL, because `AUTH-NO-MFA` decides it, and the UNKNOWN example line points at the refresh flow on line 17.
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/fixtures/express-prisma/expected.yaml`, replace:
+
+```yaml
+  - {rule: ABUSE-FORM-NO-CHALLENGE, file: src/routes/auth.ts, line: 11, tag: INFERRED}
+  - {rule: ABUSE-NO-KILL-SWITCH, file: src/routes/auth.ts, line: 35, tag: INFERRED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: src/routes/auth.ts, line: 35, tag: INFERRED}
+  - {rule: AUTH-ENUM-RESET-MESSAGE, file: src/routes/auth.ts, line: 37, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: src/routes/auth.ts, line: 13, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 22, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 37, tag: INFERRED}
+  - {rule: AUTH-LOGOUT-NO-REVOKE, file: src/routes/auth.ts, line: 30, tag: CONFIRMED}
+  - {rule: AUTH-NO-LOCKOUT, file: src/routes/auth.ts, line: 20, tag: INFERRED}
+  - {rule: AUTH-RESET-NO-EXPIRY, file: src/routes/auth.ts, line: 44, tag: INFERRED}
+  - {rule: AUTH-RESET-TRUSTS-EMAIL, file: src/routes/auth.ts, line: 48, tag: INFERRED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: src/routes/auth.ts, line: 45, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: ABUSE-FORM-NO-CHALLENGE, file: src/routes/auth.ts, line: 11, tag: INFERRED}
+  - {rule: ABUSE-NO-KILL-SWITCH, file: src/routes/auth.ts, line: 35, tag: INFERRED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: src/routes/auth.ts, line: 35, tag: INFERRED}
+  - {rule: AUTH-EMAIL-CHANGE-UNVERIFIED, file: src/routes/auth.ts, line: 60, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-RESET-MESSAGE, file: src/routes/auth.ts, line: 37, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: src/routes/auth.ts, line: 13, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 22, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 37, tag: INFERRED}
+  - {rule: AUTH-LOGOUT-NO-REVOKE, file: src/routes/auth.ts, line: 30, tag: CONFIRMED}
+  - {rule: AUTH-NO-LOCKOUT, file: src/routes/auth.ts, line: 20, tag: INFERRED}
+  - {rule: AUTH-NO-MFA, file: src/routes/auth.ts, line: 20, tag: INFERRED}
+  - {rule: AUTH-RESET-NO-EXPIRY, file: src/routes/auth.ts, line: 44, tag: INFERRED}
+  - {rule: AUTH-RESET-TRUSTS-EMAIL, file: src/routes/auth.ts, line: 48, tag: INFERRED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: src/routes/auth.ts, line: 45, tag: CONFIRMED}
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: ABUSE-NO-KILL-SWITCH, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-UPLOAD-UNBOUNDED, file: api/app/routes/files.py, line: 17, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-LOCKOUT-STATUS, file: api/app/routes/account.py, line: 19, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 29, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 51, tag: INFERRED}
+  - {rule: AUTH-LOGOUT-NO-REVOKE, file: api/app/routes/account.py, line: 28, tag: CONFIRMED}
+  - {rule: AUTH-REFRESH-NO-ABSOLUTE-CAP, file: api/app/routes/account.py, line: 34, tag: INFERRED}
+  - {rule: AUTH-RESET-NO-EXPIRY, file: api/app/routes/account.py, line: 45, tag: INFERRED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: api/app/services/accounts.py, line: 57, tag: CONFIRMED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: api/app/services/accounts.py, line: 65, tag: CONFIRMED}
+  - {rule: AUTH-VERIFY-NO-EXPIRY, file: api/app/routes/account.py, line: 50, tag: INFERRED}
+```
+
+with:
+
+```yaml
+  - {rule: ABUSE-NO-KILL-SWITCH, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-UPLOAD-UNBOUNDED, file: api/app/routes/files.py, line: 17, tag: CONFIRMED}
+  - {rule: AUTH-EMAIL-CHANGE-UNVERIFIED, file: api/app/services/accounts.py, line: 73, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-LOCKOUT-STATUS, file: api/app/routes/account.py, line: 19, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 29, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 51, tag: INFERRED}
+  - {rule: AUTH-LOGOUT-NO-REVOKE, file: api/app/routes/account.py, line: 28, tag: CONFIRMED}
+  - {rule: AUTH-NO-MFA, file: api/app/routes/account.py, line: 15, tag: INFERRED}
+  - {rule: AUTH-REFRESH-NO-ABSOLUTE-CAP, file: api/app/routes/account.py, line: 34, tag: INFERRED}
+  - {rule: AUTH-RESET-NO-EXPIRY, file: api/app/routes/account.py, line: 45, tag: INFERRED}
+  - {rule: AUTH-SIGNUP-NO-UI, file: api/app/routes/auth.py, line: 13, tag: INFERRED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: api/app/services/accounts.py, line: 57, tag: CONFIRMED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: api/app/services/accounts.py, line: 65, tag: CONFIRMED}
+  - {rule: AUTH-VERIFY-NO-EXPIRY, file: api/app/routes/account.py, line: 50, tag: INFERRED}
+```
+
+Modify `tests/fixtures/fastapi-good/expected.yaml`, replace:
+
+```yaml
+  - ABUSE-PAID-UNAUTH
+  - ABUSE-PAID-UNLIMITED
+  - ABUSE-UPLOAD-UNBOUNDED
+  - AUTH-ENUM-LOCKOUT-STATUS
+  - AUTH-ENUM-RESET-MESSAGE
+  - AUTH-ENUM-SIGNUP-MESSAGE
+  - AUTH-ENUM-TIMING
+  - AUTH-LOGOUT-NO-REVOKE
+  - AUTH-NO-LOCKOUT
+  - AUTH-REFRESH-NO-ABSOLUTE-CAP
+  - AUTH-RESET-NO-EXPIRY
+  - AUTH-RESET-TRUSTS-EMAIL
+  - AUTH-TOKEN-PLAINTEXT
+  - AUTH-VERIFY-NO-EXPIRY
+  - AUTH-VERIFY-REUSABLE
+```
+
+with:
+
+```yaml
+  - ABUSE-PAID-UNAUTH
+  - ABUSE-PAID-UNLIMITED
+  - ABUSE-UPLOAD-UNBOUNDED
+  - AUTH-EMAIL-CHANGE-UNVERIFIED
+  - AUTH-EMAIL-NOT-UNIQUE
+  - AUTH-ENUM-LOCKOUT-STATUS
+  - AUTH-ENUM-RESET-MESSAGE
+  - AUTH-ENUM-SIGNUP-MESSAGE
+  - AUTH-ENUM-TIMING
+  - AUTH-LOGOUT-NO-REVOKE
+  - AUTH-NO-LOCKOUT
+  - AUTH-NO-MFA
+  - AUTH-REFRESH-NO-ABSOLUTE-CAP
+  - AUTH-RESET-NO-EXPIRY
+  - AUTH-RESET-TRUSTS-EMAIL
+  - AUTH-SIGNUP-NO-UI
+  - AUTH-TOKEN-PLAINTEXT
+  - AUTH-VERIFY-NO-EXPIRY
+  - AUTH-VERIFY-REUSABLE
+```
+
+Modify `tests/fixtures/fastapi-good/web/src/Signup.tsx`, replace:
+
+```tsx
+import { signup } from "./api"
+
+export function SignupForm() {
+  return <form onSubmit={(event) => signup(new FormData(event.currentTarget))} />
+}
+```
+
+with:
+
+```tsx
+import { register, signup } from "./api"
+
+export function SignupForm() {
+  return <form onSubmit={(event) => signup(new FormData(event.currentTarget))} />
+}
+
+export function InviteForm() {
+  return <form onSubmit={(event) => register(new FormData(event.currentTarget))} />
+}
+```
+
+Modify `tests/fixtures/fastapi-good/web/src/api.ts`, replace:
+
+```ts
+export const signup = (body: unknown) =>
+  fetch("/account/signup", { method: "POST", body: JSON.stringify(body) })
+```
+
+with:
+
+```ts
+export const signup = (body: unknown) =>
+  fetch("/account/signup", { method: "POST", body: JSON.stringify(body) })
+
+export const register = (body: unknown) =>
+  fetch("/auth/register", { method: "POST", body: JSON.stringify(body) })
+```
+
+Modify `tests/fixtures/next-supabase-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: ABUSE-PAID-UNAUTH, file: app/api/generate/route.ts, line: 6, tag: CONFIRMED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: app/api/generate/route.ts, line: 6, tag: INFERRED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: app/api/signup/route.ts, line: 12, tag: CONFIRMED}
+  - {rule: BASE-COOKIE-HTTPONLY, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+  - {rule: BASE-COOKIE-SAMESITE, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+  - {rule: BASE-COOKIE-SECURE, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: ABUSE-PAID-UNAUTH, file: app/api/generate/route.ts, line: 6, tag: CONFIRMED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: app/api/generate/route.ts, line: 6, tag: INFERRED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: app/api/signup/route.ts, line: 12, tag: CONFIRMED}
+  - {rule: AUTH-SIGNUP-NO-UI, file: app/api/signup/route.ts, line: 5, tag: INFERRED}
+  - {rule: BASE-COOKIE-HTTPONLY, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+  - {rule: BASE-COOKIE-SAMESITE, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+  - {rule: BASE-COOKIE-SECURE, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
+```
+
+`tests/fixtures/next-supabase-good/components/SignupForm.tsx`:
+
+```tsx
+export function SignupForm() {
+  return <form action="/api/signup" method="post" />
+}
+```
+
+Modify `tests/fixtures/next-supabase-good/expected.yaml`, replace:
+
+```yaml
+  - ABUSE-PAID-UNAUTH
+  - ABUSE-PAID-UNLIMITED
+  - ABUSE-UPLOAD-UNBOUNDED
+  - AUTH-ENUM-SIGNUP-MESSAGE
+  - BASE-COOKIE-HTTPONLY
+  - BASE-COOKIE-SAMESITE
+  - BASE-COOKIE-SECURE
+```
+
+with:
+
+```yaml
+  - ABUSE-PAID-UNAUTH
+  - ABUSE-PAID-UNLIMITED
+  - ABUSE-UPLOAD-UNBOUNDED
+  - AUTH-EMAIL-NOT-UNIQUE
+  - AUTH-ENUM-SIGNUP-MESSAGE
+  - AUTH-SIGNUP-NO-UI
+  - BASE-COOKIE-HTTPONLY
+  - BASE-COOKIE-SAMESITE
+  - BASE-COOKIE-SECURE
+```
+
+`tests/reviews/test_auth_account.py`:
+
+```python
+from tests.reviews.auth_app import auth_app
+from tests.reviews.helpers import findings_for, write
+
+UPDATE_SERVICE = (
+    "class UserService:\n"
+    "    async def update_user(self, user_id, data, requesting_user):\n"
+    "        update = data.model_dump(exclude_unset=True)\n"
+    "        allowed_fields = {'first_name', 'last_name', 'email'}\n"
+    "        for field, value in update.items():\n"
+    "            if field in allowed_fields:\n"
+    "                setattr(requesting_user, field, value)\n"
+)
+USERS = (
+    "from typing import Annotated\nfrom fastapi import APIRouter, Depends\n"
+    "from app.services.user_service import UserService\n"
+    "router = APIRouter(prefix='/users')\n"
+    "CurrentUser = Annotated[dict, Depends(get_current_user)]\n\n"
+    "@router.put('/{user_id}')\n"
+    "async def update_user(user_id: str, data: UserUpdate, current_user: CurrentUser):\n"
+    "    return await UserService().update_user(user_id, data, current_user)\n"
+)
+
+
+def test_self_update_that_allows_email_is_confirmed(tmp_path):
+    auth_app(tmp_path, users=USERS)
+    write(tmp_path, "api/app/services/user_service.py", UPDATE_SERVICE)
+    [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED")
+    assert (finding.tag.value, str(finding.locations[0])) == (
+        "CONFIRMED",
+        "api/app/services/user_service.py:4",
+    )
+
+
+def test_email_change_with_verification_passes(tmp_path):
+    auth_app(tmp_path, users=USERS)
+    guarded = UPDATE_SERVICE.replace(
+        "        allowed_fields",
+        "        if 'email' in update:\n"
+        "            await self.start_email_verification(requesting_user, update.pop('email'))\n"
+        "        allowed_fields",
+    )
+    write(tmp_path, "api/app/services/user_service.py", guarded)
+    assert findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED") == []
+    without_email = UPDATE_SERVICE.replace(", 'email'}", "}")
+    write(tmp_path, "api/app/services/user_service.py", without_email)
+    assert findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED") == []
+
+
+def test_javascript_profile_update_writing_email(tmp_path):
+    write(
+        tmp_path,
+        "server/me.js",
+        "router.patch('/me', requireUser, async (req, res) => {\n"
+        "  await prisma.user.update({ where: { id: req.user.id }, data: { email: req.body.email } })\n"
+        "  res.json({ ok: true })\n})\n",
+    )
+    [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED")
+    assert str(finding.locations[0]) == "server/me.js:2"
+
+
+def model(root, email_line, extra=""):
+    write(
+        root,
+        "api/app/models.py",
+        f"class User(Base):\n    __tablename__ = 'users'\n    {email_line}\n{extra}",
+    )
+
+
+def test_email_uniqueness_on_the_user_model(tmp_path):
+    auth_app(tmp_path)
+    model(tmp_path, "email = Column(String)")
+    [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-NOT-UNIQUE")
+    assert (finding.tag.value, str(finding.locations[0])) == ("CONFIRMED", "api/app/models.py:3")
+    model(tmp_path, "email = Column(String, unique=True)")
+    assert findings_for(tmp_path, "auth", "AUTH-EMAIL-NOT-UNIQUE") == []
+    model(
+        tmp_path,
+        "email = Column(String)",
+        "    __table_args__ = (Index('ix_live_email', 'email', unique=True),)\n",
+    )
+    assert findings_for(tmp_path, "auth", "AUTH-EMAIL-NOT-UNIQUE") == []
+
+
+def web_app(root, client, screen):
+    auth_app(root)
+    write(root, "web/package.json", '{"dependencies": {"react": "18"}}')
+    write(root, "web/index.html", "<div id=root></div>\n")
+    write(root, "web/src/api.ts", client)
+    write(root, "web/src/Screen.tsx", screen)
+
+
+def test_signup_route_defined_in_the_client_but_never_called(tmp_path):
+    client = (
+        "export const authApi = {\n"
+        "  register: (data) => api.post('/auth/register', data),\n"
+        "  login: (data) => api.post('/auth/login', data),\n}\n"
+    )
+    web_app(tmp_path, client, "authApi.login({})\n")
+    [finding] = findings_for(tmp_path, "auth", "AUTH-SIGNUP-NO-UI")
+    assert finding.tag.value == "INFERRED"
+    assert "defines register() for this path at web/src/api.ts:2" in finding.detail
+    web_app(tmp_path, client, "authApi.register({})\n")
+    assert findings_for(tmp_path, "auth", "AUTH-SIGNUP-NO-UI") == []
+
+
+def test_signup_route_with_no_reference_and_without_a_frontend(tmp_path):
+    web_app(tmp_path, "export const x = 1\n", "export {}\n")
+    [finding] = findings_for(tmp_path, "auth", "AUTH-SIGNUP-NO-UI")
+    assert "No frontend source refers to this path." in finding.detail
+    api_only = tmp_path / "api_only"
+    auth_app(api_only)
+    assert findings_for(api_only, "auth", "AUTH-SIGNUP-NO-UI") == []
+
+
+def test_no_second_factor_per_app_and_mfa_signals(tmp_path):
+    auth_app(tmp_path)
+    [finding] = findings_for(tmp_path, "auth", "AUTH-NO-MFA")
+    assert (finding.tag.value, finding.title) == ("INFERRED", "No second factor for sign-in in api")
+    write(tmp_path, "api/requirements.txt", "fastapi\npython-jose\npasslib\npyotp\n")
+    assert findings_for(tmp_path, "auth", "AUTH-NO-MFA") == []
+```
+
+Modify `tests/reviews/test_auth_section.py`, replace:
+
+```python
+    for number in range(1, 11):
+        assert f"#### CASE {number}: " in body
+    assert "#### CASE 11: Public signup that no screen uses (UNKNOWN)" in body
+    assert "#### CASE 12: Second factor for staff and admin accounts (UNKNOWN)" in body
+    assert "committed-passwords" not in body and "CASE 13" not in body
+    assert "This app: UNKNOWN. The flow is at `api/app/routes/auth.py:9`" in body
+    assert list(parts) == [
+        "How to read the cases",
+        "Flows read",
+```
+
+with:
+
+```python
+    for number in range(1, 11):
+        assert f"#### CASE {number}: " in body
+    assert "#### CASE 11: Public signup that no screen uses (UNKNOWN)" in body
+    assert "#### CASE 12: Second factor for staff and admin accounts (FAILS)" in body
+    assert "committed-passwords" not in body and "CASE 13" not in body
+    assert "This app: UNKNOWN. The flow is at `api/app/routes/auth.py:17`" in body
+    assert list(parts) == [
+        "How to read the cases",
+        "Flows read",
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_auth_account.py tests/reviews/test_auth_section.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 10 failed, 10 passed)
+
+- [ ] **Step 3: Write the account rules**
+
+`src/dpr/data/rule_text/auth_account.yaml`:
+
+```yaml
+AUTH-EMAIL-CHANGE-UNVERIFIED:
+  title: Account email changes take effect without verification
+  effort_minutes: 60
+  detail: ${route} lets the signed-in user write a new email address directly (first location), with no confirmation sent to the new address, no notice to the old one and no password re-entry.
+  attack: With a hijacked session, change the account email to an attacker address, then use password reset to lock the owner out for good.
+  blast: Permanent takeover of any account whose session is stolen once, plus anything that trusts the email as identity.
+  fix: Remove email from directly editable fields. Store the new address as pending with a hashed, expiring token, email the new address to confirm, notify the old address with a way to revoke, and ask for the current password.
+  verify: Change the email through the API and confirm the stored email stays the same until the confirmation link is used.
+AUTH-EMAIL-NOT-UNIQUE:
+  title: Email is not unique on ${model}
+  effort_minutes: 15
+  detail: The email column of ${model} has no unique constraint, so two concurrent signups can create two accounts for one address.
+  attack: Race two signups for the same address to create a duplicate account with a different password.
+  blast: Undefined sign-in and reset behaviour for the duplicated address.
+  fix: Add a unique index on the normalised email (lowercase), and treat the integrity error as the existing-account path.
+  verify: Fire two signups for one address in parallel against a test database and confirm one row.
+AUTH-SIGNUP-NO-UI:
+  title: Public signup endpoint that no screen uses
+  effort_minutes: 10
+  detail: ${route} accepts public signups. ${what}
+  proof_needed: Confirm with the product owner whether self-service signup is a live feature.
+  attack: Create accounts directly through the API to get a foothold for account-level attacks and send email from the company's domain.
+  blast: Every feature open to a signed-in account, plus the email sender's reputation.
+  fix: Remove the route, or return 404 unless a public signup setting is on.
+  verify: POST to the signup route and expect 404 when signup is off.
+AUTH-NO-MFA:
+  title: No second factor for sign-in in ${app}
+  effort_minutes: 240
+  detail: The sign-in flows in ${app} check a password only; no TOTP, WebAuthn or other second factor was found in the sign-in code, the user model or the dependencies.
+  proof_needed: Check whether an identity provider or VPN in front of admin access requires a second factor.
+  attack: Use one phished or reused password to sign in as a staff or admin account.
+  blast: Every record the compromised account can read or change.
+  fix: Require TOTP or WebAuthn for staff and admin roles first, then offer it to every account.
+  verify: Sign in as an admin with only the password and confirm a second-factor challenge appears.
+```
+
+Modify `src/dpr/reviews/auth.py`, replace:
+
+```python
+
+from dataclasses import dataclass
+
+import dpr.reviews.auth_enum  # noqa: F401  (registers rules)
+import dpr.reviews.auth_sessions  # noqa: F401  (registers rules)
+import dpr.reviews.auth_tokens  # noqa: F401  (registers rules)
+```
+
+with:
+
+```python
+
+from dataclasses import dataclass
+
+import dpr.reviews.auth_account  # noqa: F401  (registers rules)
+import dpr.reviews.auth_enum  # noqa: F401  (registers rules)
+import dpr.reviews.auth_sessions  # noqa: F401  (registers rules)
+import dpr.reviews.auth_tokens  # noqa: F401  (registers rules)
+```
+
+`src/dpr/reviews/auth_account.py`:
+
+```python
+"""Review 3: email change, unique emails, signup no screen uses, and second factors."""
+
+from __future__ import annotations
+
+import ast
+import re
+from collections.abc import Iterator
+
+from dpr.discovery.approots import root_of
+from dpr.model import Finding, Location, Tag
+from dpr.parsing import jsts, pyast
+from dpr.redact import snippet
+from dpr.reviews.auth_flows import Code, Flow, flows_of, managed_provider, record_pass, user_models
+from dpr.reviews.paths import is_test
+from dpr.rules import Context, make_finding, rule
+
+VERIFY_WORDS = re.compile(
+    r"(?i)verif|confirm|pending_?email|new_?email|email_?change|change_?token|current_?password"
+    r"|check_?password|re_?authenticat"
+)
+EMAIL_FIELDS = ("email", "email_address", "emailAddress")
+UNIQUE_TEXT = re.compile(
+    r"UniqueConstraint\([^)]*email|Index\([^)]*email[^)]*unique\s*=\s*True|unique_together[^\n]*email"
+    r"|@@unique\(\[\s*email|uniqueIndex\([^)]*\)\.on\([^)]*email"
+)
+UI_SUFFIXES = (".tsx", ".jsx", ".vue", ".svelte")
+MFA_PACKAGES = {
+    "pyotp", "django-otp", "django-two-factor-auth", "otplib", "speakeasy",
+    "@simplewebauthn/server", "fido2", "webauthn", "py-webauthn", "flask-security-too",
+}  # fmt: skip
+MFA_WORDS = re.compile(r"(?i)totp|mfa|two_?factor|2fa|otp_?secret|webauthn|second_?factor|passkey")
+
+
+def _py_identifiers(code: Code) -> list[str]:
+    names = []
+    for node in ast.walk(code.node):
+        if isinstance(node, ast.Name):
+            names.append(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.append(node.attr)
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            names += [a.arg for a in node.args.args]
+    return names
+
+
+def _identifiers(code: Code) -> list[str]:
+    if code.python:
+        return _py_identifiers(code)
+    kinds = {"identifier", "property_identifier", "shorthand_property_identifier"}
+    return [jsts.node_text(n) for n in jsts.walk(code.node, kinds)]
+
+
+def _py_email_writes(code: Code) -> list[Location]:
+    found = []
+    for node in ast.walk(code.node):
+        if isinstance(node, ast.Set | ast.List | ast.Tuple) and len(node.elts) >= 2:
+            values = [pyast.constant(e, None) for e in node.elts]
+            if all(isinstance(v, str) for v in values) and any(v in EMAIL_FIELDS for v in values):
+                found.append(Location(code.rel, node.lineno))
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Attribute):
+            if node.targets[0].attr in EMAIL_FIELDS and not isinstance(node.value, ast.Constant):
+                found.append(Location(code.rel, node.lineno))
+    return found
+
+
+def _js_email_writes(code: Code) -> list[Location]:
+    found = []
+    for pair in jsts.walk(code.node, {"pair"}):
+        if jsts.node_text(pair.child_by_field_name("key")) != "data":
+            continue
+        for key, value in jsts.object_pairs(pair.child_by_field_name("value")).items():
+            if key in EMAIL_FIELDS and value is not None and value.type != "string":
+                found.append(Location(code.rel, jsts.line(code.tree, value)))
+    for node in jsts.walk(code.node, {"assignment_expression"}):
+        left = jsts.node_text(node.child_by_field_name("left"))
+        if left.split(".")[-1] in EMAIL_FIELDS:
+            found.append(Location(code.rel, jsts.line(code.tree, node)))
+    return found
+
+
+@rule(
+    "AUTH-EMAIL-CHANGE-UNVERIFIED",
+    review="auth",
+    severity="medium",
+    exploitability="medium",
+    owasp="A07",
+)
+def email_change_unverified(ctx: Context) -> Iterator[Finding]:
+    for flow in flows_of(ctx, "update_self"):
+        writes = [
+            loc
+            for code in flow.code
+            for loc in (_py_email_writes(code) if code.python else _js_email_writes(code))
+        ]
+        if not writes:
+            continue
+        guarded = any(
+            VERIFY_WORDS.search(name) for code in flow.code for name in _identifiers(code)
+        )
+        if guarded:
+            record_pass(
+                ctx,
+                9,
+                Tag.INFERRED,
+                "Changing the email goes through a verification or password step",
+                writes[0],
+            )
+            continue
+        yield make_finding(
+            "AUTH-EMAIL-CHANGE-UNVERIFIED",
+            tag=Tag.CONFIRMED,
+            locations=[*writes, flow.location],
+            snippet=snippet(ctx.index.text(writes[0].file), writes[0].line),
+            route=f"{flow.route.method} {flow.route.path}",
+        )
+
+
+def _declared_unique(ctx: Context, model) -> bool:
+    text = ctx.index.text(model.location.file)
+    return bool(UNIQUE_TEXT.search(text))
+
+
+@rule("AUTH-EMAIL-NOT-UNIQUE", review="auth", severity="medium", exploitability="low", owasp="A07")
+def email_not_unique(ctx: Context) -> Iterator[Finding]:
+    if not flows_of(ctx, "register"):
+        return
+    for model in user_models(ctx):
+        field = next((f for f in model.fields if f.name in EMAIL_FIELDS), None)
+        if field is None:
+            continue
+        if field.unique or _declared_unique(ctx, model):
+            record_pass(
+                ctx, 8, Tag.CONFIRMED, f"The email column of {model.name} is unique", field.location
+            )
+            continue
+        yield make_finding(
+            "AUTH-EMAIL-NOT-UNIQUE",
+            tag=Tag.CONFIRMED,
+            locations=[field.location],
+            snippet=snippet(ctx.index.text(field.location.file), field.location.line),
+            model=model.name,
+        )
+
+
+def _frontend_files(ctx: Context) -> list[str]:
+    web_roots = [r.path for r in ctx.detection.app_roots if r.kind == "web"]
+    found = []
+    for entry in ctx.index.js_files:
+        if is_test(entry.rel):
+            continue
+        in_web = any(entry.rel.startswith(root + "/") for root in web_roots if root)
+        if in_web or entry.rel.endswith(UI_SUFFIXES):
+            found.append(entry.rel)
+    return found
+
+
+def _definition_name(node) -> str | None:
+    current = node.parent
+    while current is not None:
+        if current.type == "pair":
+            return jsts.node_text(current.child_by_field_name("key"))
+        if current.type in ("variable_declarator", "function_declaration", "method_definition"):
+            return jsts.node_text(current.child_by_field_name("name"))
+        if current.type in ("jsx_element", "jsx_self_closing_element", "program"):
+            return None
+        current = current.parent
+    return None
+
+
+def _references(ctx: Context, files: list[str], path: str) -> list[tuple[str, int, str | None]]:
+    found = []
+    for rel in files:
+        if path.rsplit("/", 1)[-1] not in ctx.index.text(rel):
+            continue
+        for tree in jsts.parse_file(ctx.index, rel):
+            for node in jsts.walk(tree.root, {"string", "template_string"}):
+                value = jsts.node_text(node).strip("'\"`").split("?")[0]
+                if len(value) > 1 and value.startswith("/") and path.endswith(value):
+                    found.append((rel, jsts.line(tree, node), _definition_name(node)))
+    return found
+
+
+def _called(ctx: Context, files: list[str], name: str, home: tuple[str, int]) -> bool:
+    pattern = re.compile(rf"(?<![\w$]){re.escape(name)}\s*\(")
+    for rel in files:
+        text = ctx.index.text(rel)
+        for number, line in enumerate(text.splitlines(), start=1):
+            if (rel, number) != home and pattern.search(line):
+                return True
+    return False
+
+
+@rule("AUTH-SIGNUP-NO-UI", review="auth", severity="medium", exploitability="medium", owasp="A04")
+def signup_no_ui(ctx: Context) -> Iterator[Finding]:
+    files = _frontend_files(ctx)
+    if not files:
+        return
+    for flow in flows_of(ctx, "register"):
+        refs = _references(ctx, [f for f in files if f != flow.route.file], flow.route.path)
+        if any(name is None or _called(ctx, files, name, (rel, line)) for rel, line, name in refs):
+            record_pass(
+                ctx,
+                "signup-no-ui",
+                Tag.INFERRED,
+                "A screen calls the signup endpoint",
+                flow.location,
+            )
+            continue
+        if refs:
+            rel, line, name = refs[0]
+            what = f"The frontend defines {name}() for this path at {rel}:{line}; nothing calls it."
+        else:
+            what = "No frontend source refers to this path."
+        yield make_finding(
+            "AUTH-SIGNUP-NO-UI",
+            tag=Tag.INFERRED,
+            locations=[flow.location, *(Location(r, n) for r, n, _ in refs[:3])],
+            snippet=snippet(ctx.index.text(flow.route.file), flow.route.line),
+            route=f"{flow.route.method} {flow.route.path}",
+            what=what,
+        )
+
+
+@rule("AUTH-NO-MFA", review="auth", severity="low", exploitability="low", owasp="A07")
+def no_mfa(ctx: Context) -> Iterator[Finding]:
+    if managed_provider(ctx) or MFA_PACKAGES & ctx.detection.packages:
+        return
+    by_root: dict[str, list[Flow]] = {}
+    for flow in flows_of(ctx, "login"):
+        home = root_of(ctx.detection.app_roots, flow.route.file)
+        by_root.setdefault(home.path if home else "", []).append(flow)
+    model_fields = [f.name for m in user_models(ctx) for f in m.fields]
+    for root, login_flows in sorted(by_root.items()):
+        names = [n for flow in login_flows for code in flow.code for n in _identifiers(code)]
+        if any(MFA_WORDS.search(n) for n in [*names, *model_fields]):
+            record_pass(
+                ctx, "mfa", Tag.INFERRED, "Sign-in checks a second factor", login_flows[0].location
+            )
+            continue
+        yield make_finding(
+            "AUTH-NO-MFA",
+            tag=Tag.INFERRED,
+            locations=[f.location for f in login_flows],
+            snippet=snippet(ctx.index.text(login_flows[0].route.file), login_flows[0].route.line),
+            app=root or "this repository",
+        )
+```
+
+Modify `src/dpr/reviews/auth_sessions.py`, replace:
+
+```python
+    r"|(?:^|\.)logout$|(?:^|\.)(?:delete|remove|pop|clear)$"
+)
+REVOKE_WRITE = re.compile(r"(?i)invalidated_?at|token_?version|revoked_?at|\bjti\b")
+RESPONSE_ONLY = re.compile(
+    r"(?:^|\.)(?:json|status|send|JSONResponse|Response|jsonify|redirect|NextResponse|end)$"
+)
+REFRESH_ISSUED = re.compile(
+    r"create_refresh_token|refresh_token\s*=|[\"']type[\"']\s*:\s*[\"']refresh|new_refresh"
+    r"|refreshToken\s*=|signRefresh|create_tokens|issue_tokens|generate_tokens|RefreshToken\.for_user"
+```
+
+with:
+
+```python
+    r"|(?:^|\.)logout$|(?:^|\.)(?:delete|remove|pop|clear)$"
+)
+REVOKE_WRITE = re.compile(r"(?i)invalidated_?at|token_?version|revoked_?at|\bjti\b")
+RESPONSE_ONLY = re.compile(r"(?:^|\.)(?:json|status|send|\w*Response|jsonify|redirect|end)$")
+REFRESH_ISSUED = re.compile(
+    r"create_refresh_token|refresh_token\s*=|[\"']type[\"']\s*:\s*[\"']refresh|new_refresh"
+    r"|refreshToken\s*=|signRefresh|create_tokens|issue_tokens|generate_tokens|RefreshToken\.for_user"
+```
+
+Modify `src/dpr/reviews/auth_tokens.py`, replace:
+
+```python
+        yield make_finding(
+            rule_id,
+            tag=Tag.INFERRED,
+            locations=[flow.location, *(Location(c.rel, c.line) for c in flow.code[1:3])],
+            snippet=snippet(ctx.index.text(flow.route.file), flow.route.line),
+            route=f"{flow.route.method} {flow.route.path}",
+        )
+```
+
+with:
+
+```python
+        yield make_finding(
+            rule_id,
+            tag=Tag.INFERRED,
+            locations=[flow.location, *(loc for _, loc in plaintext_matches(flow)[:2])],
+            snippet=snippet(ctx.index.text(flow.route.file), flow.route.line),
+            route=f"{flow.route.method} {flow.route.path}",
+        )
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (362 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/rule_text/auth_account.yaml src/dpr/reviews/auth.py src/dpr/reviews/auth_account.py src/dpr/reviews/auth_sessions.py src/dpr/reviews/auth_tokens.py tests/fixtures/express-prisma/expected.yaml tests/fixtures/fastapi-bad/expected.yaml tests/fixtures/fastapi-good/expected.yaml tests/fixtures/fastapi-good/web/src/Signup.tsx tests/fixtures/fastapi-good/web/src/api.ts tests/fixtures/next-supabase-bad/expected.yaml tests/fixtures/next-supabase-good/components/SignupForm.tsx tests/fixtures/next-supabase-good/expected.yaml tests/reviews/test_auth_account.py tests/reviews/test_auth_section.py
+git commit -m "Report unverified email changes, non-unique emails, unused signup and missing MFA"
+```
+
+---
+
+### Task 68: Review 1 scaffold: personal data classifier and field rules
+
+Judge gap 2 and spec 10.7. Review 1 starts: every model field is classified into the categories the skill checks (special category, children, government ids, account, technical, identifiers, financial, behavioural, content, inferred) by whole name words, with id and count suffixes excluded and technical identifiers (IP, user agent) checked before general identifiers. A model is about people when its name ends in a person word or it holds an email or phone. `INV-SPECIAL-CATEGORY` and `INV-CHILDREN-SIGNAL` (high, INFERRED) and `INV-CATCHALL-JSON` (medium) are the first rules; the section shows a personal data map.
+
+**Files:**
+- Create: `src/dpr/data/rule_text/inventory_fields.yaml`, `src/dpr/reviews/inventory.py`, `src/dpr/reviews/inventory_fields.py`, `src/dpr/reviews/personal.py`
+- Modify: `src/dpr/data/pii_terms.yaml` (category word lists, catch-all JSON names, person model words)
+- Test: `tests/reviews/test_inventory_fields.py`
+- Modify fixture: `tests/fixtures/fastapi-good/expected.yaml` (field rules must not report)
+- Modify fixture: `tests/fixtures/next-supabase-bad/expected.yaml` (new inventory findings)
+- Modify fixture: `tests/fixtures/next-supabase-good/expected.yaml` (field rules must not report)
+- Modify test: `tests/test_api.py` (inventory runs)
+- Modify test: `tests/test_fixtures.py` (good fixtures run review 1)
+
+**Interfaces:**
+- Consumes: `DataModel` and `Field` detection from Milestone 1, `words` (Task 57), `pii_terms.yaml`
+- Produces:
+  - `dpr.reviews.inventory`:
+
+```python
+def map_rows(ctx: Context) -> tuple[tuple[str, ...], ...]: ...
+def run(ctx: Context) -> ReviewSection: ...
+```
+
+  - `dpr.reviews.inventory_fields`:
+
+```python
+@rule('INV-SPECIAL-CATEGORY', review='inventory', severity='high', exploitability='low')
+def special_category(ctx: Context) -> Iterator[Finding]: ...
+@rule('INV-CHILDREN-SIGNAL', review='inventory', severity='high', exploitability='low')
+def children_signal(ctx: Context) -> Iterator[Finding]: ...
+@rule('INV-CATCHALL-JSON', review='inventory', severity='medium', exploitability='low')
+def catch_all_json(ctx: Context) -> Iterator[Finding]: ...
+```
+
+  - `dpr.reviews.personal`:
+
+```python
+@dataclass(frozen=True)
+class Category:
+    key: str
+    label: str
+@dataclass(frozen=True)
+class PersonalField:
+    model: DataModel
+    field: Field
+    category: Category
+def classify(name: str, person: bool=True) -> Category | None: ...
+def is_person_model(model: DataModel) -> bool: ...
+def about_people(model: DataModel) -> bool: ...
+def personal_fields(ctx: Context) -> list[PersonalField]: ...
+def catch_all(field: Field) -> bool: ...
+```
+
+
+**Earlier tests updated on purpose:** `tests/test_api.py` expects review 1 to run and no longer lists it as not available; `tests/test_fixtures.py` adds `inventory` to both good fixtures.
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/fixtures/fastapi-good/expected.yaml`, replace:
+
+```yaml
+  - BASE-SHORT-PASSWORD-MIN
+  - BASE-VERSION-DISCLOSURE
+  - BASE-WEAK-HASH
+  - LEAK-BROAD-RESPONSE
+  - LEAK-DEFAULT-CREDENTIAL
+  - LEAK-ENV-IN-HISTORY
+```
+
+with:
+
+```yaml
+  - BASE-SHORT-PASSWORD-MIN
+  - BASE-VERSION-DISCLOSURE
+  - BASE-WEAK-HASH
+  - INV-CATCHALL-JSON
+  - INV-CHILDREN-SIGNAL
+  - INV-SPECIAL-CATEGORY
+  - LEAK-BROAD-RESPONSE
+  - LEAK-DEFAULT-CREDENTIAL
+  - LEAK-ENV-IN-HISTORY
+```
+
+Modify `tests/fixtures/next-supabase-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: BASE-HEADER-MISSING-REFERRER, file: next.config.js, line: 1, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: next.config.js, line: 1, tag: UNVERIFIED}
+  - {rule: BASE-VERSION-DISCLOSURE, file: next.config.js, line: 1, tag: INFERRED}
+  - {rule: LEAK-BROAD-RESPONSE, file: "app/api/users/[id]/route.ts", line: 6, tag: INFERRED}
+  - {rule: LEAK-ENV-IN-HISTORY, file: .env.production, line: 1, tag: CONFIRMED}
+  - {rule: LEAK-ENV-TRACKED, file: .env, line: 1, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: BASE-HEADER-MISSING-REFERRER, file: next.config.js, line: 1, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: next.config.js, line: 1, tag: UNVERIFIED}
+  - {rule: BASE-VERSION-DISCLOSURE, file: next.config.js, line: 1, tag: INFERRED}
+  - {rule: INV-CATCHALL-JSON, file: prisma/schema.prisma, line: 6, tag: CONFIRMED}
+  - {rule: INV-CATCHALL-JSON, file: supabase/migrations/20240101000000_init.sql, line: 5, tag: CONFIRMED}
+  - {rule: INV-SPECIAL-CATEGORY, file: prisma/schema.prisma, line: 7, tag: CONFIRMED}
+  - {rule: LEAK-BROAD-RESPONSE, file: "app/api/users/[id]/route.ts", line: 6, tag: INFERRED}
+  - {rule: LEAK-ENV-IN-HISTORY, file: .env.production, line: 1, tag: CONFIRMED}
+  - {rule: LEAK-ENV-TRACKED, file: .env, line: 1, tag: CONFIRMED}
+```
+
+Modify `tests/fixtures/next-supabase-good/expected.yaml`, replace:
+
+```yaml
+  - BASE-SHORT-PASSWORD-MIN
+  - BASE-VERSION-DISCLOSURE
+  - BASE-WEAK-HASH
+  - LEAK-BROAD-RESPONSE
+  - LEAK-DEFAULT-CREDENTIAL
+  - LEAK-ENV-IN-HISTORY
+```
+
+with:
+
+```yaml
+  - BASE-SHORT-PASSWORD-MIN
+  - BASE-VERSION-DISCLOSURE
+  - BASE-WEAK-HASH
+  - INV-CATCHALL-JSON
+  - INV-CHILDREN-SIGNAL
+  - INV-SPECIAL-CATEGORY
+  - LEAK-BROAD-RESPONSE
+  - LEAK-DEFAULT-CREDENTIAL
+  - LEAK-ENV-IN-HISTORY
+```
+
+`tests/reviews/test_inventory_fields.py`:
+
+```python
+from dpr import reviews, rules
+from dpr.discovery.detect import detect
+from dpr.reviews.personal import classify, is_person_model, personal_fields
+from dpr.walk import RepoIndex
+from tests.reviews.helpers import findings_for, write
+
+
+def context(root):
+    reviews.available()
+    index = RepoIndex(root)
+    return rules.Context(index=index, detection=detect(index))
+
+
+def test_classify_field_names():
+    assert classify("email").key == "identifiers"
+    assert classify("firstName").key == "identifiers"
+    assert classify("medicalConditions").key == "special"
+    assert classify("password_hash").key == "account"
+    assert classify("ip_address").key == "technical"
+    assert classify("status_note").key == "content"
+    assert classify("id_number").key == "government_ids"
+    assert classify("client_id") is None and classify("uploaded_by") is None
+    assert classify("name", person=False) is None and classify("name").key == "identifiers"
+    assert classify("crop_year") is None and classify("muscle_grade") is None
+
+
+def test_person_models_and_models_keyed_to_people(tmp_path):
+    write(
+        tmp_path,
+        "app/models.py",
+        "class Client(Base):\n    __tablename__ = 'clients'\n"
+        "    name = Column(String)\n    phone = Column(String)\n"
+        "class Order(Base):\n    __tablename__ = 'orders'\n"
+        "    client_id = Column(String)\n    net_price = Column(Numeric)\n    notes = Column(Text)\n"
+        "class CropType(Base):\n    __tablename__ = 'crop_types'\n"
+        "    name = Column(String)\n    price = Column(Numeric)\n",
+    )
+    ctx = context(tmp_path)
+    found = sorted((p.model.name, p.field.name, p.category.key) for p in personal_fields(ctx))
+    assert found == [
+        ("Client", "name", "identifiers"),
+        ("Client", "phone", "identifiers"),
+        ("Order", "net_price", "financial"),
+        ("Order", "notes", "content"),
+    ]
+    assert is_person_model(ctx.detection.models[0])
+
+
+def test_special_category_and_catch_all_json(tmp_path):
+    write(
+        tmp_path,
+        "prisma/schema.prisma",
+        "model Patient {\n  id Int @id\n  email String @unique\n  diagnosis String?\n"
+        "  metadata Json?\n  notes String?\n}\n",
+    )
+    [special] = findings_for(tmp_path, "inventory", "INV-SPECIAL-CATEGORY")
+    assert (special.tag.value, special.severity.value) == ("CONFIRMED", "high")
+    assert [str(loc) for loc in special.locations] == ["prisma/schema.prisma:4"]
+    [catch_all] = findings_for(tmp_path, "inventory", "INV-CATCHALL-JSON")
+    assert (catch_all.title, str(catch_all.locations[0])) == (
+        "Catch-all JSON column Patient.metadata",
+        "prisma/schema.prisma:5",
+    )
+
+
+def test_text_column_named_metadata_is_not_catch_all_json(tmp_path):
+    write(tmp_path, "prisma/schema.prisma", "model Post {\n  id Int @id\n  metadata String?\n}\n")
+    assert findings_for(tmp_path, "inventory", "INV-CATCHALL-JSON") == []
+
+
+def test_children_signals_from_fields_and_age_minimums(tmp_path):
+    write(
+        tmp_path,
+        "app/models.py",
+        "class Student(Base):\n    __tablename__ = 'students'\n"
+        "    guardian = Column(String)\n    school_name = Column(String)\n",
+    )
+    write(
+        tmp_path,
+        "app/schemas.py",
+        "class Signup(BaseModel):\n    age: int = Field(ge=13)\n"
+        "class Adult(BaseModel):\n    age: int = Field(ge=18)\n",
+    )
+    write(tmp_path, "web/signup.ts", "const schema = z.object({ age: z.number().int().min(16) })\n")
+    found = findings_for(tmp_path, "inventory", "INV-CHILDREN-SIGNAL")
+    assert sorted(f.detail for f in found) == [
+        "An age check accepts users as young as 13.",
+        "Student stores guardian, school_name.",
+    ]
+    ages = next(f for f in found if f.detail.startswith("An age"))
+    assert [str(loc) for loc in ages.locations] == ["app/schemas.py:2", "web/signup.ts:1"]
+
+
+def test_no_children_signal_for_adult_products(tmp_path):
+    write(tmp_path, "app/schemas.py", "class Signup(BaseModel):\n    age: int = Field(ge=18)\n")
+    assert findings_for(tmp_path, "inventory", "INV-CHILDREN-SIGNAL") == []
+```
+
+Modify `tests/test_api.py`, replace:
+
+```python
+    before = files(root)
+    report = review(root, today=datetime.date(2026, 9, 16))
+    assert files(root) == before
+    assert set(report.sections) == {"leaks", "rls", "baseline", "owasp", "abuse"}
+    assert report.meta.reviews_run == ("rls", "baseline", "owasp", "leaks", "abuse")
+    assert report.meta.date == "2026-09-16"
+    assert report.meta.project == root.name
+    assert dict(report.meta.applicability) == {
+        "inventory": "not available in this version",
+        "rls": "runs",
+        "auth": "not applicable, no sign-in, signup or reset routes and no auth provider found",
+        "baseline": "runs",
+```
+
+with:
+
+```python
+    before = files(root)
+    report = review(root, today=datetime.date(2026, 9, 16))
+    assert files(root) == before
+    assert set(report.sections) == {"inventory", "leaks", "rls", "baseline", "owasp", "abuse"}
+    assert report.meta.reviews_run == ("inventory", "rls", "baseline", "owasp", "leaks", "abuse")
+    assert report.meta.date == "2026-09-16"
+    assert report.meta.project == root.name
+    assert dict(report.meta.applicability) == {
+        "inventory": "runs",
+        "rls": "runs",
+        "auth": "not applicable, no sign-in, signup or reset routes and no auth provider found",
+        "baseline": "runs",
+```
+
+Modify `tests/test_api.py`, replace:
+
+```python
+    assert {"LEAK-PUBLIC-SECRET", "RLS-TABLE-OFF"} <= rule_ids
+    scores = [score(f) for f in report.findings]
+    assert scores == sorted(scores, reverse=True)
+    assert "Review 1 (inventory): not available in this version" in report.not_covered
+    assert len(report.questions) == 22
+    assert all(q.open for q in report.questions)
+
+```
+
+with:
+
+```python
+    assert {"LEAK-PUBLIC-SECRET", "RLS-TABLE-OFF"} <= rule_ids
+    scores = [score(f) for f in report.findings]
+    assert scores == sorted(scores, reverse=True)
+    assert not any("not available in this version" in item for item in report.not_covered)
+    assert len(report.questions) == 22
+    assert all(q.open for q in report.questions)
+
+```
+
+Modify `tests/test_fixtures.py`, replace:
+
+```python
+
+BAD = ("next-supabase-bad", "django-bad", "fastapi-bad", "express-prisma")
+GOOD = {
+    "next-supabase-good": {"leaks", "rls", "auth", "baseline", "owasp", "abuse"},
+    "fastapi-good": {"leaks", "rls", "auth", "baseline", "owasp", "abuse"},
+}
+
+
+```
+
+with:
+
+```python
+
+BAD = ("next-supabase-bad", "django-bad", "fastapi-bad", "express-prisma")
+GOOD = {
+    "next-supabase-good": {"inventory", "leaks", "rls", "auth", "baseline", "owasp", "abuse"},
+    "fastapi-good": {"inventory", "leaks", "rls", "auth", "baseline", "owasp", "abuse"},
+}
+
+
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_inventory_fields.py tests/test_api.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 1 error; collection stops at `ModuleNotFoundError: No module named 'dpr.reviews.personal'`)
+
+- [ ] **Step 3: Write the classifier, the field rules and the review module**
+
+Modify `src/dpr/data/pii_terms.yaml`, replace:
+
+```yaml
+sensitive_columns: [password, hash, token, secret, stripe_customer_id, role]
+```
+
+with:
+
+```yaml
+sensitive_columns: [password, hash, token, secret, stripe_customer_id, role]
+# Review 1 categories. A term matches whole words of a field name (split on case and underscores).
+# Categories are checked in this order; the first match wins.
+categories:
+  - key: special
+    label: Special category
+    terms: [medical, health_condition, health_status, diagnosis, disability, disabilities, biometric, fingerprint, face_scan, race, ethnicity, ethnic_origin, religion, religious, political, trade_union, union_membership, sexual_orientation, sexuality, criminal, conviction, convictions, genetic, pregnancy, hiv, mental_health, medication, allergies]
+  - key: children
+    label: Children
+    terms: [guardian, parent_name, parent_email, parent_phone, parental_consent, school, school_name, is_minor, minor, child_name, children_names, grade_level]
+  - key: government_ids
+    label: Government identifiers
+    terms: [id_number, sa_id, identity_number, national_id, passport_number, passport, ssn, social_security, tax_number, tax_id, driver_license, drivers_license, nin]
+  - key: account
+    label: Account and credentials
+    terms: [password, password_hash, passwd, mfa_secret, totp_secret, otp_secret, session_token, refresh_token, api_key, oauth_token, access_token, reset_token, verification_token, recovery_codes]
+  - key: technical
+    label: Technical identifiers
+    terms: [ip, ip_address, client_ip, user_agent, device_id, cookie_id, latitude, longitude, geolocation, geo, fingerprint_id]
+  - key: identifiers
+    label: Contact and identity
+    terms: [email, emails, email_address, phone, phone_number, mobile, telephone, first_name, last_name, full_name, surname, given_name, username, display_name, avatar, avatar_url, address, address_line1, address_line2, address1, address2, street, city, postcode, postal_code, zip, zip_code, date_of_birth, birth_date, dob, birthday, gender, nationality, name, entity_name, contact, recipient]
+  - key: financial
+    label: Financial
+    terms: [card_last4, last4, iban, bank_account, account_number, routing_number, vat_number, billing_address, salary, income, premium, commission, commission_amount, indemnity, profit, profit_loss, net_profit, revenue, price, amount, total, fees, balance, invoice, payment]
+  - key: behavioural
+    label: Behavioural
+    terms: [last_login, last_login_at, last_seen, page_views, clicks, search_query, searches, events, activity, sent_at, viewed_at]
+  - key: content
+    label: Free text and content
+    terms: [message, messages, body, content, comment, comments, note, notes, description, bio, title, detail, details, review_note, status_note, file, filename, original_filename, attachment, upload]
+  - key: inferred
+    label: Inferred data
+    terms: [score, risk_score, health_score, segment, segments, lifetime_value, churn, prediction, rating, risk_tolerance, personality]
+catch_all_json: [metadata, properties, custom_fields, extra, payload, raw, attributes, data, detail, details, context, info]
+person_models: [user, users, account, customer, client, member, contact, profile, person, people, employee, patient, student, insured, producer, lead, subscriber, recipient, applicant, guest, staff, agent, author, owner, tenant_user, lender]
+```
+
+`src/dpr/data/rule_text/inventory_fields.yaml`:
+
+```yaml
+INV-SPECIAL-CATEGORY:
+  title: ${model} stores special category data
+  effort_minutes: 30
+  detail: 'Fields of ${model} carry special category data by name: ${fields}. This data needs a specific legal condition, tighter access and usually encryption.'
+  blast: Health, biometric, belief or similar data of every person with a record, which carries the highest harm if exposed.
+  fix: Confirm each field is necessary; remove the ones that are not. Restrict read access to the roles that need it, encrypt the columns, and record the purpose for the data protection lawyer.
+  verify: List who can query these columns in production and confirm each field is still collected on purpose.
+INV-CHILDREN-SIGNAL:
+  title: Signs that the product holds children's data
+  effort_minutes: 30
+  detail: ${what}
+  proof_needed: Confirm with the product owner whether people under 18 use the product or appear in its records.
+  blast: Personal data of minors, which most privacy laws protect more strictly.
+  fix: Decide whether minors are in scope. If they are, record it for the data protection lawyer (consent age, parental consent flows); if not, enforce a minimum age of 18 at signup.
+  verify: Check the signup validation and the stored records for ages below 18.
+INV-CATCHALL-JSON:
+  title: Catch-all JSON column ${model}.${field}
+  effort_minutes: 20
+  detail: ${model}.${field} is a JSON column with a catch-all name, so it can accumulate personal data that no schema declares. Its contents are unbounded and unverified.
+  blast: Whatever the application or clients have ever written into the column.
+  fix: Sample the column in production, document the keys it holds, and replace it with declared columns or a validated schema.
+  verify: Run a query that lists the distinct top-level keys in the column and review each.
+```
+
+`src/dpr/reviews/inventory.py`:
+
+```python
+"""Review 1, data inventory: what personal data the code holds, where it goes, how long it stays."""
+
+from __future__ import annotations
+
+import dpr.reviews.inventory_fields  # noqa: F401  (registers rules)
+from dpr.model import Part, ReviewSection
+from dpr.reviews.personal import personal_fields
+from dpr.rules import Context
+
+INTRO = (
+    "An inventory of what the code shows, not legal advice. Fields are matched to personal data "
+    "categories by name. Retention and regions are never assumed: UNKNOWN means the repository "
+    "does not say."
+)
+MAP_COLUMNS = (
+    "Field",
+    "What it is",
+    "Where collected",
+    "Where it lives",
+    "Third parties with a copy",
+    "Retention",
+    "Who internally can read it",
+    "Evidence",
+)
+
+
+def map_rows(ctx: Context) -> tuple[tuple[str, ...], ...]:
+    groups: dict[tuple[str, str], list] = {}
+    for item in personal_fields(ctx):
+        groups.setdefault((item.model.location.file, item.model.name), []).append(item)
+    rows = []
+    for (_file, _name), items in sorted(groups.items()):
+        model = items[0].model
+        fields = ", ".join(f"`{i.field.name}`" for i in items)
+        labels = ", ".join(dict.fromkeys(i.category.label for i in items))
+        rows.append(
+            (
+                f"{model.table.split('.')[-1]}: {fields}",
+                labels,
+                "UNKNOWN",
+                f"table {model.table.split('.')[-1]} ({model.source})",
+                "none found",
+                "UNKNOWN",
+                "UNKNOWN",
+                f"`{model.location}` CONFIRMED",
+            )
+        )
+    return tuple(rows)
+
+
+def run(ctx: Context) -> ReviewSection:
+    return ReviewSection(
+        "inventory",
+        [
+            Part("text", "How to read this inventory", body=INTRO),
+            Part("table", "Personal data map", MAP_COLUMNS, map_rows(ctx)),
+            Part("findings", "Findings"),
+        ],
+    )
+```
+
+`src/dpr/reviews/inventory_fields.py`:
+
+```python
+"""Review 1, inventory: special category fields, signals of children's data, catch-all JSON."""
+
+from __future__ import annotations
+
+import ast
+import re
+from collections.abc import Iterator
+
+from dpr.model import Finding, Location, Tag
+from dpr.parsing import pyast
+from dpr.redact import snippet
+from dpr.reviews.paths import is_test
+from dpr.reviews.personal import catch_all, personal_fields
+from dpr.rules import Context, make_finding, rule
+from dpr.walk import line_of
+
+AGE_FIELD = re.compile(r"(?i)^(?:age|min_age|minimum_age)$")
+JS_AGE_MIN = re.compile(r"(?i)\bage\s*:\s*z\.number\(\)[\w.()]*?\.(?:min|gte)\(\s*(\d+)")
+
+
+def _by_model(ctx: Context, key: str) -> dict[str, list]:
+    groups: dict[str, list] = {}
+    for item in personal_fields(ctx):
+        if item.category.key == key:
+            groups.setdefault(f"{item.model.location.file}:{item.model.name}", []).append(item)
+    return groups
+
+
+@rule("INV-SPECIAL-CATEGORY", review="inventory", severity="high", exploitability="low")
+def special_category(ctx: Context) -> Iterator[Finding]:
+    for items in _by_model(ctx, "special").values():
+        model = items[0].model
+        yield make_finding(
+            "INV-SPECIAL-CATEGORY",
+            tag=Tag.CONFIRMED,
+            locations=[i.field.location for i in items][:10],
+            snippet=snippet(
+                ctx.index.text(items[0].field.location.file), items[0].field.location.line
+            ),
+            model=model.name,
+            fields=", ".join(i.field.name for i in items),
+        )
+
+
+def _py_age_minimums(ctx: Context) -> Iterator[tuple[Location, int]]:
+    for entry in ctx.index.py_files:
+        text = ctx.index.text(entry.rel)
+        if is_test(entry.rel) or "age" not in text:
+            continue
+        tree = pyast.parse_file(ctx.index, entry.rel)
+        for node in ast.walk(tree) if tree else []:
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                if not AGE_FIELD.match(node.target.id) or not isinstance(node.value, ast.Call):
+                    continue
+                for key in ("ge", "gt", "min_value"):
+                    value = pyast.constant(pyast.kwarg(node.value, key), None)
+                    if isinstance(value, int) and value < 18:
+                        yield Location(entry.rel, node.lineno), value
+
+
+def _js_age_minimums(ctx: Context) -> Iterator[tuple[Location, int]]:
+    for entry in ctx.index.js_files:
+        text = ctx.index.text(entry.rel)
+        if is_test(entry.rel):
+            continue
+        for match in JS_AGE_MIN.finditer(text):
+            if int(match.group(1)) < 18:
+                yield Location(entry.rel, line_of(text, match.start())), int(match.group(1))
+
+
+@rule("INV-CHILDREN-SIGNAL", review="inventory", severity="high", exploitability="low")
+def children_signal(ctx: Context) -> Iterator[Finding]:
+    for items in _by_model(ctx, "children").values():
+        yield make_finding(
+            "INV-CHILDREN-SIGNAL",
+            tag=Tag.INFERRED,
+            locations=[i.field.location for i in items][:10],
+            what=f"{items[0].model.name} stores {', '.join(i.field.name for i in items)}.",
+        )
+    ages = [*_py_age_minimums(ctx), *_js_age_minimums(ctx)]
+    if ages:
+        minimum = min(value for _, value in ages)
+        yield make_finding(
+            "INV-CHILDREN-SIGNAL",
+            tag=Tag.INFERRED,
+            locations=[loc for loc, _ in ages][:10],
+            what=f"An age check accepts users as young as {minimum}.",
+        )
+
+
+@rule("INV-CATCHALL-JSON", review="inventory", severity="medium", exploitability="low")
+def catch_all_json(ctx: Context) -> Iterator[Finding]:
+    for model in ctx.detection.models:
+        for field in model.fields:
+            if catch_all(field) and not is_test(field.location.file):
+                yield make_finding(
+                    "INV-CATCHALL-JSON",
+                    tag=Tag.CONFIRMED,
+                    locations=[field.location],
+                    snippet=snippet(ctx.index.text(field.location.file), field.location.line),
+                    model=model.name,
+                    field=field.name,
+                )
+```
+
+`src/dpr/reviews/personal.py`:
+
+```python
+"""Personal data in the data models: which fields, which category, and whose records they are."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from functools import cache
+
+from dpr.data import load
+from dpr.model import DataModel, Field
+from dpr.reviews.leaks_logs import words
+from dpr.rules import Context
+
+JSON_TYPES = re.compile(r"(?i)^(?:json|jsonb|Json|JSON|JSONB|JSONField|MutableDict|dict)")
+KEY_SUFFIX = re.compile(r"(?:_id|_ids|Id|Ids|_by|_uuid)$")
+
+
+@dataclass(frozen=True)
+class Category:
+    key: str
+    label: str
+
+
+@dataclass(frozen=True)
+class PersonalField:
+    model: DataModel
+    field: Field
+    category: Category
+
+
+@cache
+def _categories() -> list[tuple[Category, list[tuple[str, ...]]]]:
+    return [
+        (Category(c["key"], c["label"]), [tuple(words(t)) for t in c["terms"]])
+        for c in load("pii_terms.yaml")["categories"]
+    ]
+
+
+def _contains(tokens: list[str], term: tuple[str, ...]) -> bool:
+    size = len(term)
+    return any(tuple(tokens[i : i + size]) == term for i in range(len(tokens) - size + 1))
+
+
+def classify(name: str, person: bool = True) -> Category | None:
+    """The personal data category of a field name, or None. Keys to other records are not data."""
+    if KEY_SUFFIX.search(name):
+        return None
+    tokens = words(name)
+    for category, terms in _categories():
+        for term in terms:
+            if term == ("name",) and not person:
+                continue
+            if _contains(tokens, term):
+                return category
+    return None
+
+
+def is_person_model(model: DataModel) -> bool:
+    names = {model.name.lower(), model.table.split(".")[-1].lower()}
+    stems = {w for n in names for w in words(n)}
+    person_words = set(load("pii_terms.yaml")["person_models"])
+    fields = {f.name.lower() for f in model.fields}
+    return bool(stems & person_words) or bool({"email", "phone", "email_address"} & fields)
+
+
+def about_people(model: DataModel) -> bool:
+    """A person model, or a model keyed to one (client_id, user_id, author_id)."""
+    if is_person_model(model):
+        return True
+    person_words = set(load("pii_terms.yaml")["person_models"])
+    for field in model.fields:
+        if (
+            KEY_SUFFIX.search(field.name)
+            and set(words(KEY_SUFFIX.sub("", field.name))) & person_words
+        ):
+            return True
+    return False
+
+
+def personal_fields(ctx: Context) -> list[PersonalField]:
+    if "personal_fields" not in ctx.facts:
+        found = []
+        for model in ctx.detection.models:
+            if not about_people(model):
+                continue
+            person = is_person_model(model)
+            for field in model.fields:
+                category = classify(field.name, person)
+                if category is not None:
+                    found.append(PersonalField(model, field, category))
+        ctx.facts["personal_fields"] = found
+    return ctx.facts["personal_fields"]
+
+
+def catch_all(field: Field) -> bool:
+    names = set(load("pii_terms.yaml")["catch_all_json"])
+    return field.name.lower() in names and bool(JSON_TYPES.match(field.type))
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (368 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/pii_terms.yaml src/dpr/data/rule_text/inventory_fields.yaml src/dpr/reviews/inventory.py src/dpr/reviews/inventory_fields.py src/dpr/reviews/personal.py tests/fixtures/fastapi-good/expected.yaml tests/fixtures/next-supabase-bad/expected.yaml tests/fixtures/next-supabase-good/expected.yaml tests/reviews/test_inventory_fields.py tests/test_api.py tests/test_fixtures.py
+git commit -m "Add review 1 with a personal data classifier and field rules"
+```
+
+---
+
+### Task 69: Collection points and SDK recipients
+
+Judge gap 2. Collection points are request schemas (Pydantic classes and subclasses, Zod and DRF serializers), request body reads and runtime values (IP address, user agent, location headers). For every SDK that receives data, the call sites are read for identifying values (email, name, phone, message content), excluding account and sender keys. `INV-SDK-RECEIVES-PII` (medium) reports personal data sent to a third party, CONFIRMED when a personal value is an argument at the call, INFERRED when it arrives through a variable.
+
+**Files:**
+- Create: `src/dpr/data/rule_text/inventory_sources.yaml`, `src/dpr/reviews/inventory_sources.py`
+- Modify: `src/dpr/reviews/inventory.py` (import the rule module)
+- Test: `tests/reviews/test_inventory_sources.py`
+- Modify fixture: `tests/fixtures/express-prisma/expected.yaml` (recipient finding)
+- Modify fixture: `tests/fixtures/fastapi-bad/expected.yaml` (recipient finding)
+- Modify fixture: `tests/fixtures/next-supabase-bad/expected.yaml` (recipient finding)
+
+**Interfaces:**
+- Consumes: classifier (Task 68), SDK detection (Task 53), routes from Milestone 1
+- Produces:
+  - `dpr.reviews.inventory_sources`:
+
+```python
+@dataclass(frozen=True)
+class Collection:
+    route: Route | None
+    fields: tuple[str, ...]
+    location: Location
+    source: str
+def collection_points(ctx: Context) -> list[Collection]: ...
+def recipient_sites(ctx: Context, sdk: SdkUse) -> list[tuple[Location, list[str]]]: ...
+def sdk_receipts(ctx: Context) -> list[tuple[SdkUse, list[Location], Tag, str]]: ...
+@rule('INV-SDK-RECEIVES-PII', review='inventory', severity='medium', exploitability='low')
+def sdk_receives_pii(ctx: Context) -> Iterator[Finding]: ...
+```
+
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/fixtures/express-prisma/expected.yaml`, replace:
+
+```yaml
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 4, tag: CONFIRMED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: src/index.ts, line: 5, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: src/index.ts, line: 5, tag: UNVERIFIED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: src/routes/orders.ts, line: 8, tag: CONFIRMED}
+  - {rule: OWASP-A09-NO-AUTH-FAIL-LOG, file: src/routes/auth.ts, line: 20, tag: INFERRED}
+```
+
+with:
+
+```yaml
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 4, tag: CONFIRMED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: src/index.ts, line: 5, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: src/index.ts, line: 5, tag: UNVERIFIED}
+  - {rule: INV-SDK-RECEIVES-PII, file: src/lib/mail.ts, line: 6, tag: CONFIRMED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: src/routes/orders.ts, line: 8, tag: CONFIRMED}
+  - {rule: OWASP-A09-NO-AUTH-FAIL-LOG, file: src/routes/auth.ts, line: 20, tag: INFERRED}
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: BASE-SAMESITE-NONE-NO-CSRF, file: infra/main.tf, line: 15, tag: INFERRED}
+  - {rule: BASE-SEED-ON-START, file: api/startup.sh, line: 3, tag: INFERRED}
+  - {rule: BASE-SHORT-PASSWORD-MIN, file: api/app/schemas.py, line: 11, tag: CONFIRMED}
+  - {rule: LEAK-DEFAULT-CREDENTIAL, file: docker-compose.yml, line: 5, tag: CONFIRMED}
+  - {rule: LEAK-PUBLIC-GATE-KEY, file: .github/workflows/deploy.yml, line: 3, tag: CONFIRMED}
+  - {rule: LEAK-SOURCEMAP, file: web/vite.config.ts, line: 5, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: BASE-SAMESITE-NONE-NO-CSRF, file: infra/main.tf, line: 15, tag: INFERRED}
+  - {rule: BASE-SEED-ON-START, file: api/startup.sh, line: 3, tag: INFERRED}
+  - {rule: BASE-SHORT-PASSWORD-MIN, file: api/app/schemas.py, line: 11, tag: CONFIRMED}
+  - {rule: INV-SDK-RECEIVES-PII, file: api/app/services/assistant.py, line: 9, tag: INFERRED}
+  - {rule: LEAK-DEFAULT-CREDENTIAL, file: docker-compose.yml, line: 5, tag: CONFIRMED}
+  - {rule: LEAK-PUBLIC-GATE-KEY, file: .github/workflows/deploy.yml, line: 3, tag: CONFIRMED}
+  - {rule: LEAK-SOURCEMAP, file: web/vite.config.ts, line: 5, tag: CONFIRMED}
+```
+
+Modify `tests/fixtures/next-supabase-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: BASE-VERSION-DISCLOSURE, file: next.config.js, line: 1, tag: INFERRED}
+  - {rule: INV-CATCHALL-JSON, file: prisma/schema.prisma, line: 6, tag: CONFIRMED}
+  - {rule: INV-CATCHALL-JSON, file: supabase/migrations/20240101000000_init.sql, line: 5, tag: CONFIRMED}
+  - {rule: INV-SPECIAL-CATEGORY, file: prisma/schema.prisma, line: 7, tag: CONFIRMED}
+  - {rule: LEAK-BROAD-RESPONSE, file: "app/api/users/[id]/route.ts", line: 6, tag: INFERRED}
+  - {rule: LEAK-ENV-IN-HISTORY, file: .env.production, line: 1, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: BASE-VERSION-DISCLOSURE, file: next.config.js, line: 1, tag: INFERRED}
+  - {rule: INV-CATCHALL-JSON, file: prisma/schema.prisma, line: 6, tag: CONFIRMED}
+  - {rule: INV-CATCHALL-JSON, file: supabase/migrations/20240101000000_init.sql, line: 5, tag: CONFIRMED}
+  - {rule: INV-SDK-RECEIVES-PII, file: app/api/generate/route.ts, line: 8, tag: INFERRED}
+  - {rule: INV-SPECIAL-CATEGORY, file: prisma/schema.prisma, line: 7, tag: CONFIRMED}
+  - {rule: LEAK-BROAD-RESPONSE, file: "app/api/users/[id]/route.ts", line: 6, tag: INFERRED}
+  - {rule: LEAK-ENV-IN-HISTORY, file: .env.production, line: 1, tag: CONFIRMED}
+```
+
+`tests/reviews/test_inventory_sources.py`:
+
+```python
+from dpr import reviews, rules
+from dpr.discovery.detect import detect
+from dpr.reviews.inventory_sources import collection_points
+from dpr.walk import RepoIndex
+from tests.reviews.helpers import findings_for, write
+
+
+def context(root):
+    reviews.available()
+    index = RepoIndex(root)
+    return rules.Context(index=index, detection=detect(index))
+
+
+def test_collection_points_from_request_schemas_and_body_reads(tmp_path):
+    write(
+        tmp_path,
+        "api/schemas.py",
+        "class ContactBase(BaseModel):\n    email: str\n    phone: str | None = None\n"
+        "class ClientCreate(ContactBase):\n    name: str\n    crop_year: int\n",
+    )
+    write(
+        tmp_path,
+        "api/routes.py",
+        "from fastapi import APIRouter\nrouter = APIRouter()\n"
+        "@router.post('/clients')\nasync def create(data: ClientCreate, user: CurrentUser): ...\n"
+        "@router.get('/clients')\nasync def listing(user: CurrentUser): ...\n",
+    )
+    write(
+        tmp_path,
+        "web/app.py",
+        "from flask import Flask, request\napp = Flask(__name__)\n"
+        "@app.route('/contact', methods=['POST'])\ndef contact():\n"
+        "    return save(request.form['email'], request.form.get('message'))\n",
+    )
+    write(
+        tmp_path,
+        "server/signup.js",
+        "router.post('/signup', async (req, res) => {\n"
+        "  const { email, fullName } = req.body\n  res.json({ ip: req.ip })\n})\n",
+    )
+    points = {
+        (c.route.method, c.route.path) if c.route else c.fields[0]: c
+        for c in collection_points(context(tmp_path))
+    }
+    assert points[("POST", "/clients")].fields == ("name", "email", "phone")
+    assert points[("POST", "/clients")].source == "ClientCreate"
+    assert points[("POST", "/contact")].fields == ("email", "message")
+    assert points[("POST", "/signup")].fields == ("email", "fullName")
+    assert str(points["IP address"].location) == "server/signup.js:3"
+    assert ("GET", "/clients") not in points
+
+
+EMAIL_SERVICE = (
+    "import logging\n\nclass EmailService:\n"
+    "    def __init__(self, conn):\n"
+    "        from azure.communication.email import EmailClient\n"
+    "        self.client = EmailClient.from_connection_string(conn)\n\n"
+    "    def send(self, to_email, to_name, html):\n"
+    "        message = {\n"
+    "            'senderAddress': 'noreply@example.invalid',\n"
+    "            'recipients': {'to': [{'address': to_email, 'displayName': to_name}]},\n"
+    "            'content': {'html': html},\n"
+    "        }\n"
+    "        return self.client.begin_send(message)\n"
+)
+
+
+def test_email_provider_receiving_recipient_fields_is_confirmed(tmp_path):
+    write(tmp_path, "requirements.txt", "azure-communication-email\n")
+    write(tmp_path, "app/email.py", EMAIL_SERVICE)
+    [finding] = findings_for(tmp_path, "inventory", "INV-SDK-RECEIVES-PII")
+    assert (finding.tag.value, str(finding.locations[0])) == ("CONFIRMED", "app/email.py:14")
+    assert "identifying fields (recipients, to, address, displayName)" in finding.detail
+    assert "senderAddress" not in finding.detail
+
+
+def test_llm_prompts_are_inferred_and_constructor_keys_do_not_count(tmp_path):
+    write(tmp_path, "requirements.txt", "anthropic\n")
+    write(
+        tmp_path,
+        "app/chat.py",
+        "import anthropic\n\ndef ask(messages, context):\n"
+        "    client = anthropic.Anthropic(api_key=KEY)\n"
+        "    return client.messages.create(model='m', system=context, messages=messages)\n",
+    )
+    [finding] = findings_for(tmp_path, "inventory", "INV-SDK-RECEIVES-PII")
+    assert (finding.tag.value, finding.detail.split(". ")[0]) == (
+        "INFERRED",
+        "Calls to anthropic (llm) pass free text or prompts (system, messages)",
+    )
+    assert [str(loc) for loc in finding.locations] == ["app/chat.py:5"]
+
+
+def test_javascript_mail_and_whole_user_objects(tmp_path):
+    write(tmp_path, "package.json", '{"dependencies": {"nodemailer": "6", "posthog-node": "4"}}')
+    write(
+        tmp_path,
+        "lib/mail.ts",
+        "import nodemailer from 'nodemailer'\nconst transport = nodemailer.createTransport({ host: 'x' })\n"
+        "export const send = (to, text) => transport.sendMail({ to, subject: 'Hi', text })\n",
+    )
+    write(
+        tmp_path,
+        "lib/track.ts",
+        "import { PostHog } from 'posthog-node'\nconst posthog = new PostHog('key')\n"
+        "export const track = (user) => posthog.capture({ distinctId: 'x', properties: user })\n",
+    )
+    found = {f.title: f for f in findings_for(tmp_path, "inventory", "INV-SDK-RECEIVES-PII")}
+    assert found["nodemailer receives personal data"].tag.value == "CONFIRMED"
+    assert set(found) == {"nodemailer receives personal data"}
+
+
+def test_sdk_imported_but_called_without_personal_keys_is_not_reported(tmp_path):
+    write(tmp_path, "requirements.txt", "azure-monitor-opentelemetry\n")
+    write(
+        tmp_path,
+        "app/main.py",
+        "from azure.monitor.opentelemetry import configure_azure_monitor\n"
+        "configure_azure_monitor(connection_string=CONN)\n",
+    )
+    assert findings_for(tmp_path, "inventory", "INV-SDK-RECEIVES-PII") == []
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_inventory_sources.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 1 error; collection stops at `ModuleNotFoundError: No module named 'dpr.reviews.inventory_sources'`)
+
+- [ ] **Step 3: Write collection points and recipients**
+
+`src/dpr/data/rule_text/inventory_sources.yaml`:
+
+```yaml
+INV-SDK-RECEIVES-PII:
+  title: ${sdk} receives personal data
+  effort_minutes: 30
+  detail: 'Calls to ${sdk} (${category}) pass ${what}. ${sdk} holds a copy under its own retention and location.'
+  proof_needed: Trace which values reach these arguments at runtime, for example by logging the keys (not the values) in a test.
+  blast: Every person whose data reaches these calls, held by a third party.
+  fix: Send only the fields the provider needs, strip or pseudonymise the rest, and list the provider, its region and its agreement for the data protection lawyer.
+  verify: Capture one request to the provider in a test and confirm it carries only the intended fields.
+```
+
+Modify `src/dpr/reviews/inventory.py`, replace:
+
+```python
+from __future__ import annotations
+
+import dpr.reviews.inventory_fields  # noqa: F401  (registers rules)
+from dpr.model import Part, ReviewSection
+from dpr.reviews.personal import personal_fields
+from dpr.rules import Context
+```
+
+with:
+
+```python
+from __future__ import annotations
+
+import dpr.reviews.inventory_fields  # noqa: F401  (registers rules)
+import dpr.reviews.inventory_sources  # noqa: F401  (registers rules)
+from dpr.model import Part, ReviewSection
+from dpr.reviews.personal import personal_fields
+from dpr.rules import Context
+```
+
+`src/dpr/reviews/inventory_sources.py`:
+
+```python
+"""Review 1, inventory: where personal data comes in, and which third parties receive a copy."""
+
+from __future__ import annotations
+
+import ast
+import re
+from collections.abc import Iterator
+from dataclasses import dataclass
+
+from dpr.model import Finding, Location, Route, SdkUse, Tag
+from dpr.parsing import jsts, pyast
+from dpr.redact import snippet
+from dpr.reviews.paid import _names_from_import
+from dpr.reviews.paths import is_test
+from dpr.reviews.personal import classify
+from dpr.rules import Context, make_finding, rule
+from dpr.walk import line_of
+
+WRITE_METHODS = ("POST", "PUT", "PATCH", "ANY", "ACTION")
+SCHEMA_BASE = r"BaseModel|Serializer|Schema|Form$"
+PY_BODY_READ = re.compile(
+    r"request\.(?:json|form|POST|data|args|values)\s*(?:\[\s*['\"](\w+)['\"]|\.get\(\s*['\"](\w+)['\"])"
+)
+JS_BODY_READ = re.compile(r"\b(?:req\.body|body|data|input)\??\.(\w+)")
+JS_DESTRUCTURE = re.compile(
+    r"\{\s*([\w\s,:]+)\}\s*=\s*(?:await\s+)?(?:req\.body|await\s+req\.json\(\)|body)\b"
+)
+RUNTIME = (
+    (
+        re.compile(
+            r"request\.client\.host|req\.ip\b|REMOTE_ADDR|x-forwarded-for|x-real-ip|cf-connecting-ip",
+            re.I,
+        ),
+        "IP address",
+    ),
+    (re.compile(r"user-agent|HTTP_USER_AGENT|userAgent", re.I), "user agent"),
+    (
+        re.compile(r"cf-ipcountry|x-vercel-ip-(?:country|city|latitude)|geoip", re.I),
+        "approximate location",
+    ),
+)
+RECIPIENT_KEYS = {
+    "to",
+    "recipients",
+    "recipient",
+    "address",
+    "displayname",
+    "cc",
+    "bcc",
+    "reply_to",
+}
+CONTENT_KEYS = {
+    "messages",
+    "prompt",
+    "input",
+    "system",
+    "content",
+    "text",
+    "html",
+    "body",
+    "contents",
+}
+WHOLE_OBJECTS = {"user", "current_user", "customer", "client", "profile", "member", "patient"}
+SKIP_RECIPIENT_CATEGORIES = ("fonts",)
+SENDER_KEY = re.compile(r"(?i)^(?:sender|from|reply)")
+
+
+@dataclass(frozen=True)
+class Collection:
+    route: Route | None
+    fields: tuple[str, ...]
+    location: Location
+    source: str
+
+
+def _schema_classes(ctx: Context) -> dict[str, tuple[str, ast.ClassDef]]:
+    """Request and form schema classes, including subclasses of other schema classes."""
+    key = ("schema-classes", "")
+    if key not in ctx.index.cache:
+        classes: dict[str, tuple[str, ast.ClassDef]] = {}
+        for entry in ctx.index.py_files:
+            text = ctx.index.text(entry.rel)
+            if is_test(entry.rel) or not re.search(r"BaseModel|Serializer|Schema|Form\b", text):
+                continue
+            tree = pyast.parse_file(ctx.index, entry.rel)
+            for cls in pyast.class_defs(tree) if tree else []:
+                classes.setdefault(cls.name, (entry.rel, cls))
+        found: dict[str, tuple[str, ast.ClassDef]] = {}
+        for _ in range(4):
+            for name, (rel, cls) in classes.items():
+                bases = [b.split(".")[-1] for b in pyast.base_names(cls)]
+                if any(re.search(SCHEMA_BASE, b) or b in found for b in bases):
+                    found.setdefault(name, (rel, cls))
+        ctx.index.cache[key] = found
+    return ctx.index.cache[key]
+
+
+def _class_fields(ctx: Context, name: str, depth: int = 0) -> list[str]:
+    item = _schema_classes(ctx).get(name)
+    if item is None or depth > 2:
+        return []
+    _rel, cls = item
+    fields = [
+        s.target.id
+        for s in cls.body
+        if isinstance(s, ast.AnnAssign) and isinstance(s.target, ast.Name)
+    ]
+    fields += [
+        t.id
+        for s in cls.body
+        if isinstance(s, ast.Assign) and isinstance(s.value, ast.Call)
+        for t in s.targets
+        if isinstance(t, ast.Name)
+        and re.search(r"Field$|Char|Email", pyast.dotted(s.value.func) or "")
+    ]
+    for base in pyast.base_names(cls):
+        fields += _class_fields(ctx, base.split(".")[-1], depth + 1)
+    return fields
+
+
+def _py_fields(ctx: Context, route: Route) -> tuple[list[str], str]:
+    fn = route.handler
+    fields, sources = [], []
+    for arg in [*fn.args.args, *fn.args.kwonlyargs]:
+        if arg.annotation is None:
+            continue
+        names = re.findall(r"[A-Za-z_]\w*", ast.unparse(arg.annotation))
+        for name in names:
+            found = _class_fields(ctx, name)
+            if found:
+                fields += found
+                sources.append(name)
+    text = ast.unparse(fn)
+    fields += [a or b for a, b in PY_BODY_READ.findall(text)]
+    for name in re.findall(r"\b(\w+Serializer)\(", text):
+        found = _class_fields(ctx, name)
+        fields += found
+        sources.append(name)
+    return fields, ", ".join(sources) or "request body"
+
+
+def _js_fields(route: Route) -> tuple[list[str], str]:
+    text = jsts.node_text(route.handler)
+    fields = JS_BODY_READ.findall(text)
+    for match in JS_DESTRUCTURE.finditer(text):
+        fields += [n.split(":")[0].strip() for n in match.group(1).split(",")]
+    return fields, "request body"
+
+
+def collection_points(ctx: Context) -> list[Collection]:
+    if "collection_points" not in ctx.facts:
+        found = []
+        for route in ctx.detection.routes:
+            if route.method not in WRITE_METHODS or is_test(route.file) or route.handler is None:
+                continue
+            if isinstance(route.handler, ast.AST):
+                fields, source = _py_fields(ctx, route)
+            elif getattr(route.handler, "type", "") in jsts.FUNCTION_TYPES:
+                fields, source = _js_fields(route)
+            else:
+                continue
+            personal = tuple(dict.fromkeys(f for f in fields if classify(f)))
+            if personal:
+                found.append(Collection(route, personal, Location(route.file, route.line), source))
+        for entry in [*ctx.index.py_files, *ctx.index.js_files]:
+            if is_test(entry.rel):
+                continue
+            text = ctx.index.text(entry.rel)
+            for pattern, label in RUNTIME:
+                match = pattern.search(text)
+                if match:
+                    location = Location(entry.rel, line_of(text, match.start()))
+                    found.append(Collection(None, (label,), location, "captured at runtime"))
+        ctx.facts["collection_points"] = found
+    return ctx.facts["collection_points"]
+
+
+def _py_clients(tree: ast.Module, names: set[str]) -> set[str]:
+    clients = set(names)
+    for _ in range(2):
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call | ast.Attribute):
+                root = (
+                    pyast.dotted(
+                        node.value.func if isinstance(node.value, ast.Call) else node.value
+                    )
+                    or ""
+                ).split(".")[0]
+                if root in clients:
+                    for target in node.targets:
+                        dotted = pyast.dotted(target)
+                        if dotted:
+                            clients.add(dotted)
+    return clients
+
+
+def _py_dict_keys(node: ast.AST, fn: ast.AST | None) -> list[str]:
+    if isinstance(node, ast.Name) and fn is not None:
+        for sub in ast.walk(fn):
+            if isinstance(sub, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == node.id for t in sub.targets
+            ):
+                return _py_dict_keys(sub.value, None)
+        return [node.id] if node.id in WHOLE_OBJECTS else []
+    keys = []
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Dict):
+            keys += [
+                k for k in (pyast.constant(key, None) for key in sub.keys) if isinstance(k, str)
+            ]
+    return keys
+
+
+def _py_sites(ctx: Context, rel: str, names: set[str]) -> Iterator[tuple[int, list[str]]]:
+    tree = pyast.parse_file(ctx.index, rel)
+    if tree is None:
+        return
+    clients = _py_clients(tree, names)
+    for call in pyast.calls(tree, r"[\w.()]+"):
+        callee = pyast.dotted(call.func) or ""
+        owner = callee.rsplit(".", 1)[0] if "." in callee else ""
+        if not owner or not any(owner == c or owner.startswith(c + ".") for c in clients):
+            continue
+        fn = pyast.function_at(tree, call.lineno)
+        keys = [k.arg for k in call.keywords if k.arg]
+        for arg in [*call.args, *(k.value for k in call.keywords)]:
+            keys += _py_dict_keys(arg, fn)
+        if keys:
+            yield call.lineno, keys
+
+
+def _js_keys(node) -> list[str]:
+    node = jsts.unwrap(node)
+    if node is None:
+        return []
+    if node.type == "identifier":
+        resolved = jsts.resolve_identifier(node)
+        return (
+            _js_keys(resolved)
+            if resolved is not None
+            else ([jsts.node_text(node)] if jsts.node_text(node) in WHOLE_OBJECTS else [])
+        )
+    keys = []
+    for obj in jsts.walk(node, {"object"}):
+        keys += list(jsts.object_pairs(obj))
+    return keys
+
+
+def _js_sites(ctx: Context, rel: str, names: set[str]) -> Iterator[tuple[int, list[str]]]:
+    for tree in jsts.parse_file(ctx.index, rel):
+        clients = set(names)
+        for decl in jsts.walk(tree.root, {"variable_declarator"}):
+            value = jsts.node_text(decl.child_by_field_name("value"))
+            if (
+                re.match(r"(?:new\s+)?(\w+)", value)
+                and re.match(r"(?:new\s+)?(\w+)", value).group(1) in names
+            ):
+                clients.add(jsts.node_text(decl.child_by_field_name("name")))
+        for call in jsts.walk(tree.root, {"call_expression"}):
+            callee = jsts.callee(call)
+            if "." not in callee or callee.split(".")[0] not in clients:
+                continue
+            keys = [k for arg in jsts.arguments(call) for k in _js_keys(arg)]
+            if keys:
+                yield jsts.line(tree, call), keys
+
+
+def recipient_sites(ctx: Context, sdk: SdkUse) -> list[tuple[Location, list[str]]]:
+    found = []
+    for rel in sorted({loc.file for loc in sdk.locations}):
+        if is_test(rel) or rel.endswith((".html", ".htm")):
+            continue
+        lines = ctx.index.text(rel).splitlines()
+        names: set[str] = set()
+        for loc in sdk.locations:
+            if loc.file == rel:
+                names |= _names_from_import(lines[loc.line - 1], rel.endswith(".py"))
+        sites = _py_sites(ctx, rel, names) if rel.endswith(".py") else _js_sites(ctx, rel, names)
+        found += [(Location(rel, line), keys) for line, keys in sites]
+    return found
+
+
+def _identifying(key: str) -> bool:
+    if key.lower() in RECIPIENT_KEYS:
+        return True
+    if SENDER_KEY.match(key):
+        return False
+    category = classify(key)
+    return category is not None and category.key not in ("content", "account")
+
+
+def _kinds(keys: list[str]) -> tuple[list[str], list[str], list[str]]:
+    identifying = [k for k in keys if _identifying(k)]
+    content = [
+        k
+        for k in keys
+        if k.lower() in CONTENT_KEYS or (classify(k) and classify(k).key == "content")
+    ]
+    whole = [k for k in keys if k.lower() in WHOLE_OBJECTS]
+    return identifying, content, whole
+
+
+def sdk_receipts(ctx: Context) -> list[tuple[SdkUse, list[Location], Tag, str]]:
+    if "sdk_receipts" not in ctx.facts:
+        found = []
+        for sdk in ctx.detection.sdks:
+            if not sdk.recipient or sdk.category in SKIP_RECIPIENT_CATEGORIES:
+                continue
+            identifying, content, whole, locations = [], [], [], []
+            for location, keys in recipient_sites(ctx, sdk):
+                i, c, w = _kinds(keys)
+                if i or c or w:
+                    identifying += i
+                    content += c
+                    whole += w
+                    locations.append(location)
+            if not locations:
+                continue
+            parts = []
+            if identifying:
+                parts.append("identifying fields (" + ", ".join(dict.fromkeys(identifying)) + ")")
+            if content:
+                parts.append("free text or prompts (" + ", ".join(dict.fromkeys(content)) + ")")
+            if whole:
+                parts.append("whole records (" + ", ".join(dict.fromkeys(whole)) + ")")
+            tag = Tag.CONFIRMED if identifying else Tag.INFERRED
+            found.append((sdk, locations, tag, " and ".join(parts)))
+        ctx.facts["sdk_receipts"] = found
+    return ctx.facts["sdk_receipts"]
+
+
+@rule("INV-SDK-RECEIVES-PII", review="inventory", severity="medium", exploitability="low")
+def sdk_receives_pii(ctx: Context) -> Iterator[Finding]:
+    for sdk, locations, tag, what in sdk_receipts(ctx):
+        yield make_finding(
+            "INV-SDK-RECEIVES-PII",
+            tag=tag,
+            locations=locations[:10],
+            snippet=snippet(ctx.index.text(locations[0].file), locations[0].line),
+            sdk=sdk.name,
+            category=sdk.category,
+            what=what,
+        )
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (373 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/rule_text/inventory_sources.yaml src/dpr/reviews/inventory.py src/dpr/reviews/inventory_sources.py tests/fixtures/express-prisma/expected.yaml tests/fixtures/fastapi-bad/expected.yaml tests/fixtures/next-supabase-bad/expected.yaml tests/reviews/test_inventory_sources.py
+git commit -m "Find personal data collection points and the SDKs that receive it"
+```
+
+---
+
+### Task 70: Retention, deletion paths, unused fields and data files
+
+Judge gap 2. Deletion paths are found by following delete calls to the model they remove (through assignment chains), soft-delete columns are recognised, retention text comes from code and IaC (log analytics retention, backup retention days), and readers are the routes that return a model. `INV-NO-DELETION-PATH` reports, per app root, person models no code deletes. `INV-UNUSED-FIELD` (low) reports multi-word personal fields that no code reads. `INV-PII-FILE-IN-REPO` (high, CONFIRMED) reports committed CSV and JSON files whose header or keys are strong personal keys.
+
+**Files:**
+- Create: `src/dpr/data/rule_text/inventory_files.yaml`, `src/dpr/data/rule_text/inventory_retention.yaml`, `src/dpr/reviews/inventory_files.py`, `src/dpr/reviews/inventory_retention.py`
+- Modify: `src/dpr/reviews/inventory.py` (import the rule modules)
+- Modify: `src/dpr/reviews/personal.py` (a person model is decided by its last name word)
+- Test: `tests/reviews/test_inventory_retention.py`
+- Fixture files: `tests/fixtures/django-bad/exports/customers.csv`
+- Modify fixture: `tests/fixtures/django-bad/expected.yaml` (data file and deletion findings)
+- Modify fixture: `tests/fixtures/express-prisma/expected.yaml` (deletion and unused field findings)
+- Modify fixture: `tests/fixtures/fastapi-bad/expected.yaml` (deletion finding)
+- Modify fixture: `tests/fixtures/fastapi-good/api/app/routes/account.py` (account deletion route)
+- Modify fixture: `tests/fixtures/fastapi-good/api/app/services/accounts.py` (account deletion service)
+- Modify fixture: `tests/fixtures/fastapi-good/expected.yaml` (retention rules must not report)
+- Modify fixture: `tests/fixtures/next-supabase-bad/expected.yaml` (retention findings)
+
+**Interfaces:**
+- Consumes: classifier and person models (Task 68), routes and models from Milestone 1, app roots (Task 54)
+- Produces:
+  - `dpr.reviews.inventory_files`:
+
+```python
+def field_reads(ctx: Context, name: str, skip: set[str]) -> tuple[int, int]: ...
+@rule('INV-UNUSED-FIELD', review='inventory', severity='low', exploitability='low')
+def unused_field(ctx: Context) -> Iterator[Finding]: ...
+@rule('INV-PII-FILE-IN-REPO', review='inventory', severity='high', exploitability='medium')
+def pii_file_in_repo(ctx: Context) -> Iterator[Finding]: ...
+```
+
+  - `dpr.reviews.inventory_retention`:
+
+```python
+def deletion_paths(ctx: Context) -> dict[str, list[Location]]: ...
+def soft_delete(ctx: Context, model: DataModel) -> bool: ...
+def retention_text(ctx: Context, model: DataModel) -> str: ...
+def iac_retention(ctx: Context) -> list[tuple[str, str, Location]]: ...
+def readers(ctx: Context, model: DataModel) -> str: ...
+@rule('INV-NO-DELETION-PATH', review='inventory', severity='medium', exploitability='low')
+def no_deletion_path(ctx: Context) -> Iterator[Finding]: ...
+```
+
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/fixtures/django-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: BASE-HEADER-MISSING-REFERRER, file: shop/settings.py, line: 1, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: shop/settings.py, line: 1, tag: UNVERIFIED}
+  - {rule: BASE-WEAK-HASH, file: shop/settings.py, line: 12, tag: CONFIRMED}
+  - {rule: LEAK-BROAD-RESPONSE, file: shop/serializers.py, line: 9, tag: INFERRED}
+  - {rule: LEAK-SENTRY-PII, file: shop/settings.py, line: 20, tag: CONFIRMED}
+  - {rule: OWASP-A01-GUESSABLE-ID, file: shop/views.py, line: 14, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: BASE-HEADER-MISSING-REFERRER, file: shop/settings.py, line: 1, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: shop/settings.py, line: 1, tag: UNVERIFIED}
+  - {rule: BASE-WEAK-HASH, file: shop/settings.py, line: 12, tag: CONFIRMED}
+  - {rule: INV-NO-DELETION-PATH, file: shop/models.py, line: 5, tag: INFERRED}
+  - {rule: INV-PII-FILE-IN-REPO, file: exports/customers.csv, line: 1, tag: CONFIRMED}
+  - {rule: LEAK-BROAD-RESPONSE, file: shop/serializers.py, line: 9, tag: INFERRED}
+  - {rule: LEAK-SENTRY-PII, file: shop/settings.py, line: 20, tag: CONFIRMED}
+  - {rule: OWASP-A01-GUESSABLE-ID, file: shop/views.py, line: 14, tag: CONFIRMED}
+```
+
+`tests/fixtures/django-bad/exports/customers.csv`:
+
+```text
+first_name,last_name,email,phone
+Ada,Example,ada@example.invalid,000-000-0000
+Ben,Example,ben@example.invalid,000-000-0001
+```
+
+Modify `tests/fixtures/express-prisma/expected.yaml`, replace:
+
+```yaml
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 4, tag: CONFIRMED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: src/index.ts, line: 5, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: src/index.ts, line: 5, tag: UNVERIFIED}
+  - {rule: INV-SDK-RECEIVES-PII, file: src/lib/mail.ts, line: 6, tag: CONFIRMED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: src/routes/orders.ts, line: 8, tag: CONFIRMED}
+  - {rule: OWASP-A09-NO-AUTH-FAIL-LOG, file: src/routes/auth.ts, line: 20, tag: INFERRED}
+```
+
+with:
+
+```yaml
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 4, tag: CONFIRMED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: src/index.ts, line: 5, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: src/index.ts, line: 5, tag: UNVERIFIED}
+  - {rule: INV-NO-DELETION-PATH, file: prisma/schema.prisma, line: 18, tag: INFERRED}
+  - {rule: INV-SDK-RECEIVES-PII, file: src/lib/mail.ts, line: 6, tag: CONFIRMED}
+  - {rule: INV-UNUSED-FIELD, file: prisma/schema.prisma, line: 10, tag: INFERRED}
+  - {rule: INV-UNUSED-FIELD, file: prisma/schema.prisma, line: 22, tag: INFERRED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: src/routes/orders.ts, line: 8, tag: CONFIRMED}
+  - {rule: OWASP-A09-NO-AUTH-FAIL-LOG, file: src/routes/auth.ts, line: 20, tag: INFERRED}
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: BASE-SAMESITE-NONE-NO-CSRF, file: infra/main.tf, line: 15, tag: INFERRED}
+  - {rule: BASE-SEED-ON-START, file: api/startup.sh, line: 3, tag: INFERRED}
+  - {rule: BASE-SHORT-PASSWORD-MIN, file: api/app/schemas.py, line: 11, tag: CONFIRMED}
+  - {rule: INV-SDK-RECEIVES-PII, file: api/app/services/assistant.py, line: 9, tag: INFERRED}
+  - {rule: LEAK-DEFAULT-CREDENTIAL, file: docker-compose.yml, line: 5, tag: CONFIRMED}
+  - {rule: LEAK-PUBLIC-GATE-KEY, file: .github/workflows/deploy.yml, line: 3, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: BASE-SAMESITE-NONE-NO-CSRF, file: infra/main.tf, line: 15, tag: INFERRED}
+  - {rule: BASE-SEED-ON-START, file: api/startup.sh, line: 3, tag: INFERRED}
+  - {rule: BASE-SHORT-PASSWORD-MIN, file: api/app/schemas.py, line: 11, tag: CONFIRMED}
+  - {rule: INV-NO-DELETION-PATH, file: api/app/models.py, line: 17, tag: INFERRED}
+  - {rule: INV-SDK-RECEIVES-PII, file: api/app/services/assistant.py, line: 9, tag: INFERRED}
+  - {rule: LEAK-DEFAULT-CREDENTIAL, file: docker-compose.yml, line: 5, tag: CONFIRMED}
+  - {rule: LEAK-PUBLIC-GATE-KEY, file: .github/workflows/deploy.yml, line: 3, tag: CONFIRMED}
+```
+
+Modify `tests/fixtures/fastapi-good/api/app/routes/account.py`, replace:
+
+```python
+@router.post("/me/email")
+async def change_email(data: EmailChange, current_user: CurrentUser, background: BackgroundTasks):
+    return await AccountService().request_email_change(current_user, data, background)
+```
+
+with:
+
+```python
+@router.post("/me/email")
+async def change_email(data: EmailChange, current_user: CurrentUser, background: BackgroundTasks):
+    return await AccountService().request_email_change(current_user, data, background)
+
+
+@router.delete("/me")
+async def delete_me(current_user: CurrentUser):
+    return await AccountService().delete_account(current_user)
+```
+
+Modify `tests/fixtures/fastapi-good/api/app/services/accounts.py`, replace:
+
+```python
+        user.email_change_token_hash = digest(token)
+        background.add_task(send_email, data.new_email, "Confirm your new email", token)
+        return {"message": GENERIC}
+```
+
+with:
+
+```python
+        user.email_change_token_hash = digest(token)
+        background.add_task(send_email, data.new_email, "Confirm your new email", token)
+        return {"message": GENERIC}
+
+    async def delete_account(self, user):
+        record = await self.db.get(User, user.id)
+        await self.db.delete(record)
+        return {"ok": True}
+```
+
+Modify `tests/fixtures/fastapi-good/expected.yaml`, replace:
+
+```yaml
+  - BASE-WEAK-HASH
+  - INV-CATCHALL-JSON
+  - INV-CHILDREN-SIGNAL
+  - INV-SPECIAL-CATEGORY
+  - LEAK-BROAD-RESPONSE
+  - LEAK-DEFAULT-CREDENTIAL
+  - LEAK-ENV-IN-HISTORY
+```
+
+with:
+
+```yaml
+  - BASE-WEAK-HASH
+  - INV-CATCHALL-JSON
+  - INV-CHILDREN-SIGNAL
+  - INV-NO-DELETION-PATH
+  - INV-PII-FILE-IN-REPO
+  - INV-SPECIAL-CATEGORY
+  - INV-UNUSED-FIELD
+  - LEAK-BROAD-RESPONSE
+  - LEAK-DEFAULT-CREDENTIAL
+  - LEAK-ENV-IN-HISTORY
+```
+
+Modify `tests/fixtures/next-supabase-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: BASE-VERSION-DISCLOSURE, file: next.config.js, line: 1, tag: INFERRED}
+  - {rule: INV-CATCHALL-JSON, file: prisma/schema.prisma, line: 6, tag: CONFIRMED}
+  - {rule: INV-CATCHALL-JSON, file: supabase/migrations/20240101000000_init.sql, line: 5, tag: CONFIRMED}
+  - {rule: INV-SDK-RECEIVES-PII, file: app/api/generate/route.ts, line: 8, tag: INFERRED}
+  - {rule: INV-SPECIAL-CATEGORY, file: prisma/schema.prisma, line: 7, tag: CONFIRMED}
+  - {rule: LEAK-BROAD-RESPONSE, file: "app/api/users/[id]/route.ts", line: 6, tag: INFERRED}
+  - {rule: LEAK-ENV-IN-HISTORY, file: .env.production, line: 1, tag: CONFIRMED}
+  - {rule: LEAK-ENV-TRACKED, file: .env, line: 1, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: BASE-VERSION-DISCLOSURE, file: next.config.js, line: 1, tag: INFERRED}
+  - {rule: INV-CATCHALL-JSON, file: prisma/schema.prisma, line: 6, tag: CONFIRMED}
+  - {rule: INV-CATCHALL-JSON, file: supabase/migrations/20240101000000_init.sql, line: 5, tag: CONFIRMED}
+  - {rule: INV-NO-DELETION-PATH, file: prisma/schema.prisma, line: 11, tag: INFERRED}
+  - {rule: INV-SDK-RECEIVES-PII, file: app/api/generate/route.ts, line: 8, tag: INFERRED}
+  - {rule: INV-SPECIAL-CATEGORY, file: prisma/schema.prisma, line: 7, tag: CONFIRMED}
+  - {rule: INV-UNUSED-FIELD, file: prisma/schema.prisma, line: 7, tag: INFERRED}
+  - {rule: INV-UNUSED-FIELD, file: supabase/migrations/20240101000000_init.sql, line: 1, tag: INFERRED}
+  - {rule: LEAK-BROAD-RESPONSE, file: "app/api/users/[id]/route.ts", line: 6, tag: INFERRED}
+  - {rule: LEAK-ENV-IN-HISTORY, file: .env.production, line: 1, tag: CONFIRMED}
+  - {rule: LEAK-ENV-TRACKED, file: .env, line: 1, tag: CONFIRMED}
+```
+
+`tests/reviews/test_inventory_retention.py`:
+
+```python
+from dpr import reviews, rules
+from dpr.discovery.detect import detect
+from dpr.reviews.inventory_retention import iac_retention, readers, retention_text
+from dpr.walk import RepoIndex
+from tests.reviews.helpers import findings_for, write
+
+MODELS = (
+    "class Client(Base):\n    __tablename__ = 'clients'\n"
+    "    email = Column(String)\n    phone = Column(String)\n\n"
+    "class Note(SoftDeleteMixin, Base):\n    __tablename__ = 'notes'\n"
+    "    client_id = Column(String)\n    content = Column(Text)\n\n"
+    "class Lead(Base):\n    __tablename__ = 'leads'\n"
+    "    email = Column(String)\n    deleted = Column(Boolean)\n"
+)
+SERVICE = (
+    "class ClientService:\n"
+    "    async def delete_client(self, client_id):\n"
+    "        result = await self.db.execute(select(Client).where(Client.id == client_id))\n"
+    "        client = result.scalar_one_or_none()\n"
+    "        await self.db.delete(client)\n\n"
+    "    async def delete_lead_note(self, lead_id, note):\n"
+    "        lead = await self.db.get(Lead, lead_id)\n"
+    "        await self.db.delete(note)\n"
+)
+
+
+def app(root):
+    write(root, "api/requirements.txt", "fastapi\n")
+    write(root, "api/app/models.py", MODELS)
+    write(root, "api/app/services/clients.py", SERVICE)
+    write(
+        root,
+        "api/app/routes.py",
+        "from fastapi import APIRouter\nrouter = APIRouter()\n"
+        "ManagerOrAdmin = Annotated[User, Depends(require_manager)]\n"
+        "@router.get('/clients/{client_id}')\n"
+        "async def read_client(client_id: str, user: ManagerOrAdmin):\n"
+        "    return await db.get(Client, client_id)\n",
+    )
+    return root
+
+
+def context(root):
+    reviews.available()
+    index = RepoIndex(root)
+    return rules.Context(index=index, detection=detect(index))
+
+
+def test_retention_text_per_model(tmp_path):
+    ctx = context(app(tmp_path))
+    models = {m.name: m for m in ctx.detection.models}
+    assert retention_text(ctx, models["Client"]) == (
+        "hard delete available (`api/app/services/clients.py:5`)"
+    )
+    assert retention_text(ctx, models["Note"]).startswith("soft delete flag only")
+    assert retention_text(ctx, models["Lead"]).startswith("soft delete flag only")
+
+
+def test_no_deletion_path_groups_models_per_app(tmp_path):
+    app(tmp_path)
+    [finding] = findings_for(tmp_path, "inventory", "INV-NO-DELETION-PATH")
+    assert finding.tag.value == "INFERRED"
+    assert finding.title == "Personal data in api has no deletion path"
+    assert [str(loc) for loc in finding.locations] == [
+        "api/app/models.py:11",
+        "api/app/models.py:6",
+    ]
+    assert "Lead, Note only set a soft delete flag" in finding.detail
+
+
+def test_readers_from_route_access(tmp_path):
+    ctx = context(app(tmp_path))
+    client = next(m for m in ctx.detection.models if m.name == "Client")
+    assert readers(ctx, client).startswith("authenticated: Depends(require_manager)")
+    lead = next(m for m in ctx.detection.models if m.name == "Lead")
+    assert readers(ctx, lead).startswith("no read route names this model")
+
+
+def test_terraform_backup_and_log_retention(tmp_path):
+    write(
+        tmp_path,
+        "infra/main.tf",
+        'resource "azurerm_postgresql_flexible_server" "db" {\n'
+        "  backup_retention_days        = 7\n  geo_redundant_backup_enabled = false\n}\n"
+        'resource "azurerm_log_analytics_workspace" "logs" {\n  retention_in_days = 30\n}\n'
+        'resource "azurerm_linux_web_app" "api" {\n  logs {\n    http_logs {\n'
+        "      file_system {\n        retention_in_days = 7\n      }\n    }\n  }\n}\n",
+    )
+    found = [(r, s, str(loc)) for r, s, loc in iac_retention(context(tmp_path))]
+    assert found == [
+        ("azurerm_postgresql_flexible_server db", "backup_retention_days = 7", "infra/main.tf:2"),
+        (
+            "azurerm_postgresql_flexible_server db",
+            "geo_redundant_backup_enabled = false",
+            "infra/main.tf:3",
+        ),
+        ("azurerm_log_analytics_workspace logs", "retention_in_days = 30", "infra/main.tf:6"),
+        ("azurerm_linux_web_app api", "retention_in_days = 7", "infra/main.tf:12"),
+    ]
+
+
+def test_unused_personal_fields(tmp_path):
+    write(
+        tmp_path,
+        "app/models.py",
+        "class Insured(Base):\n    __tablename__ = 'insureds'\n"
+        "    email = Column(String)\n    status_note = Column(String)\n    home_phone = Column(String)\n",
+    )
+    write(
+        tmp_path,
+        "app/importer.py",
+        "def apply(insured, row):\n    insured.status_note = row['note']\n"
+        "    insured.home_phone = row['phone']\n",
+    )
+    write(
+        tmp_path, "app/views.py", "def show(insured):\n    return {'phone': insured.home_phone}\n"
+    )
+    [finding] = findings_for(tmp_path, "inventory", "INV-UNUSED-FIELD")
+    assert finding.title == "Personal fields of Insured that no code reads"
+    assert [str(loc) for loc in finding.locations] == ["app/models.py:4"]
+
+
+def test_personal_data_files_committed(tmp_path):
+    write(tmp_path, "exports/customers.csv", "first_name,email,plan\nA,a@example.invalid,x\n")
+    write(tmp_path, "data/leads.json", '[{"full_name": "A", "phone": "0", "source": "web"}]')
+    write(tmp_path, "data/products.csv", "sku,price\n1,2\n")
+    write(tmp_path, "web/package.json", '{"name": "web", "author": "x", "email": "y"}')
+    found = sorted(
+        str(f.locations[0]) for f in findings_for(tmp_path, "inventory", "INV-PII-FILE-IN-REPO")
+    )
+    assert found == ["data/leads.json:1", "exports/customers.csv:1"]
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_inventory_retention.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 1 error; collection stops at `ModuleNotFoundError: No module named 'dpr.reviews.inventory_retention'`)
+
+- [ ] **Step 3: Write retention and data file rules**
+
+`src/dpr/data/rule_text/inventory_files.yaml`:
+
+```yaml
+INV-UNUSED-FIELD:
+  title: Personal fields of ${model} that no code reads
+  effort_minutes: 30
+  detail: 'These personal fields of ${model} are declared and written but no code, template or screen reads them: ${fields}. Data that nothing uses is the cheapest privacy fix: stop collecting it.'
+  proof_needed: Search reports, exports and database views outside the repository for these columns before removing them.
+  blast: The values stored in these columns for every record.
+  fix: Stop writing the fields, drop the columns in a migration after a backup review, and remove them from request schemas.
+  verify: Remove the fields in a branch and run the test suite and main screens.
+INV-PII-FILE-IN-REPO:
+  title: Personal data file committed to the repository
+  effort_minutes: 30
+  detail: ${file} is committed and its columns or keys look like personal data (${columns});${size} every clone and fork holds a copy, and git history keeps it after deletion.
+  blast: Every person listed in the file, exposed to anyone with repository access.
+  fix: Confirm whether the records are real. If they are, remove the file, rewrite history, ask everyone to re-clone, and replace it with synthetic data.
+  verify: Run git log --all -- the file path and confirm it no longer appears after the history rewrite.
+```
+
+`src/dpr/data/rule_text/inventory_retention.yaml`:
+
+```yaml
+INV-NO-DELETION-PATH:
+  title: Personal data in ${app} has no deletion path
+  effort_minutes: 120
+  detail: ${what} Without a deletion path, erasure requests and retention limits cannot be met from the application.
+  proof_needed: Check for deletion outside the repository, such as database jobs, manual scripts or a provider retention setting.
+  blast: Every personal record ever stored in these tables, kept for as long as the database exists.
+  fix: Decide a retention period per table with the data owner, then add a scheduled purge or anonymisation job and a hard-delete path for erasure requests. Record the periods for the data protection lawyer.
+  verify: Run the purge job against a test database with old rows and confirm they are removed or anonymised.
+```
+
+Modify `src/dpr/reviews/inventory.py`, replace:
+
+```python
+from __future__ import annotations
+
+import dpr.reviews.inventory_fields  # noqa: F401  (registers rules)
+import dpr.reviews.inventory_sources  # noqa: F401  (registers rules)
+from dpr.model import Part, ReviewSection
+from dpr.reviews.personal import personal_fields
+```
+
+with:
+
+```python
+from __future__ import annotations
+
+import dpr.reviews.inventory_fields  # noqa: F401  (registers rules)
+import dpr.reviews.inventory_files  # noqa: F401  (registers rules)
+import dpr.reviews.inventory_retention  # noqa: F401  (registers rules)
+import dpr.reviews.inventory_sources  # noqa: F401  (registers rules)
+from dpr.model import Part, ReviewSection
+from dpr.reviews.personal import personal_fields
+```
+
+`src/dpr/reviews/inventory_files.py`:
+
+```python
+"""Review 1, inventory: personal fields nothing reads, and personal data files in the repository."""
+
+from __future__ import annotations
+
+import csv
+import io
+import json
+import re
+from collections.abc import Iterator
+from pathlib import PurePosixPath
+
+from dpr.model import Finding, Location, Tag
+from dpr.parsing.pymigrations import migration_folders
+from dpr.reviews.leaks_logs import words
+from dpr.reviews.paths import is_test
+from dpr.reviews.personal import classify, personal_fields
+from dpr.rules import Context, make_finding, rule
+
+CODE_SUFFIXES = (
+    ".py",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".vue",
+    ".svelte",
+    ".html",
+    ".j2",
+    ".jinja",
+    ".jinja2",
+)
+CONFIG_JSON = re.compile(
+    r"(?:^|/)(?:package(?:-lock)?|tsconfig[\w.-]*|jsconfig|composer|vercel|firebase|staticwebapp\.config"
+    r"|\.eslintrc|\.prettierrc|renovate|manifest|app|turbo|nx|project|components|angular)\.json$"
+    r"|\.schema\.json$|openapi\.json$|swagger\.json$"
+)
+DATA_CATEGORIES = ("identifiers", "government_ids", "financial", "special", "children")
+STRONG_KEYS = re.compile(
+    r"(?i)e_?mail|phone|mobile|first_?name|last_?name|full_?name|surname|birth|dob|ssn|passport"
+    r"|id_?number|iban|account_?number|street|address_?(?:line)?1"
+)
+
+
+def _write(line: str, name: str) -> bool:
+    return bool(
+        re.search(rf"\b{re.escape(name)}\b\s*[:=](?!=)", line)
+        or re.search(rf"[\"']{re.escape(name)}[\"']\s*[:,\]}})]", line)
+    )
+
+
+def field_reads(ctx: Context, name: str, skip: set[str]) -> tuple[int, int]:
+    """(reads, writes) of a field name across code files outside models and migrations."""
+    pattern = re.compile(rf"\b{re.escape(name)}\b")
+    reads = writes = 0
+    for entry in ctx.index.files:
+        if entry.rel in skip or is_test(entry.rel) or not entry.rel.endswith(CODE_SUFFIXES):
+            continue
+        text = ctx.index.text(entry.rel)
+        if name not in text:
+            continue
+        for line in text.splitlines():
+            if pattern.search(line):
+                if _write(line, name):
+                    writes += 1
+                else:
+                    reads += 1
+    return reads, writes
+
+
+@rule("INV-UNUSED-FIELD", review="inventory", severity="low", exploitability="low")
+def unused_field(ctx: Context) -> Iterator[Finding]:
+    folders = [f for f, _ in migration_folders(ctx.index)]
+    skip = {m.location.file for m in ctx.detection.models}
+    skip |= {f.rel for f in ctx.index.files if any(f.rel.startswith(d + "/") for d in folders)}
+    groups: dict[str, list] = {}
+    for item in personal_fields(ctx):
+        name = item.field.name
+        if len(words(name)) < 2 or item.category.key == "account":
+            continue
+        reads, _writes = field_reads(ctx, name, skip)
+        if reads == 0:
+            groups.setdefault(f"{item.model.location.file}:{item.model.name}", []).append(item)
+    for items in groups.values():
+        yield make_finding(
+            "INV-UNUSED-FIELD",
+            tag=Tag.INFERRED,
+            locations=[i.field.location for i in items][:10],
+            model=items[0].model.name,
+            fields=", ".join(i.field.name for i in items),
+        )
+
+
+def _json_keys(text: str) -> list[str]:
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return []
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return list(data[0])
+    if isinstance(data, dict):
+        rows = next(
+            (v for v in data.values() if isinstance(v, list) and v and isinstance(v[0], dict)), None
+        )
+        return list(rows[0]) if rows else list(data)
+    return []
+
+
+def _csv_keys(text: str) -> list[str]:
+    try:
+        return next(csv.reader(io.StringIO(text.split("\n", 1)[0])))
+    except (StopIteration, csv.Error):
+        return []
+
+
+@rule("INV-PII-FILE-IN-REPO", review="inventory", severity="high", exploitability="medium")
+def pii_file_in_repo(ctx: Context) -> Iterator[Finding]:
+    for entry in ctx.index.files:
+        suffix = PurePosixPath(entry.rel).suffix.lower()
+        if suffix not in (".csv", ".json") or CONFIG_JSON.search(entry.rel):
+            continue
+        text = ctx.index.text(entry.rel)
+        keys = _csv_keys(text) if suffix == ".csv" else _json_keys(text)
+        personal = [k for k in keys if classify(k) and classify(k).key in DATA_CATEGORIES]
+        if len(personal) >= 2 and any(STRONG_KEYS.search(k) for k in personal):
+            rows = text.count("\n") if suffix == ".csv" else None
+            size = f" about {rows} rows," if rows else ""
+            yield make_finding(
+                "INV-PII-FILE-IN-REPO",
+                tag=Tag.CONFIRMED,
+                locations=[Location(entry.rel, 1)],
+                file=entry.rel,
+                columns=", ".join(personal[:8]),
+                size=size,
+            )
+```
+
+`src/dpr/reviews/inventory_retention.py`:
+
+```python
+"""Review 1, inventory: how long personal data stays, and who can read it."""
+
+from __future__ import annotations
+
+import ast
+import re
+from collections.abc import Iterator
+
+from dpr.discovery.approots import root_of
+from dpr.model import DataModel, Finding, Location, Tag
+from dpr.parsing import hcl, jsts, pyast
+from dpr.reviews.access import access
+from dpr.reviews.paths import is_test
+from dpr.reviews.personal import personal_fields
+from dpr.rules import Context, make_finding, rule
+
+DELETE_CALL = re.compile(
+    r"(?:^|\.)(?:delete|destroy|deleteMany|deleteOne|findByIdAndDelete|remove|purge)$"
+)
+SQL_DELETE = re.compile(r"(?i)delete\s+from\s+\"?(\w+)")
+SOFT_FIELDS = {"deleted", "is_deleted", "deleted_at", "deletedat", "archived", "is_archived"}
+RETENTION_ATTRS = re.compile(
+    r"^\s*((?:backup_)?retention(?:_in)?_(?:days|period)|log_retention_days"
+    r"|soft_delete_retention_days|retention_days|geo_redundant_backup_enabled)\s*=\s*(\S+)",
+    re.MULTILINE,
+)
+SCHEDULE = re.compile(
+    r"(?i)crons|schedule:|beat_schedule|add_job|cron\.schedule|@periodic_task|scheduler"
+)
+
+
+def _functions(ctx: Context) -> list[tuple[str, object, object, str]]:
+    key = ("inventory-functions", "")
+    if key not in ctx.index.cache:
+        found = []
+        for entry in ctx.index.py_files:
+            if is_test(entry.rel):
+                continue
+            tree = pyast.parse_file(ctx.index, entry.rel)
+            for fn in pyast.functions(tree) if tree else []:
+                found.append((entry.rel, fn, tree, ast.unparse(fn)))
+        for entry in ctx.index.js_files:
+            if is_test(entry.rel):
+                continue
+            for tree in jsts.parse_file(ctx.index, entry.rel):
+                for fn in jsts.walk(tree.root, jsts.FUNCTION_TYPES):
+                    found.append((entry.rel, fn, tree, jsts.node_text(fn)))
+        ctx.index.cache[key] = found
+    return ctx.index.cache[key]
+
+
+def _origin(name: str, assigned: dict[str, str], depth: int = 3) -> str:
+    """The text a variable was built from, following earlier variables a few steps back."""
+    text, seen, frontier = "", {name}, [name]
+    for _ in range(depth):
+        following = []
+        for current in frontier:
+            value = assigned.get(current, "")
+            text += " " + value
+            words_in = re.findall(r"[A-Za-z_]\w*", value)
+            following += [w for w in words_in if w in assigned and w not in seen]
+        seen.update(following)
+        frontier = following
+    return text
+
+
+def _deleted_models(fn: object, tree: object, models: list[DataModel]) -> dict[str, int]:
+    """Model key to the line of a delete whose target is that model's rows."""
+    found: dict[str, int] = {}
+    if isinstance(fn, ast.AST):
+        assigned = {
+            t.id: ast.unparse(n.value)
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Assign)
+            for t in n.targets
+            if isinstance(t, ast.Name)
+        }
+        for call in [c for c in ast.walk(fn) if isinstance(c, ast.Call)]:
+            name = pyast.dotted(call.func) or ""
+            if not DELETE_CALL.search(name):
+                continue
+            target = " ".join(ast.unparse(a) for a in call.args) + " " + name
+            for arg in call.args:
+                if isinstance(arg, ast.Name):
+                    target += " " + _origin(arg.id, assigned)
+            for model in models:
+                if _mentions(target, model):
+                    found.setdefault(_key(model), call.lineno)
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                for match in SQL_DELETE.finditer(node.value):
+                    for model in models:
+                        if match.group(1).lower() == model.table.split(".")[-1].lower():
+                            found.setdefault(_key(model), node.lineno)
+        return found
+    for call in jsts.walk(fn, {"call_expression"}):
+        callee = jsts.callee(call)
+        if DELETE_CALL.search(callee):
+            for model in models:
+                if _mentions(callee, model) or re.search(
+                    rf"\.{re.escape(model.name[:1].lower() + model.name[1:])}\.", callee
+                ):
+                    found.setdefault(_key(model), jsts.line(tree, call))
+    return found
+
+
+def _mentions(text: str, model: DataModel) -> bool:
+    table = model.table.split(".")[-1]
+    return bool(re.search(rf"\b{re.escape(model.name)}\b|\b{re.escape(table)}\b", text))
+
+
+def deletion_paths(ctx: Context) -> dict[str, list[Location]]:
+    """Model key to lines that hard-delete its rows."""
+    if "deletion_paths" not in ctx.facts:
+        paths: dict[str, list[Location]] = {}
+        models = ctx.detection.models
+        for rel, fn, tree, text in _functions(ctx):
+            if not re.search(r"(?i)delete|destroy|remove|purge", text):
+                continue
+            for key, line in _deleted_models(fn, tree, models).items():
+                paths.setdefault(key, []).append(Location(rel, line))
+        ctx.facts["deletion_paths"] = paths
+    return ctx.facts["deletion_paths"]
+
+
+def _key(model: DataModel) -> str:
+    return f"{model.location.file}:{model.name}"
+
+
+def soft_delete(ctx: Context, model: DataModel) -> bool:
+    if {f.name.lower() for f in model.fields} & SOFT_FIELDS:
+        return True
+    text = ctx.index.text(model.location.file)
+    return bool(re.search(rf"class\s+{re.escape(model.name)}\s*\([^)]*SoftDelete", text))
+
+
+def retention_text(ctx: Context, model: DataModel) -> str:
+    paths = deletion_paths(ctx).get(_key(model), [])
+    if paths:
+        return f"hard delete available (`{paths[0]}`)"
+    if soft_delete(ctx, model):
+        return "soft delete flag only, rows kept; retained indefinitely"
+    return "retained indefinitely, no deletion path found"
+
+
+def iac_retention(ctx: Context) -> list[tuple[str, str, Location]]:
+    """Backup and log retention settings from Terraform: (resource, setting = value, location)."""
+    found = []
+    for entry in ctx.index.with_suffix(".tf"):
+        text = ctx.index.text(entry.rel)
+        for block in hcl.blocks(text):
+            if block.kind != "resource" or len(block.labels) != 2:
+                continue
+            for match in RETENTION_ATTRS.finditer(block.body):
+                line = block.body_line + block.body[: match.start(1)].count("\n")
+                found.append(
+                    (
+                        f"{block.labels[0]} {block.labels[1]}",
+                        f"{match.group(1)} = {match.group(2)}",
+                        Location(entry.rel, line),
+                    )
+                )
+    return found
+
+
+def readers(ctx: Context, model: DataModel) -> str:
+    """Route access levels and auth dependencies of routes whose handler names the model."""
+    levels: dict[str, set[str]] = {}
+    for route in ctx.detection.routes:
+        if route.method not in ("GET", "ANY") or route.handler is None or is_test(route.file):
+            continue
+        handler_text = (
+            ast.unparse(route.handler)
+            if isinstance(route.handler, ast.AST)
+            else jsts.node_text(route.handler)
+        )
+        tree_text = ctx.index.text(route.file)
+        if not (
+            _mentions(handler_text, model)
+            or (_mentions(tree_text, model) and model.name in tree_text)
+        ):
+            continue
+        level = access(ctx, route)
+        levels.setdefault(level.level, set()).add(level.evidence)
+    if not levels:
+        return "no read route names this model; database administrators UNKNOWN"
+    parts = [
+        f"{name}: {', '.join(sorted(e for e in evidence if e))}"
+        for name, evidence in sorted(levels.items())
+    ]
+    return "; ".join(parts) + "; database administrators UNKNOWN"
+
+
+@rule("INV-NO-DELETION-PATH", review="inventory", severity="medium", exploitability="low")
+def no_deletion_path(ctx: Context) -> Iterator[Finding]:
+    people = {_key(p.model): p.model for p in personal_fields(ctx)}
+    by_root: dict[str, list[DataModel]] = {}
+    for key, model in sorted(people.items()):
+        if deletion_paths(ctx).get(key) or is_test(model.location.file):
+            continue
+        home = root_of(ctx.detection.app_roots, model.location.file)
+        by_root.setdefault(home.path if home else "", []).append(model)
+    schedules = any(
+        SCHEDULE.search(ctx.index.text(f.rel))
+        for f in ctx.index.named("vercel.json", "*.yml", "*.yaml", "celery*.py", "scheduler*.py")
+    )
+    for root, models in by_root.items():
+        soft = [m.name for m in models if soft_delete(ctx, m)]
+        what = f"No code path hard-deletes rows of {', '.join(m.name for m in models)}."
+        if soft:
+            what += f" {', '.join(soft)} only set a soft delete flag, so the rows stay."
+        if schedules:
+            what += " Scheduled jobs exist; none of them was found deleting these tables."
+        yield make_finding(
+            "INV-NO-DELETION-PATH",
+            tag=Tag.INFERRED,
+            locations=[m.location for m in models][:10],
+            app=root or "this repository",
+            what=what,
+        )
+```
+
+Modify `src/dpr/reviews/personal.py`, replace:
+
+```python
+
+
+def is_person_model(model: DataModel) -> bool:
+    names = {model.name.lower(), model.table.split(".")[-1].lower()}
+    stems = {w for n in names for w in words(n)}
+    person_words = set(load("pii_terms.yaml")["person_models"])
+    fields = {f.name.lower() for f in model.fields}
+    return bool(stems & person_words) or bool({"email", "phone", "email_address"} & fields)
+```
+
+with:
+
+```python
+
+
+def is_person_model(model: DataModel) -> bool:
+    """The record describes a person: its name ends in a person word, or it has email or phone."""
+    names = {model.name, model.table.split(".")[-1]}
+    stems = {words(n)[-1] for n in names if words(n)}
+    person_words = set(load("pii_terms.yaml")["person_models"])
+    fields = {f.name.lower() for f in model.fields}
+    return bool(stems & person_words) or bool({"email", "phone", "email_address"} & fields)
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (379 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/rule_text/inventory_files.yaml src/dpr/data/rule_text/inventory_retention.yaml src/dpr/reviews/inventory.py src/dpr/reviews/inventory_files.py src/dpr/reviews/inventory_retention.py src/dpr/reviews/personal.py tests/fixtures/django-bad/expected.yaml tests/fixtures/django-bad/exports/customers.csv tests/fixtures/express-prisma/expected.yaml tests/fixtures/fastapi-bad/expected.yaml tests/fixtures/fastapi-good/api/app/routes/account.py tests/fixtures/fastapi-good/api/app/services/accounts.py tests/fixtures/fastapi-good/expected.yaml tests/fixtures/next-supabase-bad/expected.yaml tests/reviews/test_inventory_retention.py
+git commit -m "Report missing deletion paths, unused personal fields and committed data files"
+```
+
+---
+
+### Task 71: Inventory section parts and answered questions
+
+Judge gap 2. The inventory section gets the skill's parts: a personal data map (one row per model or runtime source, with collection point, where stored, who reads, retention, third parties and evidence tag), categories checked, data flows, collected with no clear reason, and not covered by this repo. Answers the code settles (data held, where it is stored, recipients, retention, deletion requests, readers, audit, special category, automated decisions) are added to the report's answered questions with evidence.
+
+**Files:**
+- Create: `src/dpr/reviews/inventory_answers.py`, `src/dpr/reviews/inventory_map.py`
+- Modify: `src/dpr/api.py` (pass answers from the run facts into the report)
+- Modify: `src/dpr/model.py` (`Answer` and `Report.answered`)
+- Modify: `src/dpr/report/markdown.py` (list code answers under answered questions)
+- Modify: `src/dpr/reviews/inventory.py` (section parts in `finish`)
+- Modify: `src/dpr/reviews/personal.py` (count suffixes are not personal fields)
+- Test: `tests/reviews/test_inventory_section.py`
+- Modify test: `tests/report/test_json.py` (`answered` key)
+
+**Interfaces:**
+- Consumes: collection points and recipients (Task 69), retention and readers (Task 70), sentry and log facts from Milestone 1
+- Produces:
+  - `dpr.model`:
+
+```python
+@dataclass(frozen=True)
+class Answer:
+    question: str
+    answer: str
+    evidence: str
+@dataclass
+class Report:
+    meta: ReportMeta
+    detection: Detection
+    findings: list[Finding]
+    sections: dict[str, ReviewSection]
+    questions: list[QuestionResult]
+    not_covered: list[str]
+    answered: list[Answer] = field(default_factory=list)
+```
+
+  - `dpr.reviews.inventory`:
+
+```python
+def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None: ...
+```
+
+  - `dpr.reviews.inventory_answers`:
+
+```python
+def answers(ctx: Context, findings: list[Finding]) -> list[Answer]: ...
+```
+
+  - `dpr.reviews.inventory_map`:
+
+```python
+def targets(ctx: Context, point: Collection) -> list[list[PersonalField]]: ...
+def model_rows(ctx: Context) -> list[tuple[str, ...]]: ...
+def runtime_rows(ctx: Context) -> list[tuple[str, ...]]: ...
+def flow_lines(ctx: Context) -> list[str]: ...
+```
+
+
+**Edits to files the Milestone 1 fix wave also changes.** Apply each replacement below by its intent if the exact old text differs:
+
+- `src/dpr/api.py`: when constructing `Report(...)`, pass `answered=list(ctx.facts.get("answered", []))`.
+- `src/dpr/model.py`: add the frozen `Answer(question, answer, evidence)` dataclass and a `Report` field `answered: list[Answer] = field(default_factory=list)` after `not_covered`.
+- `src/dpr/report/markdown.py`: in the answered-questions block, after the lines built from `QuestionResult`s, add one line per `report.answered` item in the form `- {question} {answer} Evidence: {evidence}.`
+
+**Earlier tests updated on purpose:** `tests/report/test_json.py` adds `answered` to the expected top-level keys.
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/report/test_json.py`, replace:
+
+```python
+        "sections",
+        "questions",
+        "not_covered",
+    }
+    assert "schema" not in data["detection"] and "packages" not in data["detection"]
+    [route] = data["detection"]["routes"]
+```
+
+with:
+
+```python
+        "sections",
+        "questions",
+        "not_covered",
+        "answered",
+    }
+    assert "schema" not in data["detection"] and "packages" not in data["detection"]
+    [route] = data["detection"]["routes"]
+```
+
+`tests/reviews/test_inventory_section.py`:
+
+```python
+from dpr.api import review
+from dpr.report.markdown import render_markdown
+from tests.reviews.helpers import write
+
+
+def app(root):
+    write(root, "api/requirements.txt", "fastapi\nsqlalchemy\nasyncpg\nazure-communication-email\n")
+    write(root, ".env.example", "SENDGRID_API_KEY=\n")
+    write(
+        root,
+        "api/app/models.py",
+        "class Client(Base):\n    __tablename__ = 'clients'\n"
+        "    name = Column(String)\n    email = Column(String)\n    notes = Column(Text)\n"
+        "    visit_count = Column(Integer)\n    deleted = Column(Boolean)\n",
+    )
+    write(
+        root,
+        "api/app/schemas.py",
+        "class ClientCreate(BaseModel):\n    name: str\n    email: str\n    notes: str\n",
+    )
+    write(
+        root,
+        "api/app/mail.py",
+        "from azure.communication.email import EmailClient\n\nclass Mailer:\n"
+        "    def __init__(self):\n        self.client = EmailClient.from_connection_string('x')\n\n"
+        "    def welcome(self, to_email):\n"
+        "        return self.client.begin_send({'recipients': {'to': [{'address': to_email}]}})\n",
+    )
+    write(
+        root,
+        "api/app/routes.py",
+        "from fastapi import APIRouter\nfrom app.mail import Mailer\nrouter = APIRouter()\n"
+        "ManagerOrAdmin = Annotated[User, Depends(require_manager)]\n\n"
+        "@router.post('/clients')\n"
+        "async def create_client(data: ClientCreate, user: ManagerOrAdmin, request: Request):\n"
+        "    Mailer().welcome(data.email)\n"
+        "    logger.info('created for %s from %s', data.email, request.client.host)\n"
+        "    return await save(Client(**data.model_dump()))\n\n"
+        "@router.get('/clients/{client_id}')\n"
+        "async def read_client(client_id: str, user: ManagerOrAdmin):\n"
+        "    return await db.get(Client, client_id)\n",
+    )
+    write(
+        root,
+        "infra/main.tf",
+        'variable "location" {\n  default = "westeurope"\n}\n'
+        'resource "azurerm_postgresql_flexible_server" "db" {\n  backup_retention_days = 14\n}\n',
+    )
+    return root
+
+
+def parts(report):
+    return {p.title: p for p in report.sections["inventory"].parts}
+
+
+def test_inventory_section_parts_and_map_row(tmp_path):
+    report = review(app(tmp_path))
+    found = parts(report)
+    assert list(found) == [
+        "How to read this inventory",
+        "Personal data map",
+        "Categories checked",
+        "Data flows",
+        "Collected with no clear reason",
+        "Not covered by this repo",
+        "Findings",
+    ]
+    [row] = [r for r in found["Personal data map"].rows if r[0].startswith("clients:")]
+    assert row[0] == "clients: `name`, `email`, `notes`"
+    assert row[1] == "Contact and identity, Free text and content"
+    assert row[2] == "POST /clients (`api/app/routes.py:7`)"
+    assert row[3].startswith(
+        "table clients (postgres); backups per Terraform: backup_retention_days = 14"
+    )
+    assert row[4] == "azure-communication-email (INFERRED, reached from the collecting route)"
+    assert row[5] == "soft delete flag only, rows kept; retained indefinitely"
+    assert row[6] == "authenticated: Depends(require_manager); database administrators UNKNOWN"
+    assert row[7] == "`api/app/models.py:1` CONFIRMED"
+    runtime = [r for r in found["Personal data map"].rows if r[0] == "IP address"]
+    assert runtime and runtime[0][2] == "captured from requests: `api/app/routes.py:9`"
+
+
+def test_flows_reasons_and_outside_systems(tmp_path):
+    found = parts(review(app(tmp_path)))
+    assert (
+        "- POST /clients (`api/app/routes.py:7`) -> clients -> azure-communication-email"
+        in found["Data flows"].body
+    )
+    assert "Free-text fields that invite more than the product needs: clients.notes" in (
+        found["Collected with no clear reason"].body
+    )
+    assert "- sendgrid is configured by SENDGRID_API_KEY, but no call site was found in code" in (
+        found["Not covered by this repo"].body
+    )
+    assert "- Special category: none found by field name" in found["Categories checked"].body
+
+
+def test_answered_by_this_review(tmp_path):
+    report = review(app(tmp_path))
+    questions = {a.question: a for a in report.answered}
+    assert (
+        "Contact and identity (clients)"
+        in questions["What personal data does the code hold?"].answer
+    )
+    where = questions["Where does it live?"].answer
+    assert "region per Terraform defaults: westeurope (`infra/main.tf:2`), not verified" in where
+    assert questions["Is there a path for access or deletion requests?"].answer.startswith(
+        "No export"
+    )
+    assert questions["Is access to personal data logged?"].answer.startswith("No audit")
+    text = render_markdown(report)
+    answered = text[text.index("### Answered by this review") : text.index("### Still open")]
+    assert "- What retention does the code enforce? 0 of 1 personal data tables" in answered
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_inventory_section.py tests/report/test_json.py`
+Expected: FAIL (pytest reports 4 failed, 1 passed)
+
+- [ ] **Step 3: Build the map, flows and answers**
+
+Modify `src/dpr/api.py`, replace:
+
+```python
+        sections=sections,
+        questions=results,
+        not_covered=not_covered,
+    )
+```
+
+with:
+
+```python
+        sections=sections,
+        questions=results,
+        not_covered=not_covered,
+        answered=list(ctx.facts.get("answered", [])),
+    )
+```
+
+Modify `src/dpr/model.py`, replace:
+
+```python
+    applicability: tuple[tuple[str, str], ...]
+
+
+@dataclass
+class Report:
+    meta: ReportMeta
+```
+
+with:
+
+```python
+    applicability: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True)
+class Answer:
+    question: str
+    answer: str
+    evidence: str
+
+
+@dataclass
+class Report:
+    meta: ReportMeta
+```
+
+Modify `src/dpr/model.py`, replace:
+
+```python
+    sections: dict[str, ReviewSection]
+    questions: list[QuestionResult]
+    not_covered: list[str]
+```
+
+with:
+
+```python
+    sections: dict[str, ReviewSection]
+    questions: list[QuestionResult]
+    not_covered: list[str]
+    answered: list[Answer] = field(default_factory=list)
+```
+
+Modify `src/dpr/report/markdown.py`, replace:
+
+```python
+        ),
+        "sections": sections,
+        "answered": "\n".join(
+            f"- {q.question.text} {q.answer} ({SOURCE_LABELS.get(q.source, q.source)})"
+            for q in answered
+        )
+        or "None.",
+        "still_open": _table(
+```
+
+with:
+
+```python
+        ),
+        "sections": sections,
+        "answered": "\n".join(
+            [
+                *(
+                    f"- {q.question.text} {q.answer} ({SOURCE_LABELS.get(q.source, q.source)})"
+                    for q in answered
+                ),
+                *(f"- {a.question} {a.answer} Evidence: {a.evidence}." for a in report.answered),
+            ]
+        )
+        or "None.",
+        "still_open": _table(
+```
+
+Modify `src/dpr/reviews/inventory.py`, replace:
+
+```python
+import dpr.reviews.inventory_files  # noqa: F401  (registers rules)
+import dpr.reviews.inventory_retention  # noqa: F401  (registers rules)
+import dpr.reviews.inventory_sources  # noqa: F401  (registers rules)
+from dpr.model import Part, ReviewSection
+from dpr.reviews.personal import personal_fields
+from dpr.rules import Context
+
+```
+
+with:
+
+```python
+import dpr.reviews.inventory_files  # noqa: F401  (registers rules)
+import dpr.reviews.inventory_retention  # noqa: F401  (registers rules)
+import dpr.reviews.inventory_sources  # noqa: F401  (registers rules)
+from dpr.data import load
+from dpr.model import Finding, Part, ReviewSection
+from dpr.reviews.inventory_answers import answers
+from dpr.reviews.inventory_map import flow_lines, model_rows, runtime_rows
+from dpr.reviews.personal import personal_fields
+from dpr.rules import Context
+
+```
+
+Modify `src/dpr/reviews/inventory.py`, replace:
+
+```python
+    "Who internally can read it",
+    "Evidence",
+)
+
+
+def map_rows(ctx: Context) -> tuple[tuple[str, ...], ...]:
+    groups: dict[tuple[str, str], list] = {}
+    for item in personal_fields(ctx):
+        groups.setdefault((item.model.location.file, item.model.name), []).append(item)
+    rows = []
+    for (_file, _name), items in sorted(groups.items()):
+        model = items[0].model
+        fields = ", ".join(f"`{i.field.name}`" for i in items)
+        labels = ", ".join(dict.fromkeys(i.category.label for i in items))
+        rows.append(
+            (
+                f"{model.table.split('.')[-1]}: {fields}",
+                labels,
+                "UNKNOWN",
+                f"table {model.table.split('.')[-1]} ({model.source})",
+                "none found",
+                "UNKNOWN",
+                "UNKNOWN",
+                f"`{model.location}` CONFIRMED",
+            )
+        )
+    return tuple(rows)
+
+
+def run(ctx: Context) -> ReviewSection:
+    return ReviewSection(
+        "inventory",
+        [
+            Part("text", "How to read this inventory", body=INTRO),
+            Part("table", "Personal data map", MAP_COLUMNS, map_rows(ctx)),
+            Part("findings", "Findings"),
+        ],
+    )
+```
+
+with:
+
+```python
+    "Who internally can read it",
+    "Evidence",
+)
+FLOWS_NOTE = (
+    "INFERRED: flows are joined by field names, tables and the code each route calls, not traced "
+    "at runtime."
+)
+OUTSIDE = (
+    "- Support inboxes, CRMs, spreadsheets and analytics dashboards that the team uses directly\n"
+    "- Provider consoles and their retention, region and access settings\n"
+    "- Backups, exports and copies of production data on staff machines"
+)
+NO_REASON_RULES = ("INV-UNUSED-FIELD", "INV-CATCHALL-JSON", "INV-PII-FILE-IN-REPO")
+
+
+def _categories(ctx: Context) -> str:
+    found: dict[str, set[str]] = {}
+    for item in personal_fields(ctx):
+        found.setdefault(item.category.key, set()).add(item.model.table.split(".")[-1])
+    lines = []
+    for category in load("pii_terms.yaml")["categories"]:
+        tables = sorted(found.get(category["key"], set()))
+        status = f"found in {', '.join(tables[:8])}" if tables else "none found by field name"
+        lines.append(f"- {category['label']}: {status}")
+    return "\n".join(lines)
+
+
+def _no_reason(ctx: Context, findings: list[Finding]) -> str:
+    lines = [
+        f"- {f.title} (`{f.locations[0]}`, {f.rule_id})"
+        for f in findings
+        if f.rule_id in NO_REASON_RULES and f.locations
+    ]
+    free_text = sorted(
+        {
+            f"{i.model.table.split('.')[-1]}.{i.field.name}"
+            for i in personal_fields(ctx)
+            if i.category.key == "content"
+        }
+    )
+    if free_text:
+        lines.append(
+            "- Free-text fields that invite more than the product needs: "
+            + ", ".join(free_text[:12])
+        )
+    return "\n".join(lines) or "Nothing flagged from code."
+
+
+def _not_covered(ctx: Context) -> str:
+    detected = {s.name for s in ctx.detection.sdks}
+    lines = [OUTSIDE]
+    for sdk in load("sdks.yaml"):
+        word = sdk["name"].upper().replace("-", "_")
+        names = [e.name for e in ctx.detection.env_vars if word in e.name]
+        if names and sdk["name"] not in detected:
+            lines.append(
+                f"- {sdk['name']} is configured by {', '.join(names[:3])}, but no call site was "
+                "found in code"
+            )
+    return "\n".join(lines)
+
+
+def run(ctx: Context) -> ReviewSection:
+    return ReviewSection(
+        "inventory",
+        [Part("text", "How to read this inventory", body=INTRO), Part("findings", "Findings")],
+    )
+
+
+def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None:
+    flows = "\n".join(flow_lines(ctx)) or "No collection route was matched to a table."
+    parts = [
+        Part("table", "Personal data map", MAP_COLUMNS, tuple(model_rows(ctx) + runtime_rows(ctx))),
+        Part("text", "Categories checked", body=_categories(ctx)),
+        Part("text", "Data flows", body=f"{FLOWS_NOTE}\n\n{flows}"),
+        Part("text", "Collected with no clear reason", body=_no_reason(ctx, findings)),
+        Part("text", "Not covered by this repo", body=_not_covered(ctx)),
+    ]
+    position = next(i for i, p in enumerate(section.parts) if p.kind == "findings")
+    section.parts[position:position] = parts
+    ctx.facts["answered"] = answers(ctx, findings)
+```
+
+`src/dpr/reviews/inventory_answers.py`:
+
+```python
+"""Review 1, inventory: answers the repository gives to the questions a lawyer asks first."""
+
+from __future__ import annotations
+
+import re
+
+from dpr.model import Answer, Finding
+from dpr.parsing import hcl
+from dpr.reviews.access import PUBLIC, access
+from dpr.reviews.inventory_retention import deletion_paths, iac_retention, soft_delete
+from dpr.reviews.inventory_sources import sdk_receipts
+from dpr.reviews.personal import personal_fields
+from dpr.rules import Context
+
+DATA_REQUEST_ROUTE = re.compile(
+    r"(?i)(?:export|download)\S*(?:me|my|account|profile|data)|/me/(?:export|data|download)"
+    r"|gdpr|erasure|data-?request|(?:delete|close)-?account"
+)
+AUDIT_MODEL = re.compile(r"(?i)audit|activity|access_?log|event_?log")
+REGION_VARIABLE = re.compile(r"(?i)^(?:location|region|azure_region|aws_region|gcp_region)$")
+
+
+def _data_held(ctx: Context) -> Answer | None:
+    by_label: dict[str, set[str]] = {}
+    for item in personal_fields(ctx):
+        by_label.setdefault(item.category.label, set()).add(item.model.table.split(".")[-1])
+    if not by_label:
+        return None
+    parts = [f"{label} ({', '.join(sorted(tables)[:6])})" for label, tables in by_label.items()]
+    return Answer(
+        "What personal data does the code hold?", "; ".join(parts) + ".", "section 1 data map"
+    )
+
+
+def _regions(ctx: Context) -> list[str]:
+    found = []
+    for entry in ctx.index.with_suffix(".tf"):
+        for block in hcl.blocks(ctx.index.text(entry.rel)):
+            if block.kind == "variable" and block.labels and REGION_VARIABLE.match(block.labels[0]):
+                value, line = hcl.attributes(block).get("default", ("", 0))
+                if value:
+                    found.append(f"{hcl.unquote(value)} (`{entry.rel}:{line}`)")
+    return found
+
+
+def _where(ctx: Context) -> Answer | None:
+    parts = []
+    engines = [d for d in ctx.detection.databases]
+    if engines:
+        parts.append("databases: " + ", ".join(engines))
+    storage = [s.name for s in ctx.detection.sdks if s.category == "storage"]
+    if storage:
+        parts.append("object storage: " + ", ".join(storage))
+    logs = [s.name for s in ctx.detection.sdks if s.category in ("monitoring", "error-tracking")]
+    if logs:
+        parts.append("logs and telemetry: " + ", ".join(logs))
+    regions = _regions(ctx)
+    if regions:
+        parts.append("region per Terraform defaults: " + ", ".join(regions) + ", not verified")
+    if not parts:
+        return None
+    return Answer(
+        "Where does it live?", "; ".join(parts) + ".", "detection and infrastructure code"
+    )
+
+
+def _recipients(ctx: Context) -> Answer | None:
+    names = [s.name for s in ctx.detection.sdks if s.recipient]
+    hosts = [h for h in ctx.detection.hosting if h not in ("docker", "terraform")]
+    if not names and not hosts:
+        return None
+    traced = {sdk.name for sdk, _, _, _ in sdk_receipts(ctx)}
+    listed = [f"{n} (call sites traced)" if n in traced else n for n in names]
+    text = ", ".join([*listed, *(f"{h} (hosting)" for h in hosts)])
+    return Answer(
+        "Which third parties receive a copy?", text + ".", "detection and INV-SDK-RECEIVES-PII"
+    )
+
+
+def _retention(ctx: Context) -> Answer:
+    people = {f"{p.model.location.file}:{p.model.name}": p.model for p in personal_fields(ctx)}
+    hard = [m.name for k, m in people.items() if deletion_paths(ctx).get(k)]
+    soft = [
+        m.name for k, m in people.items() if not deletion_paths(ctx).get(k) and soft_delete(ctx, m)
+    ]
+    none = len(people) - len(hard) - len(soft)
+    text = (
+        f"{len(hard)} of {len(people)} personal data tables have a hard delete path, {len(soft)} "
+        f"only set a soft delete flag, {none} have no deletion path. No retention period is "
+        "enforced by a scheduled purge in code."
+    )
+    settings = [f"{s} (`{loc}`)" for _r, s, loc in iac_retention(ctx)]
+    if settings:
+        text += " Infrastructure settings: " + ", ".join(settings[:4]) + "."
+    return Answer("What retention does the code enforce?", text, "INV-NO-DELETION-PATH")
+
+
+def _requests(ctx: Context) -> Answer:
+    routes = [r for r in ctx.detection.routes if DATA_REQUEST_ROUTE.search(r.path)]
+    if not routes:
+        text = "No export-my-data or erase-my-account route was found."
+    else:
+        text = "Routes that may serve data requests: " + ", ".join(
+            f"{r.method} {r.path} (`{r.file}:{r.line}`)" for r in routes[:5]
+        )
+    return Answer("Is there a path for access or deletion requests?", text, "route table")
+
+
+def _who(ctx: Context) -> Answer | None:
+    evidence = sorted(
+        {access(ctx, r).evidence for r in ctx.detection.routes if access(ctx, r).level != PUBLIC}
+    )
+    if not evidence:
+        return None
+    text = (
+        "Routes are guarded by: "
+        + ", ".join(evidence[:10])
+        + ". Database and console access UNKNOWN."
+    )
+    return Answer("Who internally can read personal data?", text, "review 5 route classification")
+
+
+def _audit(ctx: Context) -> Answer:
+    models = [
+        m.name
+        for m in ctx.detection.models
+        if AUDIT_MODEL.search(m.name) or AUDIT_MODEL.search(m.table)
+    ]
+    if models:
+        text = (
+            f"Audit tables exist ({', '.join(models)}); whether reads and "
+            "exports are recorded is not decided from code."
+        )
+    else:
+        text = (
+            "No audit or activity table was found, so reads and "
+            "exports are not recorded in the database."
+        )
+    return Answer("Is access to personal data logged?", text, "data models")
+
+
+def _special(findings: list[Finding]) -> Answer:
+    special = [f for f in findings if f.rule_id in ("INV-SPECIAL-CATEGORY", "INV-CHILDREN-SIGNAL")]
+    if special:
+        text = "; ".join(f"{f.title} (`{f.locations[0]}`)" for f in special)
+    else:
+        text = "No special category or children's data fields were found by name."
+    return Answer(
+        "Is special category or children's data involved?",
+        text,
+        "INV-SPECIAL-CATEGORY, INV-CHILDREN-SIGNAL",
+    )
+
+
+def _automated(ctx: Context) -> Answer | None:
+    llm = [sdk.name for sdk, _, _, _ in sdk_receipts(ctx) if sdk.category in ("llm", "ml")]
+    if not llm:
+        return None
+    return Answer(
+        "Is personal data sent to AI or automated processing services?",
+        (
+            f"Prompts or free text reach {', '.join(llm)}; whether they "
+            "include personal data depends on runtime content."
+        ),
+        "INV-SDK-RECEIVES-PII",
+    )
+
+
+def answers(ctx: Context, findings: list[Finding]) -> list[Answer]:
+    items = [
+        _data_held(ctx),
+        _where(ctx),
+        _recipients(ctx),
+        _retention(ctx),
+        _requests(ctx),
+        _who(ctx),
+        _audit(ctx),
+        _special(findings),
+        _automated(ctx),
+    ]
+    return [a for a in items if a is not None]
+```
+
+`src/dpr/reviews/inventory_map.py`:
+
+```python
+"""Review 1, inventory: rows of the personal data map and one line per data flow."""
+
+from __future__ import annotations
+
+import ast
+import re
+
+from dpr.discovery.approots import root_of
+from dpr.model import DataModel, Location
+from dpr.reviews.auth_flows import _js_code, _py_code
+from dpr.reviews.inventory_retention import iac_retention, readers, retention_text
+from dpr.reviews.inventory_sources import Collection, collection_points, sdk_receipts
+from dpr.reviews.leaks_logs import destinations, words
+from dpr.reviews.paths import is_test
+from dpr.reviews.personal import PersonalField, personal_fields
+from dpr.rules import Context
+from dpr.walk import line_of
+
+BROWSER_STORAGE = re.compile(r"(?:localStorage|sessionStorage)\.setItem\(\s*([^,]+),")
+MAX_FLOWS = 25
+
+
+def _groups(ctx: Context) -> list[list[PersonalField]]:
+    """Personal fields grouped per model, computed once per run."""
+    if "inventory_groups" not in ctx.facts:
+        groups: dict[str, list[PersonalField]] = {}
+        for item in personal_fields(ctx):
+            if not is_test(item.model.location.file):
+                key = f"{item.model.location.file}:{item.model.name}"
+                groups.setdefault(key, []).append(item)
+        ctx.facts["inventory_groups"] = [groups[k] for k in sorted(groups)]
+    return ctx.facts["inventory_groups"]
+
+
+def _table(model: DataModel) -> str:
+    return model.table.split(".")[-1]
+
+
+def _named(point: Collection, items: list[PersonalField]) -> bool:
+    stem = words(items[0].model.name)[-1].rstrip("s")
+    subject = f"{point.route.path} {point.source}".lower()
+    return (
+        bool(stem) and stem in subject and bool({i.field.name for i in items} & set(point.fields))
+    )
+
+
+def _overlaps(point: Collection, items: list[PersonalField]) -> bool:
+    overlap = {i.field.name for i in items} & set(point.fields)
+    return len(overlap) >= 2 and len(overlap) * 2 >= len(point.fields)
+
+
+def targets(ctx: Context, point: Collection) -> list[list[PersonalField]]:
+    """Models a collection point writes to: models its route names, else models it mostly fills."""
+    if point.route is None:
+        return []
+    home = root_of(ctx.detection.app_roots, point.location.file)
+    local = [
+        items
+        for items in _groups(ctx)
+        if root_of(ctx.detection.app_roots, items[0].model.location.file) == home
+    ]
+    named = [items for items in local if _named(point, items)]
+    return named or [items for items in local if _overlaps(point, items)]
+
+
+def _points(ctx: Context, items: list[PersonalField]) -> list[Collection]:
+    return [c for c in collection_points(ctx) if any(g is items for g in targets(ctx, c))]
+
+
+def _collected(ctx: Context, items: list[PersonalField]) -> str:
+    points = _points(ctx, items)
+    if not points:
+        return "not found in request schemas"
+    shown = [f"{c.route.method} {c.route.path} (`{c.location}`)" for c in points[:3]]
+    more = f" and {len(points) - 3} more" if len(points) > 3 else ""
+    return "; ".join(shown) + more
+
+
+def _reached_sdks(ctx: Context, point: Collection) -> list[str]:
+    route = point.route
+    code = _py_code(ctx, route) if isinstance(route.handler, ast.AST) else _js_code(ctx, route)
+    files = {c.rel for c in code}
+    return [
+        sdk.name
+        for sdk, locations, _tag, _what in sdk_receipts(ctx)
+        if files & {loc.file for loc in locations}
+    ]
+
+
+def _lives(ctx: Context, model: DataModel) -> str:
+    engines = ", ".join(d for d in ctx.detection.databases if d not in ("supabase", "firebase"))
+    text = f"table {_table(model)}" + (f" ({engines})" if engines else "")
+    backups = [f"{s} (`{loc}`)" for _r, s, loc in iac_retention(ctx) if "backup" in s]
+    if backups:
+        text += "; backups per Terraform: " + ", ".join(backups[:2])
+    return text
+
+
+def _third_parties(ctx: Context, items: list[PersonalField]) -> str:
+    names = sorted({name for point in _points(ctx, items) for name in _reached_sdks(ctx, point)})
+    return ", ".join(f"{n} (INFERRED, reached from the collecting route)" for n in names) or (
+        "none found in code"
+    )
+
+
+def model_rows(ctx: Context) -> list[tuple[str, ...]]:
+    rows = []
+    for items in _groups(ctx):
+        model = items[0].model
+        rows.append(
+            (
+                f"{_table(model)}: " + ", ".join(f"`{i.field.name}`" for i in items),
+                ", ".join(dict.fromkeys(i.category.label for i in items)),
+                _collected(ctx, items),
+                _lives(ctx, model),
+                _third_parties(ctx, items),
+                retention_text(ctx, model),
+                readers(ctx, model),
+                f"`{model.location}` CONFIRMED",
+            )
+        )
+    return rows
+
+
+def _log_retention(ctx: Context) -> str:
+    logs = [f"{s} (`{loc}`)" for _r, s, loc in iac_retention(ctx) if "backup" not in s]
+    return "per Terraform: " + ", ".join(logs[:3]) if logs else "UNKNOWN"
+
+
+def runtime_rows(ctx: Context) -> list[tuple[str, ...]]:
+    rows = []
+    runtime = [c for c in collection_points(ctx) if c.route is None]
+    if runtime:
+        labels = ", ".join(dict.fromkeys(c.fields[0] for c in runtime))
+        exported = sorted({d for c in runtime for d in destinations(ctx, c.location.file)})
+        rows.append(
+            (
+                labels,
+                "Technical identifiers",
+                "captured from requests: " + ", ".join(f"`{c.location}`" for c in runtime[:3]),
+                "request handling and server logs",
+                ", ".join(exported) or "none found in code",
+                _log_retention(ctx),
+                "UNKNOWN",
+                "INFERRED",
+            )
+        )
+    logged = ctx.facts.get("logged_pii", [])
+    if logged:
+        exported = sorted({d for loc in logged for d in destinations(ctx, loc.file)})
+        rows.append(
+            (
+                "values written by log calls",
+                "Contact and identity, request data",
+                f"{len(logged)} log calls (see review 6, LEAK-LOGGED-PII)",
+                "application logs",
+                ", ".join(exported) or "none found in code",
+                _log_retention(ctx),
+                "anyone with log access, UNKNOWN",
+                "INFERRED",
+            )
+        )
+    storage = _browser_storage(ctx)
+    if storage:
+        keys = ", ".join(dict.fromkeys(k for k, _ in storage))
+        rows.append(
+            (
+                f"browser storage keys: {keys}",
+                "Technical identifiers, preferences",
+                "set by the frontend: " + ", ".join(f"`{loc}`" for _, loc in storage[:3]),
+                "the visitor's browser",
+                "none",
+                "until the visitor clears it",
+                "the visitor",
+                "CONFIRMED",
+            )
+        )
+    return rows
+
+
+def _browser_storage(ctx: Context) -> list[tuple[str, Location]]:
+    found = []
+    for entry in ctx.index.js_files:
+        if is_test(entry.rel):
+            continue
+        text = ctx.index.text(entry.rel)
+        for match in BROWSER_STORAGE.finditer(text):
+            found.append(
+                (
+                    match.group(1).strip().strip("'\"`"),
+                    Location(entry.rel, line_of(text, match.start())),
+                )
+            )
+    return found
+
+
+def flow_lines(ctx: Context) -> list[str]:
+    lines = []
+    for point in [c for c in collection_points(ctx) if c.route is not None][:MAX_FLOWS]:
+        route = point.route
+        stores = sorted({_table(items[0].model) for items in targets(ctx, point)})
+        exported = destinations(ctx, route.file)
+        steps = [f"{route.method} {route.path} (`{point.location}`)"]
+        steps.append(", ".join(stores) if stores else "no matching table found")
+        steps += _reached_sdks(ctx, point)
+        if exported:
+            steps.append(f"logs to {', '.join(exported)} on error or log calls")
+        lines.append("- " + " -> ".join(steps))
+    return lines
+```
+
+Modify `src/dpr/reviews/personal.py`, replace:
+
+```python
+
+JSON_TYPES = re.compile(r"(?i)^(?:json|jsonb|Json|JSON|JSONB|JSONField|MutableDict|dict)")
+KEY_SUFFIX = re.compile(r"(?:_id|_ids|Id|Ids|_by|_uuid)$")
+
+
+@dataclass(frozen=True)
+```
+
+with:
+
+```python
+
+JSON_TYPES = re.compile(r"(?i)^(?:json|jsonb|Json|JSON|JSONB|JSONField|MutableDict|dict)")
+KEY_SUFFIX = re.compile(r"(?:_id|_ids|Id|Ids|_by|_uuid)$")
+COUNT_SUFFIX = re.compile(r"(?:_count|Count|_counts)$")
+
+
+@dataclass(frozen=True)
+```
+
+Modify `src/dpr/reviews/personal.py`, replace:
+
+```python
+
+def classify(name: str, person: bool = True) -> Category | None:
+    """The personal data category of a field name, or None. Keys to other records are not data."""
+    if KEY_SUFFIX.search(name):
+        return None
+    tokens = words(name)
+    for category, terms in _categories():
+```
+
+with:
+
+```python
+
+def classify(name: str, person: bool = True) -> Category | None:
+    """The personal data category of a field name, or None. Keys to other records are not data."""
+    if KEY_SUFFIX.search(name) or COUNT_SUFFIX.search(name):
+        return None
+    tokens = words(name)
+    for category, terms in _categories():
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (382 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/api.py src/dpr/model.py src/dpr/report/markdown.py src/dpr/reviews/inventory.py src/dpr/reviews/inventory_answers.py src/dpr/reviews/inventory_map.py src/dpr/reviews/personal.py tests/report/test_json.py tests/reviews/test_inventory_section.py
+git commit -m "Render the personal data map, data flows and code-derived answers"
+```
+
+---
+
+### Task 72: Shared fact providers and location-less de-duplication
+
+Deferred item from the Milestone 1 review. Facts that several reviews use (Sentry init sites and whether they send personal data, logged personal data locations) come from memoized providers, `fact(ctx, key, compute)`, so the inventory map is the same whichever reviews were selected and whether or not the rule that used to record the fact crashed. `dedupe` keeps two location-less findings of one rule when their titles differ, and the fixture test helper tolerates findings without locations.
+
+**Files:**
+- Create: `src/dpr/facts.py`
+- Modify: `src/dpr/rank.py` (location-less findings keyed by title)
+- Modify: `src/dpr/reviews/inventory_map.py` (read facts through providers)
+- Modify: `src/dpr/reviews/leaks.py` (Sentry init sites as a provider)
+- Modify: `src/dpr/reviews/leaks_logs.py` (log hits as a provider)
+- Test: `tests/test_facts.py`
+- Modify test: `tests/test_fixtures.py` (helper for findings without locations)
+
+**Interfaces:**
+- Consumes: `Context.facts` from Milestone 1, `LEAK-SENTRY-PII` and `LEAK-LOGGED-PII` (Task 57)
+- Produces:
+  - `dpr.facts`:
+
+```python
+def fact[T](ctx: Context, key: str, compute: Callable[[Context], T]) -> T: ...
+```
+
+  - `dpr.reviews.leaks`:
+
+```python
+@dataclass(frozen=True)
+class SentryInit:
+    location: Location
+    line: int
+    sends_pii: bool
+    scrubs: bool
+def sentry_inits(ctx: Context) -> list[SentryInit]: ...
+```
+
+  - `dpr.reviews.leaks_logs`:
+
+```python
+def logged_hits(ctx: Context) -> dict[str, list[Hit]]: ...
+def logged_locations(ctx: Context) -> list[Location]: ...
+```
+
+
+**Earlier tests updated on purpose:** `tests/test_fixtures.py` builds the comparison key through a `first()` helper that returns `("", 0)` for a finding with no location.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/test_facts.py`:
+
+```python
+from dpr import rules
+from dpr.api import review
+from dpr.facts import fact
+from dpr.model import Finding, Location
+from dpr.rank import dedupe
+from tests.reviews.helpers import write
+
+
+def test_fact_is_computed_once_per_context():
+    calls = []
+    ctx = rules.Context(index=None, detection=None)
+
+    def compute(_ctx):
+        calls.append(1)
+        return [1, 2]
+
+    assert fact(ctx, "k", compute) is fact(ctx, "k", compute)
+    assert calls == [1]
+
+
+def app(root):
+    write(root, "requirements.txt", "fastapi\nsentry-sdk\n")
+    write(
+        root,
+        "app/main.py",
+        "import sentry_sdk\nsentry_sdk.init(dsn='x', send_default_pii=True)\n\n"
+        "def notify(user):\n    logger.info('mailed %s', user.email)\n",
+    )
+    write(
+        root,
+        "app/models.py",
+        "class User(Base):\n    __tablename__ = 'users'\n    email = Column(String)\n",
+    )
+    return root
+
+
+def rows(report):
+    parts = {p.title: p for p in report.sections["inventory"].parts}
+    return {r[0]: r for r in parts["Personal data map"].rows}
+
+
+def test_inventory_reads_log_and_error_tracker_facts_without_the_leaks_review(tmp_path):
+    found = rows(review(app(tmp_path), reviews=["inventory"]))
+    assert found["values written by log calls"][2] == "1 log calls (see review 6, LEAK-LOGGED-PII)"
+    tracker = found["error events with request and user context"]
+    assert tracker[4] == "sentry (sends default personal data)"
+
+
+def test_inventory_facts_survive_a_failing_leaks_rule(tmp_path, monkeypatch):
+    monkeypatch.delenv("DPR_STRICT")
+    root = app(tmp_path)
+    review(root, reviews=["leaks"])
+
+    def boom(ctx):
+        raise RuntimeError("x")
+
+    checks = [(rid, boom if rid == "LEAK-LOGGED-PII" else fn) for rid, fn in rules.CHECKS["leaks"]]
+    monkeypatch.setitem(rules.CHECKS, "leaks", checks)
+    report = review(root)
+    assert "rule LEAK-LOGGED-PII failed: RuntimeError" in report.not_covered
+    assert "values written by log calls" in rows(report)
+
+
+def finding(title, locations=()):
+    return Finding(
+        rule_id="R",
+        review="leaks",
+        title=title,
+        tag="UNVERIFIED",
+        severity="low",
+        exploitability="low",
+        effort_minutes=1,
+        locations=locations,
+        detail="d",
+        fix="f",
+    )
+
+
+def test_dedupe_keeps_distinct_location_less_findings():
+    items = [finding("a"), finding("b"), finding("a")]
+    assert [f.title for f in dedupe(items)] == ["a", "b"]
+    located = [finding("a", (Location("x.py", 1),)), finding("b", (Location("x.py", 1),))]
+    assert [f.title for f in dedupe(located)] == ["a"]
+```
+
+Modify `tests/test_fixtures.py`, replace:
+
+```python
+}
+
+
+def found(report):
+    return {
+        (f.rule_id, f.locations[0].file, f.locations[0].line, f.tag.value) for f in report.findings
+    }
+
+
+@pytest.mark.parametrize("name", BAD)
+```
+
+with:
+
+```python
+}
+
+
+def first(finding):
+    return (finding.locations[0].file, finding.locations[0].line) if finding.locations else ("", 0)
+
+
+def found(report):
+    return {(f.rule_id, *first(f), f.tag.value) for f in report.findings}
+
+
+@pytest.mark.parametrize("name", BAD)
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/test_facts.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 1 error; collection stops at `ModuleNotFoundError: No module named 'dpr.facts'`)
+
+- [ ] **Step 3: Add the provider helper and use it**
+
+`src/dpr/facts.py`:
+
+```python
+"""Facts shared across reviews. Each is computed on first use, never as a side effect of a rule,
+so a review reads the same fact whether or not the review that also reports on it ran or failed."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+
+from dpr.rules import Context
+
+
+def fact[T](ctx: Context, key: str, compute: Callable[[Context], T]) -> T:
+    if key not in ctx.facts:
+        ctx.facts[key] = compute(ctx)
+    return ctx.facts[key]
+```
+
+Modify `src/dpr/rank.py`, replace:
+
+```python
+
+def dedupe(findings: list[Finding]) -> list[Finding]:
+    own: list[Finding] = []
+    seen: set[tuple[str, str, int]] = set()
+    for item in findings:
+        if item.source != "dpr":
+            continue
+        key = (item.rule_id, *_first(item))
+        if key in seen:
+            continue
+        seen.add(key)
+```
+
+with:
+
+```python
+
+def dedupe(findings: list[Finding]) -> list[Finding]:
+    own: list[Finding] = []
+    seen: set[tuple[str, str, int, str]] = set()
+    for item in findings:
+        if item.source != "dpr":
+            continue
+        key = (item.rule_id, *_first(item), "" if item.locations else item.title)
+        if key in seen:
+            continue
+        seen.add(key)
+```
+
+Modify `src/dpr/reviews/inventory_map.py`, replace:
+
+```python
+from dpr.reviews.auth_flows import _js_code, _py_code
+from dpr.reviews.inventory_retention import iac_retention, readers, retention_text
+from dpr.reviews.inventory_sources import Collection, collection_points, sdk_receipts
+from dpr.reviews.leaks_logs import destinations, words
+from dpr.reviews.paths import is_test
+from dpr.reviews.personal import PersonalField, personal_fields
+from dpr.rules import Context
+```
+
+with:
+
+```python
+from dpr.reviews.auth_flows import _js_code, _py_code
+from dpr.reviews.inventory_retention import iac_retention, readers, retention_text
+from dpr.reviews.inventory_sources import Collection, collection_points, sdk_receipts
+from dpr.reviews.leaks import sentry_inits
+from dpr.reviews.leaks_logs import destinations, logged_locations, words
+from dpr.reviews.paths import is_test
+from dpr.reviews.personal import PersonalField, personal_fields
+from dpr.rules import Context
+```
+
+Modify `src/dpr/reviews/inventory_map.py`, replace:
+
+```python
+                "INFERRED",
+            )
+        )
+    logged = ctx.facts.get("logged_pii", [])
+    if logged:
+        exported = sorted({d for loc in logged for d in destinations(ctx, loc.file)})
+        rows.append(
+```
+
+with:
+
+```python
+                "INFERRED",
+            )
+        )
+    logged = logged_locations(ctx)
+    if logged:
+        exported = sorted({d for loc in logged for d in destinations(ctx, loc.file)})
+        rows.append(
+```
+
+Modify `src/dpr/reviews/inventory_map.py`, replace:
+
+```python
+                "INFERRED",
+            )
+        )
+    storage = _browser_storage(ctx)
+    if storage:
+        keys = ", ".join(dict.fromkeys(k for k, _ in storage))
+```
+
+with:
+
+```python
+                "INFERRED",
+            )
+        )
+    inits = sentry_inits(ctx)
+    if inits:
+        pii = (
+            "sends default personal data"
+            if any(i.sends_pii for i in inits)
+            else "default scrubbing"
+        )
+        rows.append(
+            (
+                "error events with request and user context",
+                "Technical identifiers, request data",
+                "errors raised in the app: " + ", ".join(f"`{i.location}`" for i in inits[:3]),
+                "the error tracker",
+                f"sentry ({pii})",
+                "UNKNOWN",
+                "anyone with error tracker access, UNKNOWN",
+                "CONFIRMED",
+            )
+        )
+    storage = _browser_storage(ctx)
+    if storage:
+        keys = ", ".join(dict.fromkeys(k for k, _ in storage))
+```
+
+Modify `src/dpr/reviews/leaks.py`, replace:
+
+```python
+
+import re
+from collections.abc import Iterator
+from pathlib import PurePosixPath
+
+import dpr.reviews.leaks_creds  # noqa: F401  (registers rules)
+import dpr.reviews.leaks_logs  # noqa: F401  (registers rules)
+from dpr.model import Finding, Location, Part, ReviewSection, Tag
+from dpr.parsing import jsts, pyast
+from dpr.redact import find_keys, is_secret_name, public_prefix, snippet
+```
+
+with:
+
+```python
+
+import re
+from collections.abc import Iterator
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+
+import dpr.reviews.leaks_creds  # noqa: F401  (registers rules)
+import dpr.reviews.leaks_logs  # noqa: F401  (registers rules)
+from dpr.facts import fact
+from dpr.model import Finding, Location, Part, ReviewSection, Tag
+from dpr.parsing import jsts, pyast
+from dpr.redact import find_keys, is_secret_name, public_prefix, snippet
+```
+
+Modify `src/dpr/reviews/leaks.py`, replace:
+
+```python
+    return "The error tracker is initialised without a beforeSend hook, so events are not scrubbed."
+
+
+def _js_sentry(ctx: Context) -> Iterator[Finding]:
+    for entry in ctx.index.js_files:
+        text = ctx.index.text(entry.rel)
+        if "sentry" not in text.lower():
+            continue
+        for tree in jsts.parse_file(ctx.index, entry.rel):
+            for call in jsts.calls(tree, r"(?:\w+\.)?init"):
+```
+
+with:
+
+```python
+    return "The error tracker is initialised without a beforeSend hook, so events are not scrubbed."
+
+
+@dataclass(frozen=True)
+class SentryInit:
+    location: Location
+    line: int
+    sends_pii: bool
+    scrubs: bool
+
+
+def _js_sentry(ctx: Context) -> Iterator[SentryInit]:
+    for entry in ctx.index.js_files:
+        if "sentry" not in ctx.index.text(entry.rel).lower():
+            continue
+        for tree in jsts.parse_file(ctx.index, entry.rel):
+            for call in jsts.calls(tree, r"(?:\w+\.)?init"):
+```
+
+Modify `src/dpr/reviews/leaks.py`, replace:
+
+```python
+                pairs = jsts.object_pairs(args[0]) if args else {}
+                if "dsn" not in pairs:
+                    continue
+                init_line = jsts.line(tree, call)
+                ctx.facts.setdefault("sentry", []).append(Location(entry.rel, init_line))
+                pii = pairs.get("sendDefaultPii")
+                sends_pii = pii is not None and jsts.node_text(pii) == "true"
+                scrubs = "beforeSend" in pairs
+                if not sends_pii and scrubs:
+                    continue
+                line = jsts.line(tree, pii if sends_pii else call)
+                yield make_finding(
+                    "LEAK-SENTRY-PII",
+                    tag=Tag.CONFIRMED,
+                    locations=[Location(entry.rel, line)],
+                    snippet=snippet(text, line),
+                    what=_sentry_detail(sends_pii, scrubs),
+                )
+
+
+def _py_sentry(ctx: Context) -> Iterator[Finding]:
+    for entry in ctx.index.py_files:
+        text = ctx.index.text(entry.rel)
+        if "sentry_sdk" not in text:
+            continue
+        tree = pyast.parse_file(ctx.index, entry.rel)
+        if tree is None:
+            continue
+        for call in pyast.calls(tree, r"sentry_sdk\.init"):
+            ctx.facts.setdefault("sentry", []).append(Location(entry.rel, call.lineno))
+            pii = pyast.kwarg(call, "send_default_pii")
+            sends_pii = pyast.constant(pii) is True
+            scrubs = pyast.kwarg(call, "before_send") is not None
+            if not sends_pii and scrubs:
+                continue
+            line = pii.lineno if sends_pii else call.lineno
+            yield make_finding(
+                "LEAK-SENTRY-PII",
+                tag=Tag.CONFIRMED,
+                locations=[Location(entry.rel, line)],
+                snippet=snippet(text, line),
+                what=_sentry_detail(sends_pii, scrubs),
+            )
+
+
+@rule("LEAK-SENTRY-PII", review="leaks", severity="medium", exploitability="low")
+def sentry_pii(ctx: Context) -> Iterator[Finding]:
+    yield from _js_sentry(ctx)
+    yield from _py_sentry(ctx)
+
+
+def run(ctx: Context) -> ReviewSection:
+```
+
+with:
+
+```python
+                pairs = jsts.object_pairs(args[0]) if args else {}
+                if "dsn" not in pairs:
+                    continue
+                pii = pairs.get("sendDefaultPii")
+                sends_pii = pii is not None and jsts.node_text(pii) == "true"
+                line = jsts.line(tree, pii if sends_pii else call)
+                location = Location(entry.rel, jsts.line(tree, call))
+                yield SentryInit(location, line, sends_pii, "beforeSend" in pairs)
+
+
+def _py_sentry(ctx: Context) -> Iterator[SentryInit]:
+    for entry in ctx.index.py_files:
+        if "sentry_sdk" not in ctx.index.text(entry.rel):
+            continue
+        tree = pyast.parse_file(ctx.index, entry.rel)
+        for call in pyast.calls(tree, r"sentry_sdk\.init") if tree else []:
+            pii = pyast.kwarg(call, "send_default_pii")
+            sends_pii = pyast.constant(pii) is True
+            line = pii.lineno if sends_pii else call.lineno
+            scrubs = pyast.kwarg(call, "before_send") is not None
+            yield SentryInit(Location(entry.rel, call.lineno), line, sends_pii, scrubs)
+
+
+def sentry_inits(ctx: Context) -> list[SentryInit]:
+    """Error tracker init calls. Shared with the inventory review."""
+    return fact(ctx, "sentry_inits", lambda c: [*_js_sentry(c), *_py_sentry(c)])
+
+
+@rule("LEAK-SENTRY-PII", review="leaks", severity="medium", exploitability="low")
+def sentry_pii(ctx: Context) -> Iterator[Finding]:
+    for init in sentry_inits(ctx):
+        if not init.sends_pii and init.scrubs:
+            continue
+        text = ctx.index.text(init.location.file)
+        yield make_finding(
+            "LEAK-SENTRY-PII",
+            tag=Tag.CONFIRMED,
+            locations=[Location(init.location.file, init.line)],
+            snippet=snippet(text, init.line),
+            what=_sentry_detail(init.sends_pii, init.scrubs),
+        )
+
+
+def run(ctx: Context) -> ReviewSection:
+```
+
+Modify `src/dpr/reviews/leaks_logs.py`, replace:
+
+```python
+from pathlib import PurePosixPath
+
+from dpr.discovery.approots import root_of
+from dpr.model import Finding, Location, Tag
+from dpr.parsing import jsts, pyast
+from dpr.redact import snippet
+```
+
+with:
+
+```python
+from pathlib import PurePosixPath
+
+from dpr.discovery.approots import root_of
+from dpr.facts import fact
+from dpr.model import Finding, Location, Tag
+from dpr.parsing import jsts, pyast
+from dpr.redact import snippet
+```
+
+Modify `src/dpr/reviews/leaks_logs.py`, replace:
+
+```python
+
+def _logged(ctx: Context, rel: str, hits: list[Hit], console: bool) -> Finding:
+    lines = sorted({line for line, _, _ in hits})
+    ctx.facts.setdefault("logged_pii", []).extend(Location(rel, n) for n in lines)
+    what = " ".join(dict.fromkeys(w for _, w, _ in sorted(hits)))
+    if len(lines) > 1:
+        what = f"{len(lines)} log calls in this file. " + what
+```
+
+with:
+
+```python
+
+def _logged(ctx: Context, rel: str, hits: list[Hit], console: bool) -> Finding:
+    lines = sorted({line for line, _, _ in hits})
+    what = " ".join(dict.fromkeys(w for _, w, _ in sorted(hits)))
+    if len(lines) > 1:
+        what = f"{len(lines)} log calls in this file. " + what
+```
+
+Modify `src/dpr/reviews/leaks_logs.py`, replace:
+
+```python
+            yield _logged(ctx, rel, group, console)
+
+
+@rule("LEAK-LOGGED-PII", review="leaks", severity="medium", exploitability="low")
+def logged_pii(ctx: Context) -> Iterator[Finding]:
+    for entry in ctx.index.js_files:
+        if not is_test(entry.rel):
+            yield from _per_file(ctx, entry.rel, list(_javascript(ctx, entry.rel)))
+    for entry in ctx.index.py_files:
+        if not is_test(entry.rel) and PurePosixPath(entry.rel).name != "conftest.py":
+            yield from _per_file(ctx, entry.rel, list(_python(ctx, entry.rel)))
+```
+
+with:
+
+```python
+            yield _logged(ctx, rel, group, console)
+
+
+def _all_hits(ctx: Context) -> dict[str, list[Hit]]:
+    found: dict[str, list[Hit]] = {}
+    for entry in ctx.index.js_files:
+        if not is_test(entry.rel):
+            found[entry.rel] = list(_javascript(ctx, entry.rel))
+    for entry in ctx.index.py_files:
+        if not is_test(entry.rel) and PurePosixPath(entry.rel).name != "conftest.py":
+            found[entry.rel] = list(_python(ctx, entry.rel))
+    return {rel: hits for rel, hits in found.items() if hits}
+
+
+def logged_hits(ctx: Context) -> dict[str, list[Hit]]:
+    """Log calls that write personal data, per file. Shared with the inventory review."""
+    return fact(ctx, "logged_pii_hits", _all_hits)
+
+
+def logged_locations(ctx: Context) -> list[Location]:
+    return [Location(rel, line) for rel, hits in logged_hits(ctx).items() for line, _, _ in hits]
+
+
+@rule("LEAK-LOGGED-PII", review="leaks", severity="medium", exploitability="low")
+def logged_pii(ctx: Context) -> Iterator[Finding]:
+    for rel, hits in logged_hits(ctx).items():
+        yield from _per_file(ctx, rel, hits)
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (386 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/facts.py src/dpr/rank.py src/dpr/reviews/inventory_map.py src/dpr/reviews/leaks.py src/dpr/reviews/leaks_logs.py tests/test_facts.py tests/test_fixtures.py
+git commit -m "Compute shared facts through memoized providers"
+```
+
+---
+
+### Task 73: Deferred Milestone 1 fixes: secret words, tokens, URL passwords, git timeouts, dbmate and Drizzle
+
+Deferred items from the Milestone 1 review. `ADMIN` and `SMTP` alone no longer make a variable secret (`NEXT_PUBLIC_ADMIN_EMAIL` is not a leaked secret); secret words match whole underscore tokens. Sensitive column words match whole snake-case tokens, so `role` does not match `enrolled` and `hash` does not match `hashtag`. URL credentials whose password contains `@` are redacted up to the last `@`. A git command that times out adds a not-covered note. dbmate `-- migrate:down` and goose `-- +goose Down` sections are not applied as up migrations. Drizzle's default `drizzle/` output folder is a migration folder.
+
+**Files:**
+- Modify: `src/dpr/data/secrets.yaml` (`ADMIN_KEY`, `ADMIN_TOKEN`, `SMTP_PASS` instead of bare words)
+- Modify: `src/dpr/gitutil.py` (note git timeouts)
+- Modify: `src/dpr/parsing/sqlschema.py` (skip down sections; Drizzle folder)
+- Modify: `src/dpr/redact.py` (whole-token secret words; URL passwords containing `@`)
+- Modify: `src/dpr/reviews/leaks_code.py` (timeout notes; whole-token sensitive columns)
+- Test: `tests/test_deferred_fixes.py`
+
+**Interfaces:**
+- Consumes: `redact`, `gitutil`, `sqlschema` from Milestone 1
+- Produces:
+  - `dpr.gitutil`:
+
+```python
+def run_git(root: Path, *args: str, timeout: int=30, notes: list[str] | None=None) -> str | None: ...
+def tracked_files(root: Path, notes: list[str] | None=None) -> list[str] | None: ...
+```
+
+  - `dpr.parsing.sqlschema`:
+
+```python
+def up_section(text: str) -> str: ...
+```
+
+
+**Edits to files the Milestone 1 fix wave also changes.** Apply each replacement below by its intent if the exact old text differs:
+
+- `src/dpr/gitutil.py`: `run_git` gains a keyword `notes: list[str] | None = None`; on `subprocess.TimeoutExpired` it appends the note shown and returns `None`, and `OSError` still returns `None` silently. Keep the fix wave's `--no-optional-locks` and lazy-fetch environment exactly as they are. `tracked_files(root, notes=None)` passes `notes` through.
+- `src/dpr/parsing/sqlschema.py`: add `"*drizzle/*.sql"` to `MIGRATION_GLOBS`, add `DOWN_MARKER` and `up_section(text)` (shown), and split `up_section(index.text(rel))` instead of the raw text where migration files are read.
+- `src/dpr/redact.py`: `URL_CREDS` lets the password part contain `@` (the character class drops `@`, so the greedy match ends at the last `@`); `is_secret_name` matches configured words as whole underscore-separated token sequences instead of substrings.
+- `src/dpr/reviews/leaks_code.py`: pass `notes=ctx.not_covered` to `tracked_files` and `run_git` in the env checks, and in the broad-response severity helper match each sensitive column word as a whole snake-case token sequence instead of a substring. Leave the fix wave's name-based env grading and response-call helper as they are.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/test_deferred_fixes.py`:
+
+```python
+import subprocess
+
+from dpr import gitutil
+from dpr.parsing.sqlschema import load_schema
+from dpr.redact import is_secret_name, redact
+from dpr.walk import RepoIndex
+from tests.reviews.helpers import findings_for, write
+
+
+def test_secret_words_match_whole_tokens():
+    assert not is_secret_name("NEXT_PUBLIC_ADMIN_EMAIL")
+    assert not is_secret_name("NEXT_PUBLIC_SMTP_HOST")
+    assert not is_secret_name("VITE_PASSWORDLESS_ENABLED")
+    assert is_secret_name("NEXT_PUBLIC_SMTP_PASSWORD")
+    assert is_secret_name("VITE_ADMIN_KEY")
+    assert is_secret_name("NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY")
+
+
+def test_public_admin_email_is_not_a_leaked_secret(tmp_path):
+    write(tmp_path, ".env.example", "NEXT_PUBLIC_ADMIN_EMAIL=\nNEXT_PUBLIC_WEBHOOK_SECRET=\n")
+    write(tmp_path, "app/page.tsx", "export default function P() { return null }\n")
+    found = findings_for(tmp_path, "leaks", "LEAK-PUBLIC-SECRET")
+    assert [f.title for f in found] == [found[0].title]
+    assert "NEXT_PUBLIC_WEBHOOK_SECRET" in found[0].title + found[0].detail
+
+
+def test_sensitive_columns_match_whole_words(tmp_path):
+    route = (
+        "import { prisma } from '@/lib/db'\n"
+        "export async function GET(req, { params }) {\n"
+        "  const row = await prisma.{model}.findUnique({ where: { id: params.id } })\n"
+        "  return Response.json(row)\n}\n"
+    )
+    write(
+        tmp_path,
+        "prisma/schema.prisma",
+        "model Course {\n  id Int @id\n  enrolled Int\n  hashtag String\n}\n"
+        "model Member {\n  id Int @id\n  passwordHash String\n}\n",
+    )
+    write(tmp_path, "app/api/courses/[id]/route.ts", route.replace("{model}", "course"))
+    write(tmp_path, "app/api/members/[id]/route.ts", route.replace("{model}", "member"))
+    severities = {
+        f.locations[0].file.split("/")[2]: f.severity.value
+        for f in findings_for(tmp_path, "leaks", "LEAK-BROAD-RESPONSE")
+    }
+    assert severities == {"courses": "medium", "members": "high"}
+
+
+def test_url_password_containing_at_sign_is_fully_masked():
+    secret = "p" + "@ss" + "w0rd"
+    out = redact(f"DATABASE_URL=postgres://app:{secret}@db.internal:5432/app")
+    assert "ss" + "w0rd" not in out
+    assert out == "DATABASE_URL=postgres://app:<redacted:password>@db.internal:5432/app"
+
+
+def test_git_timeout_is_recorded(tmp_path, monkeypatch):
+    def slow(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="git", timeout=30)
+
+    monkeypatch.setattr(gitutil.subprocess, "run", slow)
+    notes = []
+    assert gitutil.tracked_files(tmp_path, notes=notes) is None
+    assert notes == [
+        "git ls-files timed out after 30 s, so the git-based checks that use it are incomplete"
+    ]
+
+
+def test_down_sections_are_not_applied(tmp_path):
+    write(
+        tmp_path,
+        "db/migrations/20240101_notes.sql",
+        "-- migrate:up\ncreate table notes (id int);\n\n-- migrate:down\ndrop table notes;\n",
+    )
+    write(
+        tmp_path,
+        "db/migrations/20240102_tags.sql",
+        "-- +goose Up\ncreate table tags (id int);\n-- +goose Down\ndrop table tags;\n",
+    )
+    state = load_schema(RepoIndex(tmp_path))
+    assert {"public.notes", "public.tags"} <= set(state.tables)
+    assert state.tables["public.tags"].location.line == 2
+
+
+def test_drizzle_output_folder_is_a_migration_source(tmp_path):
+    write(tmp_path, "drizzle/0000_init.sql", 'CREATE TABLE "accounts" ("id" serial PRIMARY KEY);\n')
+    assert "public.accounts" in load_schema(RepoIndex(tmp_path)).tables
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/test_deferred_fixes.py`
+Expected: FAIL (pytest reports 7 failed)
+
+- [ ] **Step 3: Apply the fixes**
+
+Modify `src/dpr/data/secrets.yaml`, replace:
+
+```yaml
+  - SERVICE_ROLE
+  - SECRET
+  - PRIVATE
+  - ADMIN
+  - WEBHOOK_SECRET
+  - DATABASE_URL
+  - DB_URL
+  - SMTP
+  - PASSWORD
+  - OPENAI_API_KEY
+  - ANTHROPIC_API_KEY
+```
+
+with:
+
+```yaml
+  - SERVICE_ROLE
+  - SECRET
+  - PRIVATE
+  - ADMIN_KEY
+  - ADMIN_TOKEN
+  - WEBHOOK_SECRET
+  - DATABASE_URL
+  - DB_URL
+  - SMTP_PASS
+  - PASSWORD
+  - OPENAI_API_KEY
+  - ANTHROPIC_API_KEY
+```
+
+Modify `src/dpr/gitutil.py`, replace:
+
+```python
+from dpr.model import GitInfo
+
+
+def run_git(root: Path, *args: str, timeout: int = 30) -> str | None:
+    if shutil.which("git") is None:
+        return None
+    command = ["git", "-c", "core.fsmonitor=false", "-C", str(root), *args]
+```
+
+with:
+
+```python
+from dpr.model import GitInfo
+
+
+def run_git(
+    root: Path, *args: str, timeout: int = 30, notes: list[str] | None = None
+) -> str | None:
+    if shutil.which("git") is None:
+        return None
+    command = ["git", "-c", "core.fsmonitor=false", "-C", str(root), *args]
+```
+
+Modify `src/dpr/gitutil.py`, replace:
+
+```python
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=timeout, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+```
+
+with:
+
+```python
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=timeout, check=False
+        )
+    except subprocess.TimeoutExpired:
+        if notes is not None:
+            notes.append(
+                f"git {args[0]} timed out after {timeout} s, so the git-based checks that use "
+                "it are incomplete"
+            )
+        return None
+    except OSError:
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+```
+
+Modify `src/dpr/gitutil.py`, replace:
+
+```python
+    return GitInfo(True, sha.strip() + suffix)
+
+
+def tracked_files(root: Path) -> list[str] | None:
+    output = run_git(root, "ls-files", "-z")
+    if output is None:
+        return None
+    return [name for name in output.split("\0") if name]
+```
+
+with:
+
+```python
+    return GitInfo(True, sha.strip() + suffix)
+
+
+def tracked_files(root: Path, notes: list[str] | None = None) -> list[str] | None:
+    output = run_git(root, "ls-files", "-z", notes=notes)
+    if output is None:
+        return None
+    return [name for name in output.split("\0") if name]
+```
+
+Modify `src/dpr/parsing/sqlschema.py`, replace:
+
+```python
+from dpr.parsing.sqlgrants import Grant, parse_grant
+from dpr.walk import RepoIndex
+
+MIGRATION_GLOBS = ("*migrations/*.sql", "*db/*.sql", "schema.sql", "*/schema.sql")
+TRUE_WORDS = ("true", "t", "1", "yes", "on")
+
+
+```
+
+with:
+
+```python
+from dpr.parsing.sqlgrants import Grant, parse_grant
+from dpr.walk import RepoIndex
+
+MIGRATION_GLOBS = ("*migrations/*.sql", "*db/*.sql", "schema.sql", "*/schema.sql", "*drizzle/*.sql")
+DOWN_MARKER = re.compile(
+    r"^--\s*(?:migrate:down|\+goose\s+down)\b.*$", re.IGNORECASE | re.MULTILINE
+)
+
+
+def up_section(text: str) -> str:
+    """The part of a dbmate or goose migration that runs on up; blanked lines keep numbering."""
+    down = DOWN_MARKER.search(text)
+    if down is None:
+        return text
+    kept = text[: down.start()]
+    return kept + "\n" * text[down.start() :].count("\n")
+
+
+TRUE_WORDS = ("true", "t", "1", "yes", "on")
+
+
+```
+
+Modify `src/dpr/parsing/sqlschema.py`, replace:
+
+```python
+    state = SchemaState()
+    for rel in sorted({f.rel for f in index.glob(*MIGRATION_GLOBS)}):
+        state.sources.append(rel)
+        for stmt in split_sql(index.text(rel)):
+            state.apply(stmt, rel)
+    return state
+
+```
+
+with:
+
+```python
+    state = SchemaState()
+    for rel in sorted({f.rel for f in index.glob(*MIGRATION_GLOBS)}):
+        state.sources.append(rel)
+        for stmt in split_sql(up_section(index.text(rel))):
+            state.apply(stmt, rel)
+    return state
+
+```
+
+Modify `src/dpr/redact.py`, replace:
+
+```python
+from dpr.data import load
+
+JWT = re.compile(r"eyJ[0-9A-Za-z_-]{8,}\.(eyJ[0-9A-Za-z_-]{8,})\.[0-9A-Za-z_-]{8,}")
+URL_CREDS = re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]*://[^\s/:@'\"]+:)([^\s/@'\"]+)(@)")
+
+
+@dataclass(frozen=True)
+```
+
+with:
+
+```python
+from dpr.data import load
+
+JWT = re.compile(r"eyJ[0-9A-Za-z_-]{8,}\.(eyJ[0-9A-Za-z_-]{8,})\.[0-9A-Za-z_-]{8,}")
+URL_CREDS = re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]*://[^\s/:@'\"]+:)([^\s/'\"]+)(@)")
+
+
+@dataclass(frozen=True)
+```
+
+Modify `src/dpr/redact.py`, replace:
+
+```python
+
+
+def is_secret_name(name: str) -> bool:
+    return any(word in name for word in secret_config()["secret_name_words"])
+
+
+def _jwt_role(payload: str) -> str | None:
+```
+
+with:
+
+```python
+
+
+def is_secret_name(name: str) -> bool:
+    """A secret word matches whole underscore-separated tokens: PASSWORD, not PASSWORDLESS."""
+    tokens = name.upper().split("_")
+    for word in secret_config()["secret_name_words"]:
+        parts = word.split("_")
+        size = len(parts)
+        if any(tokens[i : i + size] == parts for i in range(len(tokens) - size + 1)):
+            return True
+    return False
+
+
+def _jwt_role(payload: str) -> str | None:
+```
+
+Modify `src/dpr/reviews/leaks_code.py`, replace:
+
+```python
+
+@rule("LEAK-ENV-TRACKED", review="leaks", severity="critical", exploitability="high")
+def env_tracked(ctx: Context) -> Iterator[Finding]:
+    tracked = tracked_files(ctx.index.root)
+    if tracked is None:
+        ctx.not_covered.append("git checks skipped: not a git repository or git is unavailable")
+        return
+```
+
+with:
+
+```python
+
+@rule("LEAK-ENV-TRACKED", review="leaks", severity="critical", exploitability="high")
+def env_tracked(ctx: Context) -> Iterator[Finding]:
+    tracked = tracked_files(ctx.index.root, notes=ctx.not_covered)
+    if tracked is None:
+        ctx.not_covered.append("git checks skipped: not a git repository or git is unavailable")
+        return
+```
+
+Modify `src/dpr/reviews/leaks_code.py`, replace:
+
+```python
+        "--",
+        ":(glob)**/.env",
+        ":(glob)**/.env.*",
+    )
+    if output is None:
+        return
+```
+
+with:
+
+```python
+        "--",
+        ":(glob)**/.env",
+        ":(glob)**/.env.*",
+        notes=ctx.not_covered,
+    )
+    if output is None:
+        return
+```
+
+Modify `src/dpr/reviews/leaks_code.py`, replace:
+
+```python
+
+def _severity(ctx: Context, name: str | None) -> str:
+    model = find_model(ctx.detection.models, name) if name else None
+    words = load("pii_terms.yaml")["sensitive_columns"]
+    if model and any(word in _snake(f.name) for f in model.fields for word in words):
+        return "high"
+    return "medium"
+
+
+```
+
+with:
+
+```python
+
+def _severity(ctx: Context, name: str | None) -> str:
+    model = find_model(ctx.detection.models, name) if name else None
+    words = [w.split("_") for w in load("pii_terms.yaml")["sensitive_columns"]]
+    for field in model.fields if model else []:
+        tokens = _snake(field.name).split("_")
+        if any(tokens[i : i + len(w)] == w for w in words for i in range(len(tokens))):
+            return "high"
+    return "medium"
+
+
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (393 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/secrets.yaml src/dpr/gitutil.py src/dpr/parsing/sqlschema.py src/dpr/redact.py src/dpr/reviews/leaks_code.py tests/test_deferred_fixes.py
+git commit -m "Match secret and sensitive words as whole tokens and note git timeouts"
+```
+
+---
+
+### Task 74: Findings register and distinct-issue summary
+
+Judge gap 4 (grouped register) and gap 10 (summary distorted by counts). Findings are grouped into issues: one per rule and app root, plus chains from `register.yaml` that join related rules (a committed password, the seed that runs it and the start command; a paid route and its missing limit and kill switch). Each issue has an id (`F-01` ...), the highest severity and tags of its findings, the reviews it spans, and its first location. The summary counts issues, the top three fixes cite issue ids, and a "Findings register" table maps each issue to its findings. `BASE-SEED-ON-START` carries the seed target's hashing site so a seed and its password join one issue without merging unrelated passwords.
+
+**Files:**
+- Create: `src/dpr/data/register.yaml`, `src/dpr/report/register.py`
+- Modify: `src/dpr/api.py` (build the register after ranking)
+- Modify: `src/dpr/cli.py` (summary line counts issues and names top issues)
+- Modify: `src/dpr/model.py` (`Report.register`)
+- Modify: `src/dpr/report/markdown.py` (register table and issue-based summary)
+- Modify: `src/dpr/reviews/baseline_accounts.py` (seed findings locate the seed's hashing site)
+- Test: `tests/report/test_register.py`
+- Modify test: `tests/report/test_json.py` (`register` key)
+- Modify test: `tests/report/test_markdown.py` (top fix cites the issue id; register row)
+- Modify test: `tests/reviews/test_seed_stage.py` (seed finding has the seed file location)
+
+**Interfaces:**
+- Consumes: ranked findings from Milestone 1, app roots (Task 54), seed findings (Task 55)
+- Produces:
+  - `dpr.model`:
+
+```python
+@dataclass
+class Report:
+    meta: ReportMeta
+    detection: Detection
+    findings: list[Finding]
+    sections: dict[str, ReviewSection]
+    questions: list[QuestionResult]
+    not_covered: list[str]
+    answered: list[Answer] = field(default_factory=list)
+    register: list = field(default_factory=list)
+```
+
+  - `dpr.report.markdown`:
+
+```python
+def issues_of(report: Report) -> list: ...
+```
+
+  - `dpr.report.register`:
+
+```python
+@dataclass(frozen=True)
+class Issue:
+    id: str
+    title: str
+    severity: Severity
+    tags: str
+    reviews: tuple[int, ...]
+    findings: tuple[str, ...]
+    count: int
+    first: str
+    effort_minutes: int
+def build_register(findings: list[Finding], roots: list[AppRoot]) -> list[Issue]: ...
+```
+
+
+**Edits to files the Milestone 1 fix wave also changes.** Apply each replacement below by its intent if the exact old text differs:
+
+- `src/dpr/api.py`: compute `ranked = rank(dedupe(findings))` once, pass `findings=ranked` and `register=build_register(ranked, detection.app_roots)` to `Report(...)`.
+- `src/dpr/cli.py`: in the scan summary, when `report.register` is not empty append `, N distinct issues` to the first line and list the top three as `  i. {issue.id} {issue.title} ({issue.first})` from `report.register`. Keep the fix wave's exit code 2 on unexpected errors.
+- `src/dpr/model.py`: add `register: list = field(default_factory=list)` as the last `Report` field.
+- `src/dpr/report/markdown.py`: add `issues_of(report)` and `_register(report)` (shown); summary severity counts and the top three come from issues, with the sentence "Counts are distinct issues. They group N findings; the register below maps each issue to its findings." and the register table after the top three.
+
+**Earlier tests updated on purpose:** `tests/report/test_markdown.py` expects the issue id in the top fix line and a register row; `tests/report/test_json.py` adds `register`; `tests/reviews/test_seed_stage.py` (Task 55) expects the seed file's hashing line as a second location.
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/report/test_json.py`, replace:
+
+```python
+        "questions",
+        "not_covered",
+        "answered",
+    }
+    assert "schema" not in data["detection"] and "packages" not in data["detection"]
+    [route] = data["detection"]["routes"]
+```
+
+with:
+
+```python
+        "questions",
+        "not_covered",
+        "answered",
+        "register",
+    }
+    assert "schema" not in data["detection"] and "packages" not in data["detection"]
+    [route] = data["detection"]["routes"]
+```
+
+Modify `tests/report/test_markdown.py`, replace:
+
+```python
+        and "| High | 1 |" in text
+        and "| Open questions (UNKNOWN) | 1 |" in text
+    )
+    assert "1. RLS off on public.notes (`a.ts:3`, about 5 min)" in text
+    assert "not legal advice" in text
+
+
+```
+
+with:
+
+```python
+        and "| High | 1 |" in text
+        and "| Open questions (UNKNOWN) | 1 |" in text
+    )
+    assert "1. RLS off on public.notes (`a.ts:3`, about 5 min, F-01)" in text
+    assert (
+        "| F-01 | Critical | CONFIRMED | RLS off on public.notes | 2 | 1 (RLS-TABLE-OFF) |" in text
+    )
+    assert "not legal advice" in text
+
+
+```
+
+`tests/report/test_register.py`:
+
+```python
+from dpr.api import review
+from dpr.cli import summary_lines
+from dpr.model import AppRoot, Finding, Location
+from dpr.report.markdown import render_markdown
+from dpr.report.register import build_register
+from tests.reviews.helpers import write
+
+ROOTS = [AppRoot("api", "server", True), AppRoot("worker", "server", True)]
+
+
+def finding(rule_id, file, line=1, severity="medium", tag="CONFIRMED", review="abuse", **extra):
+    return Finding(
+        rule_id=rule_id,
+        review=review,
+        title=extra.pop("title", f"{rule_id} title"),
+        tag=tag,
+        severity=severity,
+        exploitability=extra.pop("exploitability", "medium"),
+        effort_minutes=10,
+        locations=(Location(file, line), *extra.pop("more", ())),
+        detail="d",
+        fix="f",
+        proof_needed="p" if tag == "INFERRED" else None,
+    )
+
+
+def test_chains_group_per_app_and_rules_group_per_app():
+    issues = build_register(
+        [
+            finding("ABUSE-INMEMORY-LIMITER", "api/app/limit.py", tag="INFERRED"),
+            finding("ABUSE-LIMITER-PROXY-IP", "api/app/limit.py", 2),
+            finding("ABUSE-INMEMORY-LIMITER", "worker/limit.py"),
+            finding("ABUSE-ERROR-LEAK", "api/app/a.py"),
+            finding("ABUSE-ERROR-LEAK", "api/app/b.py"),
+        ],
+        ROOTS,
+    )
+    by_title = {i.title: i for i in issues}
+    api = by_title["Rate limits do not hold in production (api)"]
+    assert (api.count, api.tags, api.findings) == (
+        2,
+        "CONFIRMED and INFERRED",
+        ("ABUSE-LIMITER-PROXY-IP", "ABUSE-INMEMORY-LIMITER"),
+    )
+    assert by_title["Rate limits do not hold in production (worker)"].count == 1
+    assert by_title["ABUSE-ERROR-LEAK title"].count == 2
+    assert [i.id for i in issues] == ["F-01", "F-02", "F-03"]
+
+
+def test_repo_scope_and_ranking_by_best_score():
+    issues = build_register(
+        [
+            finding("BASE-HEADER-MISSING-HSTS", "api/main.py", severity="low", review="baseline"),
+            finding("BASE-HEADER-MISSING-CSP", "worker/app.py", review="baseline"),
+            finding("OWASP-A01-UNSCOPED-QUERY", "api/r.py", severity="high", review="owasp"),
+        ],
+        ROOTS,
+    )
+    assert [(i.id, i.severity.value, i.reviews) for i in issues] == [
+        ("F-01", "high", (5,)),
+        ("F-02", "medium", (4,)),
+    ]
+    assert issues[1].title == "Security headers and HTTPS enforcement are missing"
+
+
+def test_linked_scope_attaches_start_commands_to_the_password_they_seed():
+    seed = finding(
+        "BASE-LITERAL-PASSWORD-HASH",
+        "api/app/db/seed.py",
+        4,
+        severity="critical",
+        review="baseline",
+        title="Account passwords are written in api/app/db/seed.py",
+    )
+    migrate = finding(
+        "BASE-LITERAL-PASSWORD-HASH",
+        "api/scripts/migrate.py",
+        9,
+        severity="critical",
+        review="baseline",
+        title="Account passwords are written in api/scripts/migrate.py",
+    )
+    start = finding(
+        "BASE-SEED-ON-START",
+        "api/startup.sh",
+        severity="critical",
+        tag="INFERRED",
+        review="baseline",
+        more=(Location("api/app/db/seed.py", 4),),
+    )
+    issues = build_register([seed, migrate, start], ROOTS)
+    titles = sorted(i.title for i in issues)
+    assert titles == [
+        "Account passwords are written in api/app/db/seed.py, and a start command runs it",
+        "Account passwords are written in api/scripts/migrate.py",
+    ]
+
+
+def app(root):
+    write(root, ".env.example", "NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=\n")
+    write(root, "supabase/migrations/1.sql", "create table public.notes (id int, user_id uuid);")
+    write(root, "app/page.tsx", "export default function Page() { return null }\n")
+    return root
+
+
+def test_summary_counts_issues_and_prints_the_register(tmp_path):
+    report = review(app(tmp_path))
+    text = render_markdown(report)
+    summary = text[text.index("## Summary") : text.index("## Evidence tags")]
+    assert f"They group {len(report.findings)} findings" in summary
+    assert "### Findings register" in summary
+    assert "| ID | Severity | Tag | Title | Reviews | Findings |" in summary
+    assert "about" in summary and ", F-01)" in summary
+    line = summary_lines(report, [], None)[0]
+    assert line.endswith(f", {len(report.register)} distinct issues")
+```
+
+Modify `tests/reviews/test_seed_stage.py`, replace:
+
+```python
+    )
+    finding = by_location(tmp_path)["api/startup.sh:1"]
+    assert (finding.severity.value, finding.tag.value) == ("medium", "INFERRED")
+    assert [str(loc) for loc in finding.locations] == ["api/startup.sh:1", "infra/main.tf:3"]
+    assert (
+        finding.proof_needed == "Check that the secret reference for SEED_ADMIN_PASSWORD resolves."
+    )
+```
+
+with:
+
+```python
+    )
+    finding = by_location(tmp_path)["api/startup.sh:1"]
+    assert (finding.severity.value, finding.tag.value) == ("medium", "INFERRED")
+    assert [str(loc) for loc in finding.locations] == [
+        "api/startup.sh:1",
+        "api/app/db/admin_seed.py:6",
+        "infra/main.tf:3",
+    ]
+    assert (
+        finding.proof_needed == "Check that the secret reference for SEED_ADMIN_PASSWORD resolves."
+    )
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/report/test_register.py tests/report/test_json.py tests/report/test_markdown.py tests/reviews/test_seed_stage.py`
+Expected: FAIL (pytest reports 1 error; collection stops at `ModuleNotFoundError: No module named 'dpr.report.register'`)
+
+- [ ] **Step 3: Build the register and render it**
+
+Modify `src/dpr/api.py`, replace:
+
+```python
+from dpr.questions.catalogue import questions_for, resolve
+from dpr.questions.prompt import ask_on_terminal
+from dpr.rank import dedupe, rank
+from dpr.reviews import REVIEWS, RUN_ORDER, available, number, resolve_reviews
+from dpr.rules import Context, Options, run_checks
+from dpr.walk import RepoIndex
+```
+
+with:
+
+```python
+from dpr.questions.catalogue import questions_for, resolve
+from dpr.questions.prompt import ask_on_terminal
+from dpr.rank import dedupe, rank
+from dpr.report.register import build_register
+from dpr.reviews import REVIEWS, RUN_ORDER, available, number, resolve_reviews
+from dpr.rules import Context, Options, run_checks
+from dpr.walk import RepoIndex
+```
+
+Modify `src/dpr/api.py`, replace:
+
+```python
+        applicability=applicability,
+    )
+    not_covered = list(dict.fromkeys([*index.skipped, *ctx.not_covered]))
+    return Report(
+        meta=meta,
+        detection=detection,
+        findings=rank(dedupe(findings)),
+        sections=sections,
+        questions=results,
+        not_covered=not_covered,
+        answered=list(ctx.facts.get("answered", [])),
+    )
+```
+
+with:
+
+```python
+        applicability=applicability,
+    )
+    not_covered = list(dict.fromkeys([*index.skipped, *ctx.not_covered]))
+    ranked = rank(dedupe(findings))
+    return Report(
+        meta=meta,
+        detection=detection,
+        findings=ranked,
+        sections=sections,
+        questions=results,
+        not_covered=not_covered,
+        answered=list(ctx.facts.get("answered", [])),
+        register=build_register(ranked, detection.app_roots),
+    )
+```
+
+Modify `src/dpr/cli.py`, replace:
+
+```python
+        f"high {counts['high']}, medium {counts['medium']}, low {counts['low']}), "
+        f"{open_count} open questions"
+    ]
+    if report.findings:
+        lines.append("Top fixes:")
+        lines += [
+            f"  {i}. {f.title} ({f.locations[0] if f.locations else 'no file'})"
+            for i, f in enumerate(report.findings[:3], start=1)
+        ]
+    lines += [f"Wrote {path}" for path in written]
+    if tip:
+```
+
+with:
+
+```python
+        f"high {counts['high']}, medium {counts['medium']}, low {counts['low']}), "
+        f"{open_count} open questions"
+    ]
+    if report.register:
+        lines[0] += f", {len(report.register)} distinct issues"
+        lines.append("Top fixes:")
+        lines += [
+            f"  {i}. {issue.id} {issue.title} ({issue.first})"
+            for i, issue in enumerate(report.register[:3], start=1)
+        ]
+    lines += [f"Wrote {path}" for path in written]
+    if tip:
+```
+
+`src/dpr/data/register.yaml`:
+
+```yaml
+# Rules that describe one underlying issue are grouped into one register entry.
+# scope: app groups per app root; repo groups across the repository; linked keeps each finding of
+# the first rule as its own issue and attaches findings of the other rules that share a file with it.
+chains:
+  - title: Accounts can be signed in to with passwords written in the repository
+    scope: linked
+    rules: [BASE-LITERAL-PASSWORD-HASH, BASE-SEED-ON-START]
+  - title: Sign-in, signup and reset responses reveal which accounts exist
+    scope: app
+    rules: [AUTH-ENUM-SIGNUP-MESSAGE, AUTH-ENUM-RESET-MESSAGE, AUTH-ENUM-LOCKOUT-STATUS, AUTH-ENUM-TIMING]
+  - title: Sessions survive logout and refresh without an absolute limit
+    scope: app
+    rules: [AUTH-LOGOUT-NO-REVOKE, AUTH-REFRESH-NO-ABSOLUTE-CAP]
+  - title: One-time tokens are stored in plain text or never expire
+    scope: app
+    rules: [AUTH-TOKEN-PLAINTEXT, AUTH-VERIFY-NO-EXPIRY, AUTH-VERIFY-REUSABLE, AUTH-RESET-NO-EXPIRY]
+  - title: Rate limits do not hold in production
+    scope: app
+    rules: [ABUSE-INMEMORY-LIMITER, ABUSE-LIMITER-NOT-APPLIED, ABUSE-LIMITER-PROXY-IP]
+  - title: Paid endpoints without sign-in, limits or a kill switch
+    scope: app
+    rules: [ABUSE-PAID-UNAUTH, ABUSE-PAID-UNLIMITED, ABUSE-NO-KILL-SWITCH]
+  - title: Security headers and HTTPS enforcement are missing
+    scope: repo
+    rules: [BASE-HEADER-MISSING-HSTS, BASE-HEADER-MISSING-CSP, BASE-HEADER-MISSING-XCTO, BASE-HEADER-MISSING-FRAME, BASE-HEADER-MISSING-REFERRER, BASE-HEADER-MISSING-PERMISSIONS, BASE-CSP-WEAK, BASE-HTTPS-NOT-ENFORCED, BASE-NO-HTTPS-REDIRECT]
+  - title: Database reachable too widely or used with administrator rights
+    scope: repo
+    rules: [BASE-DB-NETWORK-OPEN, BASE-DB-ADMIN-LOGIN]
+  - title: Unpinned dependencies and installs
+    scope: repo
+    rules: [OWASP-A08-UNPINNED-DEPS, OWASP-A08-UNPINNED-INSTALL]
+  - title: Cookie flags leave sessions exposed
+    scope: app
+    rules: [BASE-COOKIE-HTTPONLY, BASE-COOKIE-SECURE, BASE-COOKIE-SAMESITE, BASE-SAMESITE-NONE-NO-CSRF]
+```
+
+Modify `src/dpr/model.py`, replace:
+
+```python
+    questions: list[QuestionResult]
+    not_covered: list[str]
+    answered: list[Answer] = field(default_factory=list)
+```
+
+with:
+
+```python
+    questions: list[QuestionResult]
+    not_covered: list[str]
+    answered: list[Answer] = field(default_factory=list)
+    register: list = field(default_factory=list)  # list[dpr.report.register.Issue]
+```
+
+Modify `src/dpr/report/markdown.py`, replace:
+
+```python
+
+from dpr.model import Finding, Part, Report
+from dpr.rank import order_for_section
+from dpr.reviews import LABELS, REVIEWS, TITLES, number
+
+DISCLAIMER = (
+```
+
+with:
+
+```python
+
+from dpr.model import Finding, Part, Report
+from dpr.rank import order_for_section
+from dpr.report.register import build_register
+from dpr.reviews import LABELS, REVIEWS, TITLES, number
+
+DISCLAIMER = (
+```
+
+Modify `src/dpr/report/markdown.py`, replace:
+
+```python
+    return "| | |\n|---|---|\n" + "\n".join(f"| {a} | {_cell(b)} |" for a, b in rows)
+
+
+def _view(report: Report) -> dict:
+    counts = {s: sum(f.severity.value == s for f in report.findings) for s in SEVERITIES}
+    open_questions = [q for q in report.questions if q.open]
+    summary = _table(
+        ("Severity", "Count"),
+```
+
+with:
+
+```python
+    return "| | |\n|---|---|\n" + "\n".join(f"| {a} | {_cell(b)} |" for a, b in rows)
+
+
+def issues_of(report: Report) -> list:
+    return report.register or build_register(report.findings, report.detection.app_roots)
+
+
+def _register(report: Report) -> str:
+    if not issues_of(report):
+        return ""
+    rows = [
+        (
+            issue.id,
+            issue.severity.value.capitalize(),
+            issue.tags,
+            issue.title,
+            ", ".join(str(n) for n in issue.reviews),
+            f"{issue.count} ({', '.join(issue.findings)})",
+        )
+        for issue in issues_of(report)
+    ]
+    columns = ("ID", "Severity", "Tag", "Title", "Reviews", "Findings")
+    return "### Findings register\n\n" + _table(columns, rows)
+
+
+def _view(report: Report) -> dict:
+    issues = issues_of(report)
+    counts = {s: sum(i.severity.value == s for i in issues) for s in SEVERITIES}
+    open_questions = [q for q in report.questions if q.open]
+    summary = _table(
+        ("Severity", "Count"),
+```
+
+Modify `src/dpr/report/markdown.py`, replace:
+
+```python
+            ("Open questions (UNKNOWN)", str(len(open_questions))),
+        ],
+    )
+    if report.findings:
+        top = "Top three fixes by risk removed per minute spent:\n\n" + "\n".join(
+            f"{i}. {f.title} (`{f.locations[0] if f.locations else 'no file'}`, "
+            f"about {f.effort_minutes} min)"
+            for i, f in enumerate(report.findings[:3], start=1)
+        )
+    else:
+        top = "No findings."
+    sections = []
+```
+
+with:
+
+```python
+            ("Open questions (UNKNOWN)", str(len(open_questions))),
+        ],
+    )
+    if issues:
+        summary += (
+            f"\n\nCounts are distinct issues. They group {len(report.findings)} findings; "
+            "the register below maps each issue to its findings."
+        )
+        top = "Top three fixes by risk removed per minute spent:\n\n" + "\n".join(
+            f"{i}. {issue.title} (`{issue.first}`, about {issue.effort_minutes} min, {issue.id})"
+            for i, issue in enumerate(issues[:3], start=1)
+        )
+        top += "\n\n" + _register(report)
+    else:
+        top = "No findings."
+    sections = []
+```
+
+`src/dpr/report/register.py`:
+
+```python
+"""The findings register: findings grouped into distinct issues, ranked, with stable ids."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from dpr.data import load
+from dpr.discovery.approots import root_of
+from dpr.model import AppRoot, Finding, Severity, Tag
+from dpr.rank import score
+from dpr.reviews import REVIEWS, number
+
+SEVERITY_ORDER = (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW)
+
+
+@dataclass(frozen=True)
+class Issue:
+    id: str
+    title: str
+    severity: Severity
+    tags: str
+    reviews: tuple[int, ...]
+    findings: tuple[str, ...]  # rule ids, in rank order
+    count: int
+    first: str
+    effort_minutes: int
+
+
+def _chain_of(rule_id: str) -> tuple[int, dict] | None:
+    for position, chain in enumerate(load("register.yaml")["chains"]):
+        if rule_id in chain["rules"]:
+            return position, chain
+    return None
+
+
+def _app(finding: Finding, roots: list[AppRoot]) -> str:
+    home = root_of(roots, finding.locations[0].file) if finding.locations else None
+    return home.path if home is not None else ""
+
+
+def _linked_key(finding: Finding, spec: dict, position: int, findings: list[Finding]) -> tuple:
+    anchor = finding
+    if finding.rule_id != spec["rules"][0]:
+        files = {loc.file for loc in finding.locations[1:]}
+        anchor = next(
+            (
+                f
+                for f in findings
+                if f.rule_id == spec["rules"][0] and files & {loc.file for loc in f.locations}
+            ),
+            finding,
+        )
+    first = anchor.locations[0] if anchor.locations else None
+    return ("chain", position, f"{anchor.rule_id} {first}")
+
+
+def _key(finding: Finding, roots: list[AppRoot], findings: list[Finding]) -> tuple:
+    chain = _chain_of(finding.rule_id)
+    if chain is not None:
+        position, spec = chain
+        if spec["scope"] == "linked":
+            return _linked_key(finding, spec, position, findings)
+        return ("chain", position, _app(finding, roots) if spec["scope"] == "app" else "")
+    return ("rule", finding.rule_id, _app(finding, roots))
+
+
+def _tags(findings: list[Finding]) -> str:
+    present = [
+        t.value
+        for t in (Tag.CONFIRMED, Tag.INFERRED, Tag.UNVERIFIED)
+        if any(f.tag is t for f in findings)
+    ]
+    return " and ".join(present)
+
+
+def build_register(findings: list[Finding], roots: list[AppRoot]) -> list[Issue]:
+    groups: dict[tuple, list[Finding]] = {}
+    for finding in findings:
+        groups.setdefault(_key(finding, roots, findings), []).append(finding)
+    ordered = sorted(
+        groups.items(),
+        key=lambda item: (-max(score(f) for f in item[1]), SEVERITY_ORDER.index(_worst(item[1]))),
+    )
+    issues = []
+    for position, (key, members) in enumerate(ordered, start=1):
+        members = sorted(members, key=lambda f: -score(f))
+        lead = members[0]
+        title = _title(key, members, lead)
+        apps = {_app(f, roots) for f in members}
+        siblings = [k for k in groups if k[:2] == key[:2]]
+        if len(siblings) > 1 and len(apps) == 1 and next(iter(apps)) not in title:
+            title += f" ({next(iter(apps)) or 'repository root'})"
+        issues.append(
+            Issue(
+                id=f"F-{position:02d}",
+                title=title,
+                severity=_worst(members),
+                tags=_tags(members),
+                reviews=tuple(sorted({number(f.review) for f in members if f.review in REVIEWS})),
+                findings=tuple(dict.fromkeys(f.rule_id for f in members)),
+                count=len(members),
+                first=str(lead.locations[0]) if lead.locations else "not tied to a file",
+                effort_minutes=lead.effort_minutes,
+            )
+        )
+    return issues
+
+
+def _title(key: tuple, members: list[Finding], lead: Finding) -> str:
+    if key[0] != "chain":
+        return lead.title
+    spec = load("register.yaml")["chains"][key[1]]
+    if spec["scope"] != "linked":
+        return spec["title"]
+    anchors = [f for f in members if f.rule_id == spec["rules"][0]]
+    title = anchors[0].title if anchors else lead.title
+    if anchors and len({f.rule_id for f in members}) > 1:
+        title += ", and a start command runs it"
+    return title
+
+
+def _worst(findings: list[Finding]) -> Severity:
+    return min((f.severity for f in findings), key=SEVERITY_ORDER.index)
+```
+
+Modify `src/dpr/reviews/baseline_accounts.py`, replace:
+
+```python
+    if direct:
+        severity = "high" if non_production(stage) else "critical"
+        detail = f" The seed file {direct[0]} hashes passwords written in the repository."
+    elif fallback and fallback[0].env_name:
+        secret = secret_reference(ctx, fallback[0].env_name)
+        if secret is not None:
+            severity = "medium"
+```
+
+with:
+
+```python
+    if direct:
+        severity = "high" if non_production(stage) else "critical"
+        detail = f" The seed file {direct[0]} hashes passwords written in the repository."
+        locations.append(Location(direct[0], sites[direct[0]][0][0]))
+    elif fallback and fallback[0].env_name:
+        target = next(t for t in targets if any(lit.env_fallback for _, lit in sites.get(t, [])))
+        locations.append(Location(target, sites[target][0][0]))
+        secret = secret_reference(ctx, fallback[0].env_name)
+        if secret is not None:
+            severity = "medium"
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (397 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/api.py src/dpr/cli.py src/dpr/data/register.yaml src/dpr/model.py src/dpr/report/markdown.py src/dpr/report/register.py src/dpr/reviews/baseline_accounts.py tests/report/test_json.py tests/report/test_markdown.py tests/report/test_register.py tests/reviews/test_seed_stage.py
+git commit -m "Group findings into a distinct issue register and summarise by issue"
+```
+
+---
+
+### Task 75: Questions filtered by detection, lawyer questions and richer coverage notes
+
+Judge gap 4. Open questions carry a `when` condition (client database, server database, managed auth, paid SDK) and are asked only when detection makes them relevant; a new `db_runtime_role` question asks which login the server uses. The report gains "For the data protection lawyer": lawyer questions from the catalogue plus questions derived from findings (breach assessment when a critical credential issue exists, personal data sent to LLM or other SDKs, committed personal data). "What this review did not cover" gains the dependency audit, the history scan scope and committed binary documents, and the Detection table lists CI and app roots.
+
+**Files:**
+- Create: `src/dpr/questions/lawyer.py`, `src/dpr/report/coverage.py`
+- Modify: `src/dpr/api.py` (questions for detection; coverage notes)
+- Modify: `src/dpr/cli.py` (answers template for the detected stack)
+- Modify: `src/dpr/data/questions.yaml` (`when` conditions and `db_runtime_role`)
+- Modify: `src/dpr/model.py` (`Question.when`)
+- Modify: `src/dpr/questions/catalogue.py` (`relevant` and filtered `questions_for`)
+- Modify: `src/dpr/report/markdown.py` (CI and app roots rows; lawyer questions)
+- Modify: `src/dpr/report/templates/report.md.j2` (lawyer section)
+- Test: `tests/report/test_questions_lawyer.py`
+- Modify test: `tests/test_api.py` (fewer questions for a Supabase app)
+- Modify test: `tests/test_cli.py` (same count in the CLI summary and template)
+- Modify test: `tests/test_questions.py` (catalogue has 23 questions)
+
+**Interfaces:**
+- Consumes: register (Task 74), detection (Tasks 53 and 54), inventory recipients (Task 69)
+- Produces:
+  - `dpr.model`:
+
+```python
+@dataclass(frozen=True)
+class Question:
+    id: str
+    reviews: tuple[str, ...]
+    text: str
+    type: str
+    why: str
+    who: str
+    options_from: str | None = None
+    static_options: tuple[str, ...] = ()
+    honest_out: tuple[str, ...] = ('Not sure',)
+    answered_by: str | None = None
+    lawyer: bool = False
+    when: str | None = None
+```
+
+  - `dpr.questions.catalogue`:
+
+```python
+def relevant(question: Question, detection: Detection) -> bool: ...
+def questions_for(reviews: Iterable[str], detection: Detection | None=None) -> list[Question]: ...
+```
+
+  - `dpr.questions.lawyer`:
+
+```python
+def lawyer_questions(report: Report) -> list[str]: ...
+```
+
+  - `dpr.report.coverage`:
+
+```python
+def coverage_notes(root, detection: Detection, options: Options, sections: set[str]) -> list[str]: ...
+```
+
+
+**Edits to files the Milestone 1 fix wave also changes.** Apply each replacement below by its intent if the exact old text differs:
+
+- `src/dpr/api.py`: call `questions_for(selected, detection)` instead of `questions_for(selected)`, and after the reviews ran extend `ctx.not_covered` with `coverage_notes(index.root, detection, options, set(sections))`.
+- `src/dpr/cli.py`: `dpr questions` writes `answers_template(questions_for(REVIEWS, detection), detection)` instead of every catalogue question.
+- `src/dpr/model.py`: add `when: str | None = None` as the last `Question` field.
+- `src/dpr/report/markdown.py`: add `_app_roots(report)` (shown); the Detection table gains `CI` and `App roots` rows after the hosting row; the template context gains `lawyer`, the numbered list from `lawyer_questions(report)`.
+
+**Earlier tests updated on purpose:** `tests/test_api.py` and `tests/test_cli.py` expect 17 open questions for the Supabase fixture (questions about server database roles and paid SDKs are filtered out); `tests/test_questions.py` expects 23 catalogue questions including `db_runtime_role`, 15 of them unanswered.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/report/test_questions_lawyer.py`:
+
+```python
+import subprocess
+
+from dpr.api import review
+from dpr.model import Detection, SdkUse
+from dpr.questions.catalogue import load_questions, questions_for, relevant
+from dpr.report.markdown import render_markdown
+from tests.reviews.helpers import write
+
+PASSWORD = "Adm" + "in-" + "7713"
+
+
+def ids(detection):
+    return {q.id for q in questions_for(["rls", "auth", "baseline", "abuse"], detection)}
+
+
+def test_questions_follow_the_detected_stack():
+    supabase = Detection(databases=["supabase"], auth_providers=["supabase-auth"])
+    assert {"buckets_public", "provider_session_lifetimes"} <= ids(supabase)
+    assert "db_runtime_role" not in ids(supabase)
+    server = Detection(databases=["postgres"], auth_providers=["custom-jwt"])
+    assert "db_runtime_role" in ids(server)
+    assert not {"buckets_public", "provider_email_templates", "traffic_peak"} & ids(server)
+    paid = Detection(sdks=[SdkUse("openai", "llm", True, True, ())])
+    assert {"traffic_peak", "spend_caps"} <= ids(paid)
+    [question] = [q for q in load_questions() if q.id == "user_countries"]
+    assert relevant(question, Detection())
+
+
+def git(root, *args):
+    subprocess.run(
+        ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
+        check=True,
+        capture_output=True,
+    )
+
+
+def app(root):
+    write(root, "requirements.txt", "fastapi\nopenai\nsqlalchemy\npython-jose\npasslib\n")
+    write(
+        root,
+        "app/seed.py",
+        f"from app.security import get_password_hash\nADMIN = '{PASSWORD}'\n"
+        "def seed(db):\n    db.add(User(password_hash=get_password_hash(ADMIN)))\n",
+    )
+    write(
+        root,
+        "app/routes.py",
+        "from fastapi import APIRouter\nfrom openai import OpenAI\nrouter = APIRouter()\n"
+        "client = OpenAI()\n\n@router.post('/generate')\n"
+        "async def generate(body: dict, user: CurrentUser):\n"
+        "    return client.responses.create(input=body['prompt'])\n",
+    )
+    write(root, "docs/customers.pdf", "%PDF-1.4 binary\0data")
+    git(root, "init", "-q")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "init")
+    return root
+
+
+def test_lawyer_questions_and_coverage_notes(tmp_path):
+    report = review(app(tmp_path))
+    text = render_markdown(report)
+    lawyer = text[
+        text.index("### For the data protection lawyer") : text.index(
+            "\n## What this review did not cover"
+        )
+    ]
+    credential = next(i.id for i in report.register if "BASE-LITERAL-PASSWORD-HASH" in i.findings)
+    assert f"If the exposed credentials ({credential}) were used" in lawyer
+    assert "before personal data or free text reaches openai?" in lawyer
+    assert lawyer.count("\n1. ") == 1
+    not_covered = text[text.index("\n## What this review did not cover") :]
+    assert "- Dependency vulnerability audit (npm audit, pip-audit) was not run" in not_covered
+    assert (
+        "1 committed documents, images, spreadsheets or database files (for example docs/customers.pdf)"
+        in not_covered
+    )
+    assert "- Paid routes are not compared with the roles the product intends" in not_covered
+    assert "openapi.json" in not_covered
+    detection = text[text.index("## Detection") : text.index("## 1. Data inventory")]
+    assert "| CI | none detected |" in detection
+```
+
+Modify `tests/test_api.py`, replace:
+
+```python
+    scores = [score(f) for f in report.findings]
+    assert scores == sorted(scores, reverse=True)
+    assert not any("not available in this version" in item for item in report.not_covered)
+    assert len(report.questions) == 22
+    assert all(q.open for q in report.questions)
+
+
+```
+
+with:
+
+```python
+    scores = [score(f) for f in report.findings]
+    assert scores == sorted(scores, reverse=True)
+    assert not any("not available in this version" in item for item in report.not_covered)
+    assert len(report.questions) == 17
+    assert "provider_session_lifetimes" not in {q.question.id for q in report.questions}
+    assert all(q.open for q in report.questions)
+
+
+```
+
+Modify `tests/test_cli.py`, replace:
+
+```python
+    assert json.loads(js.read_text())["schema_version"] == 1
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert lines[0].startswith(
+        "dpr: 2 findings (critical 2, high 0, medium 0, low 0), 22 open questions"
+    )
+    assert lines[1] == "Top fixes:"
+    assert any(line.startswith("Wrote ") and line.endswith(".md") for line in lines)
+```
+
+with:
+
+```python
+    assert json.loads(js.read_text())["schema_version"] == 1
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert lines[0].startswith(
+        "dpr: 2 findings (critical 2, high 0, medium 0, low 0), 17 open questions"
+    )
+    assert lines[1] == "Top fixes:"
+    assert any(line.startswith("Wrote ") and line.endswith(".md") for line in lines)
+```
+
+Modify `tests/test_cli.py`, replace:
+
+```python
+    root = app(tmp_path)
+    assert main(["questions", str(root)]) == 0
+    target = root / "dpr-answers.yaml"
+    assert set(yaml.safe_load(target.read_text())) and len(yaml.safe_load(target.read_text())) == 22
+    assert main(["questions", str(root)]) == 2
+    assert "already exists" in capsys.readouterr().err
+```
+
+with:
+
+```python
+    root = app(tmp_path)
+    assert main(["questions", str(root)]) == 0
+    target = root / "dpr-answers.yaml"
+    assert set(yaml.safe_load(target.read_text())) and len(yaml.safe_load(target.read_text())) == 17
+    assert main(["questions", str(root)]) == 2
+    assert "already exists" in capsys.readouterr().err
+```
+
+Modify `tests/test_questions.py`, replace:
+
+```python
+
+def test_catalogue_shape():
+    questions = load_questions()
+    assert len(questions) == 22
+    assert len({q.id for q in questions}) == 22
+    for q in questions:
+        assert set(q.reviews) <= SLUGS
+        assert q.type in ("choice", "multi", "text")
+```
+
+with:
+
+```python
+
+def test_catalogue_shape():
+    questions = load_questions()
+    assert len(questions) == 23
+    assert len({q.id for q in questions}) == 23
+    for q in questions:
+        assert set(q.reviews) <= SLUGS
+        assert q.type in ("choice", "multi", "text")
+```
+
+Modify `tests/test_questions.py`, replace:
+
+```python
+        "rls_via_dashboard",
+        "tables_not_in_migrations",
+        "buckets_public",
+    ]
+    assert [q.id for q in questions_for(["leaks"])] == [
+        "hosting_env_not_in_repo",
+```
+
+with:
+
+```python
+        "rls_via_dashboard",
+        "tables_not_in_migrations",
+        "buckets_public",
+        "db_runtime_role",
+    ]
+    assert [q.id for q in questions_for(["leaks"])] == [
+        "hosting_env_not_in_repo",
+```
+
+Modify `tests/test_questions.py`, replace:
+
+```python
+    results, _ = resolve(load_questions(), Detection(), None, interactive=True, ask=ask)
+    assert len(calls) == 8
+    assert sum(r.source == "interactive" for r in results) == 8
+    assert sum(r.source == "none" for r in results) == 14
+
+
+def test_answered_by_detection():
+```
+
+with:
+
+```python
+    results, _ = resolve(load_questions(), Detection(), None, interactive=True, ask=ask)
+    assert len(calls) == 8
+    assert sum(r.source == "interactive" for r in results) == 8
+    assert sum(r.source == "none" for r in results) == 15
+
+
+def test_answered_by_detection():
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/report/test_questions_lawyer.py tests/test_api.py tests/test_cli.py tests/test_questions.py`
+Expected: FAIL (pytest reports 1 error; collection stops at `ImportError: cannot import name 'relevant' from 'dpr.questions.catalogue'`)
+
+- [ ] **Step 3: Filter questions and add the lawyer and coverage parts**
+
+Modify `src/dpr/api.py`, replace:
+
+```python
+from dpr.questions.catalogue import questions_for, resolve
+from dpr.questions.prompt import ask_on_terminal
+from dpr.rank import dedupe, rank
+from dpr.report.register import build_register
+from dpr.reviews import REVIEWS, RUN_ORDER, available, number, resolve_reviews
+from dpr.rules import Context, Options, run_checks
+```
+
+with:
+
+```python
+from dpr.questions.catalogue import questions_for, resolve
+from dpr.questions.prompt import ask_on_terminal
+from dpr.rank import dedupe, rank
+from dpr.report.coverage import coverage_notes
+from dpr.report.register import build_register
+from dpr.reviews import REVIEWS, RUN_ORDER, available, number, resolve_reviews
+from dpr.rules import Context, Options, run_checks
+```
+
+Modify `src/dpr/api.py`, replace:
+
+```python
+        db_dump=db_dump,
+    )
+    ask = ask_on_terminal if interactive and sys.stdin.isatty() else None
+    results, warnings = resolve(questions_for(selected), detection, answers, interactive, ask)
+    ctx = Context(
+        index=index,
+        detection=detection,
+```
+
+with:
+
+```python
+        db_dump=db_dump,
+    )
+    ask = ask_on_terminal if interactive and sys.stdin.isatty() else None
+    results, warnings = resolve(
+        questions_for(selected, detection), detection, answers, interactive, ask
+    )
+    ctx = Context(
+        index=index,
+        detection=detection,
+```
+
+Modify `src/dpr/api.py`, replace:
+
+```python
+            "are listed one severity step lower"
+        )
+
+    for option, owner, note in SKIPPED_OPTIONS:
+        if getattr(options, option) and owner not in sections:
+            ctx.not_covered.append(note)
+```
+
+with:
+
+```python
+            "are listed one severity step lower"
+        )
+
+    ctx.not_covered.extend(coverage_notes(index.root, detection, options, set(sections)))
+
+    for option, owner, note in SKIPPED_OPTIONS:
+        if getattr(options, option) and owner not in sections:
+            ctx.not_covered.append(note)
+```
+
+Modify `src/dpr/cli.py`, replace:
+
+```python
+from dpr.api import discover, review
+from dpr.gitutil import run_git
+from dpr.model import Report, ScanError
+from dpr.questions.catalogue import answers_template, load_questions
+from dpr.report.json_out import render_json
+from dpr.report.markdown import render_markdown
+from dpr.report.sarif import render_sarif
+```
+
+with:
+
+```python
+from dpr.api import discover, review
+from dpr.gitutil import run_git
+from dpr.model import Report, ScanError
+from dpr.questions.catalogue import answers_template, questions_for
+from dpr.report.json_out import render_json
+from dpr.report.markdown import render_markdown
+from dpr.report.sarif import render_sarif
+```
+
+Modify `src/dpr/cli.py`, replace:
+
+```python
+    target = Path(args.out) if args.out else Path(args.path) / "dpr-answers.yaml"
+    if target.exists():
+        raise ScanError(f"{target} already exists; remove it or pass --out")
+    target.write_text(answers_template(load_questions(), detection), encoding="utf-8")
+    print(f"Wrote {target}")
+    return 0
+
+```
+
+with:
+
+```python
+    target = Path(args.out) if args.out else Path(args.path) / "dpr-answers.yaml"
+    if target.exists():
+        raise ScanError(f"{target} already exists; remove it or pass --out")
+    questions = questions_for(REVIEWS, detection)
+    target.write_text(answers_template(questions, detection), encoding="utf-8")
+    print(f"Wrote {target}")
+    return 0
+
+```
+
+Modify `src/dpr/data/questions.yaml`, replace:
+
+```yaml
+    who: The whole team
+    lawyer: true
+  - id: frontend_key_type
+    reviews: [rls]
+    text: Which database key does the deployed frontend ship?
+    type: choice
+```
+
+with:
+
+```yaml
+    who: The whole team
+    lawyer: true
+  - id: frontend_key_type
+    when: client_database
+    reviews: [rls]
+    text: Which database key does the deployed frontend ship?
+    type: choice
+```
+
+Modify `src/dpr/data/questions.yaml`, replace:
+
+```yaml
+    why: Deployed environment values are set in the hosting dashboard.
+    who: Whoever manages the hosting environment variables
+  - id: rls_via_dashboard
+    reviews: [rls]
+    text: Was row level security or any policy changed in the provider dashboard rather than in a migration?
+    type: choice
+```
+
+with:
+
+```yaml
+    why: Deployed environment values are set in the hosting dashboard.
+    who: Whoever manages the hosting environment variables
+  - id: rls_via_dashboard
+    when: client_database
+    reviews: [rls]
+    text: Was row level security or any policy changed in the provider dashboard rather than in a migration?
+    type: choice
+```
+
+Modify `src/dpr/data/questions.yaml`, replace:
+
+```yaml
+    why: Dashboard changes leave no trace in the repository.
+    who: Whoever administers the database project
+  - id: tables_not_in_migrations
+    reviews: [rls]
+    text: Do tables exist in production that no migration file creates?
+    type: choice
+```
+
+with:
+
+```yaml
+    why: Dashboard changes leave no trace in the repository.
+    who: Whoever administers the database project
+  - id: tables_not_in_migrations
+    when: client_database
+    reviews: [rls]
+    text: Do tables exist in production that no migration file creates?
+    type: choice
+```
+
+Modify `src/dpr/data/questions.yaml`, replace:
+
+```yaml
+    why: Only the live database can list its tables.
+    who: Whoever administers the database project
+  - id: buckets_public
+    reviews: [rls]
+    text: Are any storage buckets public?
+    type: choice
+```
+
+with:
+
+```yaml
+    why: Only the live database can list its tables.
+    who: Whoever administers the database project
+  - id: buckets_public
+    when: client_database
+    reviews: [rls]
+    text: Are any storage buckets public?
+    type: choice
+```
+
+Modify `src/dpr/data/questions.yaml`, replace:
+
+```yaml
+    why: Buckets are often created in a dashboard.
+    who: Whoever administers the storage project
+  - id: provider_email_templates
+    reviews: [auth]
+    text: Which auth emails does the provider send, such as verification, reset, magic link or invite?
+    type: text
+    why: Email templates are often configured in a provider dashboard.
+    who: Whoever administers the auth provider
+  - id: provider_session_lifetimes
+    reviews: [auth]
+    text: What session and token lifetimes are configured in the auth provider?
+    type: text
+```
+
+with:
+
+```yaml
+    why: Buckets are often created in a dashboard.
+    who: Whoever administers the storage project
+  - id: provider_email_templates
+    when: managed_auth
+    reviews: [auth]
+    text: Which auth emails does the provider send, such as verification, reset, magic link or invite?
+    type: text
+    why: Email templates are often configured in a provider dashboard.
+    who: Whoever administers the auth provider
+  - id: provider_session_lifetimes
+    when: managed_auth
+    reviews: [auth]
+    text: What session and token lifetimes are configured in the auth provider?
+    type: text
+```
+
+Modify `src/dpr/data/questions.yaml`, replace:
+
+```yaml
+    why: Edge configuration lives outside the repository.
+    who: Whoever manages DNS and the CDN
+  - id: provider_hash_params
+    reviews: [baseline]
+    text: If a managed provider stores passwords, which hashing settings does it use?
+    type: text
+```
+
+with:
+
+```yaml
+    why: Edge configuration lives outside the repository.
+    who: Whoever manages DNS and the CDN
+  - id: provider_hash_params
+    when: managed_auth
+    reviews: [baseline]
+    text: If a managed provider stores passwords, which hashing settings does it use?
+    type: text
+```
+
+Modify `src/dpr/data/questions.yaml`, replace:
+
+```yaml
+    why: Seats and retention are configured in the vendor dashboards.
+    who: Whoever administers the logging and error tracking accounts
+  - id: traffic_peak
+    reviews: [abuse]
+    text: What is the heaviest legitimate use of a paid feature by one user in one hour?
+    type: text
+    why: Real traffic is not in the repository.
+    who: Whoever reads the product analytics
+  - id: spend_caps
+    reviews: [abuse]
+    text: Which spend caps or quotas are set in provider dashboards?
+    type: text
+```
+
+with:
+
+```yaml
+    why: Seats and retention are configured in the vendor dashboards.
+    who: Whoever administers the logging and error tracking accounts
+  - id: traffic_peak
+    when: paid_sdk
+    reviews: [abuse]
+    text: What is the heaviest legitimate use of a paid feature by one user in one hour?
+    type: text
+    why: Real traffic is not in the repository.
+    who: Whoever reads the product analytics
+  - id: spend_caps
+    when: paid_sdk
+    reviews: [abuse]
+    text: Which spend caps or quotas are set in provider dashboards?
+    type: text
+```
+
+Modify `src/dpr/data/questions.yaml`, replace:
+
+```yaml
+    type: text
+    why: Team habits are not in code.
+    who: The team lead
+```
+
+with:
+
+```yaml
+    type: text
+    why: Team habits are not in code.
+    who: The team lead
+  - id: db_runtime_role
+    reviews: [rls]
+    when: server_database
+    text: Which database login does the running app use, and can that login change the schema?
+    type: text
+    why: Connection strings and grants are set in the hosting and database consoles.
+    who: Whoever administers the database
+```
+
+Modify `src/dpr/model.py`, replace:
+
+```python
+    honest_out: tuple[str, ...] = ("Not sure",)
+    answered_by: str | None = None
+    lawyer: bool = False
+
+
+@dataclass(frozen=True)
+```
+
+with:
+
+```python
+    honest_out: tuple[str, ...] = ("Not sure",)
+    answered_by: str | None = None
+    lawyer: bool = False
+    when: str | None = None  # detection condition that makes the question relevant
+
+
+@dataclass(frozen=True)
+```
+
+Modify `src/dpr/questions/catalogue.py`, replace:
+
+```python
+            honest_out=tuple(q.get("honest_out", ["Not sure"])),
+            answered_by=q.get("answered_by"),
+            lawyer=bool(q.get("lawyer", False)),
+        )
+        for q in load("questions.yaml")["questions"]
+    ]
+
+
+def questions_for(reviews: Iterable[str]) -> list[Question]:
+    wanted = set(reviews)
+    return [q for q in load_questions() if wanted & set(q.reviews)]
+
+
+def options(question: Question, detection: Detection) -> list[str]:
+```
+
+with:
+
+```python
+            honest_out=tuple(q.get("honest_out", ["Not sure"])),
+            answered_by=q.get("answered_by"),
+            lawyer=bool(q.get("lawyer", False)),
+            when=q.get("when"),
+        )
+        for q in load("questions.yaml")["questions"]
+    ]
+
+
+MANAGED_AUTH = {"supabase-auth", "clerk", "auth0", "nextauth", "firebase-auth", "better-auth"}
+
+
+def relevant(question: Question, detection: Detection) -> bool:
+    """Whether the detected stack makes the question worth asking."""
+    client = detection.public_supabase_key or bool(
+        {"supabase", "firebase"} & set(detection.databases)
+    )
+    conditions = {
+        "client_database": client,
+        "server_database": not client and bool(detection.models or detection.databases),
+        "managed_auth": bool(MANAGED_AUTH & set(detection.auth_providers)),
+        "paid_sdk": any(s.paid for s in detection.sdks),
+    }
+    return question.when is None or conditions.get(question.when, True)
+
+
+def questions_for(reviews: Iterable[str], detection: Detection | None = None) -> list[Question]:
+    """Questions of the selected reviews; with a detection, only those it makes relevant."""
+    wanted = set(reviews)
+    return [
+        q
+        for q in load_questions()
+        if wanted & set(q.reviews) and (detection is None or relevant(q, detection))
+    ]
+
+
+def options(question: Question, detection: Detection) -> list[str]:
+```
+
+`src/dpr/questions/lawyer.py`:
+
+```python
+"""Questions for the data protection lawyer, drawn from what the review found."""
+
+from __future__ import annotations
+
+from dpr.model import Report
+
+CREDENTIAL_RULES = {
+    "BASE-LITERAL-PASSWORD-HASH",
+    "LEAK-HARDCODED-KEY",
+    "LEAK-PUBLIC-SECRET",
+    "LEAK-ENV-TRACKED",
+    "LEAK-KEY-IN-BUILD",
+}
+LLM_CATEGORIES = ("llm", "ml")
+
+
+def _issue_ids(report: Report, rules: set[str]) -> list[str]:
+    return [i.id for i in report.register if set(i.findings) & rules]
+
+
+def lawyer_questions(report: Report) -> list[str]:
+    d = report.detection
+    recipients = [s.name for s in d.sdks if s.recipient]
+    hosts = [h for h in d.hosting if h not in ("docker", "terraform")]
+    processors = ", ".join([*recipients, *hosts]) or "any processors the team uses"
+    rules = {f.rule_id for f in report.findings}
+    items = [
+        "What is the purpose of each category of personal data in the data map, and who decided "
+        "to collect it?",
+        f"Which entity is the controller, and which processors are engaged ({processors})?",
+        "Where is each processor located, is a data processing agreement in place with each, and "
+        "does personal data cross a border, by what mechanism?",
+    ]
+    if "INV-NO-DELETION-PATH" in rules:
+        items.append(
+            "What retention period applies to each category, given that the code enforces none "
+            "for the tables listed in the inventory, and what must enforce it?"
+        )
+    else:
+        items.append("What retention period applies to each category, and what enforces it?")
+    items.append(
+        "How must access, correction and deletion requests be fulfilled, and in what time?"
+    )
+    items.append("Who may read production data, and must that access be logged?")
+    credential_ids = _issue_ids(report, CREDENTIAL_RULES)
+    if credential_ids:
+        items.append(
+            f"If the exposed credentials ({', '.join(credential_ids)}) were used by anyone other "
+            "than the account owners, does that trigger a breach assessment or notification duty, "
+            "to whom and on what timeline?"
+        )
+    else:
+        items.append("What is the breach detection and notification path, and who owns it?")
+    llm = [s.name for s in d.sdks if s.category in LLM_CATEGORIES]
+    if llm:
+        items.append(
+            f"What notice, terms or consent are needed before personal data or free text reaches "
+            f"{', '.join(llm)}?"
+        )
+    if rules & {"INV-SPECIAL-CATEGORY", "INV-CHILDREN-SIGNAL"}:
+        items.append(
+            "Which legal condition and extra safeguards apply to the special category or "
+            "children's data the inventory found?"
+        )
+    else:
+        items.append(
+            "Is any special category or children's data processed outside what the code shows?"
+        )
+    if "INV-PII-FILE-IN-REPO" in rules:
+        ids = ", ".join(_issue_ids(report, {"INV-PII-FILE-IN-REPO"}))
+        items.append(
+            f"Is the personal data committed to the repository ({ids}) a disclosure that needs "
+            "assessment, and what purge and notification steps are appropriate?"
+        )
+    items.append(
+        "Does any processing amount to automated decision-making or profiling that must be "
+        "disclosed?"
+    )
+    items.append(
+        "Which systems outside this repository hold personal data (support inboxes, CRMs, "
+        "spreadsheets, laptops), and are they covered by the same policies?"
+    )
+    return items
+```
+
+`src/dpr/report/coverage.py`:
+
+```python
+"""Lines for "What this review did not cover" that depend on what the repository contains."""
+
+from __future__ import annotations
+
+import re
+from pathlib import PurePosixPath
+
+from dpr.gitutil import tracked_files
+from dpr.model import Detection
+from dpr.rules import Options
+
+DOCUMENTS = re.compile(
+    r"(?i)\.(?:pdf|xlsx|xlsm|xls|docx|doc|pptx|png|jpe?g|sqlite3?|db|bak|bacpac|dump)$"
+)
+PAID_ROLE = (
+    "Paid routes are not compared with the roles the product intends, so a paid route open to "
+    "every signed-in role is not reported"
+)
+BULK = (
+    "Request lists that fan out into many renders, sends or imports are not checked for size caps"
+)
+READ_AUDIT = (
+    "Whether reads, exports and downloads of personal data are written to an audit trail is not "
+    "checked"
+)
+OPENAPI = (
+    "Whether the API schema route (openapi.json) stays public when interactive docs are turned "
+    "off is not checked"
+)
+BREACHED = "Screening new passwords against breached-password lists is not checked"
+EMAILS = "Email addresses in tests and documentation are not checked for real people"
+
+
+def coverage_notes(root, detection: Detection, options: Options, sections: set[str]) -> list[str]:
+    notes = []
+    if not options.with_audit:
+        notes.append("Dependency vulnerability audit (npm audit, pip-audit) was not run")
+    if "leaks" in sections:
+        notes.append(
+            "Git history was checked for committed .env files only; a full secret scan of every "
+            "commit (gitleaks or trufflehog) was not run"
+        )
+    tracked = tracked_files(root) or []
+    documents = [p for p in tracked if DOCUMENTS.search(p) and "node_modules" not in p]
+    if documents:
+        examples = ", ".join(sorted(documents, key=lambda p: (len(PurePosixPath(p).parts), p))[:3])
+        notes.append(
+            f"{len(documents)} committed documents, images, spreadsheets or database files (for "
+            f"example {examples}) were not read, so personal data inside them is not inventoried"
+        )
+    if "abuse" in sections and any(s.paid for s in detection.sdks):
+        notes.append(PAID_ROLE)
+    if detection.routes:
+        notes += [BULK, READ_AUDIT, EMAILS]
+    if "fastapi" in detection.frameworks:
+        notes.append(OPENAPI)
+    if "auth" in sections:
+        notes.append(BREACHED)
+    return notes
+```
+
+Modify `src/dpr/report/markdown.py`, replace:
+
+```python
+from jinja2 import Environment, PackageLoader
+
+from dpr.model import Finding, Part, Report
+from dpr.rank import order_for_section
+from dpr.report.register import build_register
+from dpr.reviews import LABELS, REVIEWS, TITLES, number
+```
+
+with:
+
+```python
+from jinja2 import Environment, PackageLoader
+
+from dpr.model import Finding, Part, Report
+from dpr.questions.lawyer import lawyer_questions
+from dpr.rank import order_for_section
+from dpr.report.register import build_register
+from dpr.reviews import LABELS, REVIEWS, TITLES, number
+```
+
+Modify `src/dpr/report/markdown.py`, replace:
+
+```python
+    return part.body
+
+
+def _detection_table(report: Report) -> str:
+    d = report.detection
+    schema = d.schema
+```
+
+with:
+
+```python
+    return part.body
+
+
+def _app_roots(report: Report) -> str:
+    labels = {True: "deployed", False: "not deployed", None: "deployment unknown"}
+    return ", ".join(
+        f"{r.path} ({r.kind}, {labels[r.deployed]})"
+        for r in report.detection.app_roots
+        if r.path and r.kind != "library"
+    )
+
+
+def _detection_table(report: Report) -> str:
+    d = report.detection
+    schema = d.schema
+```
+
+Modify `src/dpr/report/markdown.py`, replace:
+
+```python
+        ("Database / ORM", ", ".join([*d.databases, *d.orms]) or "none detected"),
+        ("Auth provider", ", ".join(d.auth_providers) or "none detected"),
+        ("Hosting", ", ".join(d.hosting) or "none detected"),
+        ("API routes", str(len(d.routes))),
+        ("Third-party SDKs", sdks),
+        ("RLS or policy files present", "yes" if has_policies else "no"),
+```
+
+with:
+
+```python
+        ("Database / ORM", ", ".join([*d.databases, *d.orms]) or "none detected"),
+        ("Auth provider", ", ".join(d.auth_providers) or "none detected"),
+        ("Hosting", ", ".join(d.hosting) or "none detected"),
+        ("CI", ", ".join(d.ci) or "none detected"),
+        ("App roots", _app_roots(report) or "one app at the repository root"),
+        ("API routes", str(len(d.routes))),
+        ("Third-party SDKs", sdks),
+        ("RLS or policy files present", "yes" if has_policies else "no"),
+```
+
+Modify `src/dpr/report/markdown.py`, replace:
+
+```python
+            ]
+        )
+        or "None.",
+        "still_open": _table(
+            ("Question", "Why the repository cannot answer it", "Who can answer"),
+            [(q.question.text, q.question.why, q.question.who) for q in open_questions],
+```
+
+with:
+
+```python
+            ]
+        )
+        or "None.",
+        "lawyer": "\n".join(
+            f"{i}. {text}" for i, text in enumerate(lawyer_questions(report), start=1)
+        ),
+        "still_open": _table(
+            ("Question", "Why the repository cannot answer it", "Who can answer"),
+            [(q.question.text, q.question.why, q.question.who) for q in open_questions],
+```
+
+Modify `src/dpr/report/templates/report.md.j2`, replace:
+
+```jinja
+
+{{ still_open }}
+
+## What this review did not cover
+
+{{ not_covered }}
+```
+
+with:
+
+```jinja
+
+{{ still_open }}
+
+### For the data protection lawyer
+
+{{ lawyer }}
+
+## What this review did not cover
+
+{{ not_covered }}
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (399 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/api.py src/dpr/cli.py src/dpr/data/questions.yaml src/dpr/model.py src/dpr/questions/catalogue.py src/dpr/questions/lawyer.py src/dpr/report/coverage.py src/dpr/report/markdown.py src/dpr/report/templates/report.md.j2 tests/report/test_questions_lawyer.py tests/test_api.py tests/test_cli.py tests/test_questions.py
+git commit -m "Ask only relevant questions and add lawyer questions and coverage notes"
+```
+
+---
+
+### Task 76: Checks that pass and the leak hunt place summaries
+
+Judge gap 4. Review 4 gains "Checks that pass" (password hashing algorithm, settings validators for cookies and secrets, database TLS, no mixed content) with evidence locations. Review 6 gains the skill's place summaries: Place 1 public variables reviewed (every `NEXT_PUBLIC_`, `VITE_` and similar name with its verdict), Place 1 keys, env files and git history, Place 2 over-broad responses and Place 3 logs. The OWASP A07 note now points at the `AUTH-*` findings.
+
+**Files:**
+- Create: `src/dpr/reviews/baseline_passes.py`, `src/dpr/reviews/leaks_summary.py`
+- Modify: `src/dpr/reviews/baseline.py` (`finish` adds checks that pass)
+- Modify: `src/dpr/reviews/leaks.py` (`finish` adds place summaries)
+- Modify: `src/dpr/reviews/owasp.py` (A07 note points at review 3)
+- Test: `tests/reviews/test_section_summaries.py`
+
+**Interfaces:**
+- Consumes: Milestone 2 baseline rules, leaks rules (Tasks 57 and 72), `finish` hooks from Milestone 2
+- Produces:
+  - `dpr.reviews.baseline`:
+
+```python
+def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None: ...
+```
+
+  - `dpr.reviews.baseline_passes`:
+
+```python
+def checks_that_pass(ctx: Context, findings: list[Finding]) -> str: ...
+```
+
+  - `dpr.reviews.leaks`:
+
+```python
+def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None: ...
+```
+
+  - `dpr.reviews.leaks_summary`:
+
+```python
+def summary_parts(ctx: Context, findings: list[Finding]) -> list[Part]: ...
+```
+
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/reviews/test_section_summaries.py`:
+
+```python
+from dpr.api import review
+from tests.reviews.helpers import write
+
+SETTINGS = (
+    "class Settings(BaseSettings):\n"
+    "    cookie_httponly: bool = True\n"
+    "    cookie_secure: bool = False\n"
+    "    jwt_secret_key: str = 'dev-only'\n\n"
+    "    def check(self):\n"
+    "        if self.environment == 'production':\n"
+    "            if 'dev-only' in self.jwt_secret_key:\n"
+    "                raise ValueError('set JWT_SECRET_KEY')\n"
+    "            if not self.cookie_secure:\n"
+    "                raise ValueError('COOKIE_SECURE must be True')\n"
+)
+
+
+def parts(report, slug):
+    return {p.title: p for p in report.sections[slug].parts}
+
+
+def test_baseline_checks_that_pass(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\npasslib\n")
+    write(tmp_path, "api/app/config.py", SETTINGS)
+    write(
+        tmp_path,
+        "api/app/security.py",
+        "from passlib.context import CryptContext\npwd = CryptContext(schemes=['bcrypt'])\n",
+    )
+    write(
+        tmp_path,
+        "infra/main.tf",
+        'locals {\n  url = "postgresql://${var.user}:${var.pw}@db:5432/app?sslmode=require"\n}\n',
+    )
+    write(tmp_path, "web/index.html", '<script src="/main.js"></script>\n')
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert body.splitlines() == [
+        "- Password hashing uses bcrypt (`api/app/security.py:2`). CONFIRMED",
+        "- Cookie httponly defaults to on (`api/app/config.py:2`). CONFIRMED",
+        "- Cookie secure is enforced in production by a validator (`api/app/config.py:10`). CONFIRMED",
+        "- The signing secret jwt_secret_key is checked by a production validator that rejects "
+        "development values (`api/app/config.py:8`). CONFIRMED",
+        "- Database connections require TLS (`infra/main.tf:2`). CONFIRMED",
+        "- No http:// asset URLs in 1 HTML file(s). CONFIRMED",
+    ]
+
+
+def test_baseline_without_passing_evidence(tmp_path):
+    write(tmp_path, "api/app/main.py", "from fastapi import FastAPI\napp = FastAPI()\n")
+    found = parts(review(tmp_path, reviews=["baseline"]), "baseline")
+    assert found["Checks that pass"].body == "No passing checks could be confirmed from code."
+    assert "AUTH-ENUM-SIGNUP-MESSAGE" in found["Password storage and account enumeration"].body
+
+
+def test_leak_hunt_places(tmp_path):
+    write(
+        tmp_path,
+        ".env.example",
+        "VITE_API_URL=\nVITE_STAFF_BYPASS_KEY=\nNEXT_PUBLIC_WEBHOOK_SECRET=\nDATABASE_URL=\n",
+    )
+    write(tmp_path, "web/src/main.ts", "export const api = import.meta.env.VITE_API_URL\n")
+    found = parts(review(tmp_path, reviews=["leaks"]), "leaks")
+    assert list(found)[:5] == [
+        "What this review never prints",
+        "Place 1: public variables reviewed",
+        "Place 1: keys, env files and git history",
+        "Place 2: over-broad responses",
+        "Place 3: logs",
+    ]
+    public = found["Place 1: public variables reviewed"].body.splitlines()
+    assert public == [
+        "- `NEXT_PUBLIC_WEBHOOK_SECRET`: secret word in a browser variable (LEAK-PUBLIC-SECRET) "
+        "(`.env.example:3`)",
+        "- `VITE_API_URL`: publishable (`.env.example:1`)",
+        "- `VITE_STAFF_BYPASS_KEY`: access gate key shipped to browsers (LEAK-PUBLIC-GATE-KEY) "
+        "(`.env.example:2`)",
+    ]
+    history = found["Place 1: keys, env files and git history"].body
+    assert history.startswith(
+        "- Not a git repository, so tracked files and history were not checked."
+    )
+    assert (
+        found["Place 3: logs"].body
+        == "No log call writes a request, user, token or personal value."
+    )
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_section_summaries.py`
+Expected: FAIL (pytest reports 3 failed)
+
+- [ ] **Step 3: Write the two summary modules**
+
+Modify `src/dpr/reviews/baseline.py`, replace:
+
+```python
+import dpr.reviews.baseline_debug  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_infra  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_literals  # noqa: F401  (registers rules)
+from dpr.model import Part, ReviewSection
+from dpr.reviews.baseline_headers import live_reads
+from dpr.reviews.headers_static import HEADERS, surfaces
+from dpr.rules import Context
+
+```
+
+with:
+
+```python
+import dpr.reviews.baseline_debug  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_infra  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_literals  # noqa: F401  (registers rules)
+from dpr.model import Finding, Part, ReviewSection
+from dpr.reviews.baseline_headers import live_reads
+from dpr.reviews.baseline_passes import checks_that_pass
+from dpr.reviews.headers_static import HEADERS, surfaces
+from dpr.rules import Context
+
+```
+
+Modify `src/dpr/reviews/baseline.py`, replace:
+
+```python
+    "control: one HEAD request each to the https root, the https login page and the http root."
+)
+ENUMERATION = (
+    "Account enumeration through login, signup and reset messages belongs to review 3 cases 2 "
+    "and 4 (AUTH-CASE-2 and AUTH-CASE-4). This review does not repeat it."
+)
+
+
+```
+
+with:
+
+```python
+    "control: one HEAD request each to the https root, the https login page and the http root."
+)
+ENUMERATION = (
+    "Account enumeration through sign-in, signup and reset responses belongs to review 3 cases 1, "
+    "2 and 4 (AUTH-ENUM-SIGNUP-MESSAGE, AUTH-ENUM-RESET-MESSAGE, AUTH-ENUM-LOCKOUT-STATUS and "
+    "AUTH-ENUM-TIMING). This review does not repeat it."
+)
+
+
+```
+
+Modify `src/dpr/reviews/baseline.py`, replace:
+
+```python
+        )
+    parts.append(Part("text", "Password storage and account enumeration", body=notes))
+    return ReviewSection("baseline", parts)
+```
+
+with:
+
+```python
+        )
+    parts.append(Part("text", "Password storage and account enumeration", body=notes))
+    return ReviewSection("baseline", parts)
+
+
+def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None:
+    position = next(i for i, p in enumerate(section.parts) if p.kind == "findings") + 1
+    section.parts.insert(
+        position, Part("text", "Checks that pass", body=checks_that_pass(ctx, findings))
+    )
+```
+
+`src/dpr/reviews/baseline_passes.py`:
+
+```python
+"""Review 4, baseline: checks the repository passes, so the fix list is read in proportion."""
+
+from __future__ import annotations
+
+import ast
+import re
+
+from dpr.model import Finding, Location
+from dpr.parsing import pyast
+from dpr.reviews.paths import is_test
+from dpr.rules import Context
+from dpr.walk import line_of
+
+STRONG_HASHERS = re.compile(r"(?i)\b(bcrypt|argon2|scrypt|pbkdf2)\b")
+PY_HASH_SETUP = re.compile(r"CryptContext\(|PASSWORD_HASHERS|argon2\.PasswordHasher|bcrypt\.hashpw")
+JS_HASH_SETUP = re.compile(r"(?:bcrypt|bcryptjs|argon2|@node-rs/argon2)['\"]")
+COOKIE_SETTING = re.compile(r"(?i)^(?:session_)?cookie_(httponly|secure)$")
+SECRET_SETTING = re.compile(r"(?i)^(?:jwt_)?secret(?:_key)?$|^jwt_secret\w*$")
+DB_TLS = re.compile(
+    r"sslmode=(?:require|verify-full|verify-ca)|ssl=(?:require|true)", re.IGNORECASE
+)
+MARKUP = (".html", ".htm")
+
+
+def _guarded(cls: ast.ClassDef, name: str) -> int | None:
+    """Line of a validator branch in the settings class that raises and mentions the setting."""
+    for node in ast.walk(cls):
+        if isinstance(node, ast.If) and name in ast.unparse(node.test):
+            if any(isinstance(sub, ast.Raise) for stmt in node.body for sub in ast.walk(stmt)):
+                return node.lineno
+    return None
+
+
+def _settings_passes(ctx: Context) -> list[str]:
+    found = []
+    for entry in ctx.index.py_files:
+        text = ctx.index.text(entry.rel)
+        if is_test(entry.rel) or "Settings" not in text:
+            continue
+        tree = pyast.parse_file(ctx.index, entry.rel)
+        for cls in pyast.class_defs(tree) if tree else []:
+            if not any(b.endswith("Settings") for b in pyast.base_names(cls)):
+                continue
+            for stmt in cls.body:
+                if not (isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)):
+                    continue
+                name, value = stmt.target.id, pyast.constant(stmt.value, None)
+                cookie = COOKIE_SETTING.match(name)
+                guard = _guarded(cls, name)
+                if cookie and (value is True or guard):
+                    how = (
+                        "defaults to on"
+                        if value is True
+                        else "is enforced in production by a validator"
+                    )
+                    line = stmt.lineno if value is True else guard
+                    found.append(f"Cookie {cookie.group(1)} {how} (`{entry.rel}:{line}`)")
+                if SECRET_SETTING.match(name) and guard:
+                    found.append(
+                        f"The signing secret {name} is checked by a production validator that "
+                        f"rejects development values (`{entry.rel}:{guard}`)"
+                    )
+    return found
+
+
+def _hashing(ctx: Context) -> list[str]:
+    for entry in [*ctx.index.py_files, *ctx.index.js_files]:
+        if is_test(entry.rel):
+            continue
+        text = ctx.index.text(entry.rel)
+        setup = (
+            PY_HASH_SETUP.search(text) if entry.rel.endswith(".py") else JS_HASH_SETUP.search(text)
+        )
+        if setup:
+            window = text[setup.start() : setup.start() + 200]
+            strong = STRONG_HASHERS.search(window)
+            if strong:
+                line = line_of(text, setup.start())
+                return [f"Password hashing uses {strong.group(1).lower()} (`{entry.rel}:{line}`)"]
+    return []
+
+
+def _database_tls(ctx: Context) -> list[str]:
+    locations = []
+    for entry in ctx.index.files:
+        if not entry.rel.endswith((".tf", ".yaml", ".yml", ".toml", ".json", ".py", ".ts", ".js")):
+            continue
+        if is_test(entry.rel):
+            continue
+        text = ctx.index.text(entry.rel)
+        match = DB_TLS.search(text)
+        if match and "://" in text:
+            locations.append(Location(entry.rel, line_of(text, match.start())))
+    if not locations:
+        return []
+    return [
+        "Database connections require TLS (" + ", ".join(f"`{loc}`" for loc in locations[:3]) + ")"
+    ]
+
+
+def _mixed_content(ctx: Context, findings: list[Finding]) -> list[str]:
+    pages = [f.rel for f in ctx.index.files if f.rel.endswith(MARKUP) and not is_test(f.rel)]
+    if pages and not any(f.rule_id == "BASE-MIXED-CONTENT" for f in findings):
+        return [f"No http:// asset URLs in {len(pages)} HTML file(s)"]
+    return []
+
+
+def checks_that_pass(ctx: Context, findings: list[Finding]) -> str:
+    lines = [
+        *_hashing(ctx),
+        *_settings_passes(ctx),
+        *_database_tls(ctx),
+        *_mixed_content(ctx, findings),
+    ]
+    if not lines:
+        return "No passing checks could be confirmed from code."
+    return "\n".join(f"- {line}. CONFIRMED" for line in dict.fromkeys(lines))
+```
+
+Modify `src/dpr/reviews/leaks.py`, replace:
+
+```python
+from dpr.parsing import jsts, pyast
+from dpr.redact import find_keys, is_secret_name, public_prefix, snippet
+from dpr.reviews import leaks_code  # noqa: F401  (registers the leaks_code rules)
+from dpr.rules import Context, make_finding, rule
+from dpr.walk import line_of
+
+```
+
+with:
+
+```python
+from dpr.parsing import jsts, pyast
+from dpr.redact import find_keys, is_secret_name, public_prefix, snippet
+from dpr.reviews import leaks_code  # noqa: F401  (registers the leaks_code rules)
+from dpr.reviews.leaks_summary import summary_parts
+from dpr.rules import Context, make_finding, rule
+from dpr.walk import line_of
+
+```
+
+Modify `src/dpr/reviews/leaks.py`, replace:
+
+```python
+        "leaks",
+        [Part("text", "What this review never prints", body=note), Part("findings", "Leaks")],
+    )
+```
+
+with:
+
+```python
+        "leaks",
+        [Part("text", "What this review never prints", body=note), Part("findings", "Leaks")],
+    )
+
+
+def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None:
+    position = next(i for i, p in enumerate(section.parts) if p.kind == "findings")
+    section.parts[position:position] = summary_parts(ctx, findings)
+```
+
+`src/dpr/reviews/leaks_summary.py`:
+
+```python
+"""Review 6, leak hunt: the places searched, including what was reviewed and found clean."""
+
+from __future__ import annotations
+
+from dpr.model import Finding, Part
+from dpr.redact import is_secret_name, public_prefix
+from dpr.reviews.leaks_creds import GATE_WORDS
+from dpr.rules import Context
+
+
+def _public_variables(ctx: Context) -> str:
+    rows = []
+    for env in ctx.detection.env_vars:
+        prefix = public_prefix(env.name)
+        if not prefix:
+            continue
+        if is_secret_name(env.name):
+            verdict = "secret word in a browser variable (LEAK-PUBLIC-SECRET)"
+        elif GATE_WORDS.search(env.name[len(prefix) :]):
+            verdict = "access gate key shipped to browsers (LEAK-PUBLIC-GATE-KEY)"
+        else:
+            verdict = "publishable"
+        where = env.locations[0] if env.locations else "no reference"
+        rows.append(f"- `{env.name}`: {verdict} (`{where}`)")
+    if not rows:
+        return "No browser-exposed (public-prefixed) environment variables were found."
+    return "\n".join(rows)
+
+
+def _count(findings: list[Finding], rule_id: str, empty: str, some: str) -> str:
+    matching = [f for f in findings if f.rule_id == rule_id]
+    return some.format(n=len(matching)) if matching else empty
+
+
+def summary_parts(ctx: Context, findings: list[Finding]) -> list[Part]:
+    history = [
+        _count(
+            findings,
+            "LEAK-ENV-TRACKED",
+            "No real .env file is tracked by git.",
+            "{n} tracked .env file(s), listed below.",
+        ),
+        _count(
+            findings,
+            "LEAK-ENV-IN-HISTORY",
+            "No real .env file appears in git history.",
+            "{n} .env file(s) in git history, listed below.",
+        ),
+        _count(
+            findings,
+            "LEAK-HARDCODED-KEY",
+            "No key pattern matched in source files.",
+            "{n} key pattern match(es) in source, listed below.",
+        ),
+        _count(
+            findings,
+            "LEAK-KEY-IN-BUILD",
+            "No key pattern matched in build output.",
+            "{n} key pattern match(es) in build output, listed below.",
+        ),
+    ]
+    if not ctx.detection.git.is_repo:
+        history[:2] = ["Not a git repository, so tracked files and history were not checked."]
+    responses = _count(
+        findings,
+        "LEAK-BROAD-RESPONSE",
+        "No route returns a whole ORM record or select * result.",
+        "{n} route response(s) return whole records, listed below.",
+    )
+    logs = _count(
+        findings,
+        "LEAK-LOGGED-PII",
+        "No log call writes a request, user, token or personal value.",
+        "{n} file(s) log personal data, listed below.",
+    )
+    return [
+        Part("text", "Place 1: public variables reviewed", body=_public_variables(ctx)),
+        Part(
+            "text",
+            "Place 1: keys, env files and git history",
+            body="\n".join(f"- {h}" for h in history),
+        ),
+        Part("text", "Place 2: over-broad responses", body=responses),
+        Part("text", "Place 3: logs", body=logs),
+    ]
+```
+
+Modify `src/dpr/reviews/owasp.py`, replace:
+
+```python
+    "A05": "Debug mode and missing headers are reported in review 4 (BASE-DEBUG-ON, "
+    "BASE-HEADER-MISSING-*); error text and CORS in review 7 (ABUSE-ERROR-LEAK, ABUSE-CORS-*).",
+    "A06": "Not run: the dependency audit adapters arrive in a later version.",
+    "A07": "Session and account failure paths belong to review 3, which arrives in a later "
+    "version; committed passwords are reported in review 4.",
+}
+INTRO = (
+    "Findings are ordered by exploitability and effort. Access control carries the most weight: "
+```
+
+with:
+
+```python
+    "A05": "Debug mode and missing headers are reported in review 4 (BASE-DEBUG-ON, "
+    "BASE-HEADER-MISSING-*); error text and CORS in review 7 (ABUSE-ERROR-LEAK, ABUSE-CORS-*).",
+    "A06": "Not run: the dependency audit adapters arrive in a later version.",
+    "A07": "Session and account failure paths are reported in review 3 (AUTH-* findings); "
+    "committed passwords in review 4.",
+}
+INTRO = (
+    "Findings are ordered by exploitability and effort. Access control carries the most weight: "
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (402 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/reviews/baseline.py src/dpr/reviews/baseline_passes.py src/dpr/reviews/leaks.py src/dpr/reviews/leaks_summary.py src/dpr/reviews/owasp.py tests/reviews/test_section_summaries.py
+git commit -m "Add checks that pass to review 4 and place summaries to review 6"
+```
+
+---
+
+### Task 77: Paid routes open to every role, the always-on API schema and read audit
+
+Judge gaps 8 and 9. `ABUSE-PAID-ANY-ROLE` (medium, INFERRED) reports a paid route whose only auth check admits any signed-in user while the same app root uses role-restricted dependencies elsewhere. `BASE-OPENAPI-ALWAYS-ON` (low, CONFIRMED) reports a FastAPI app that switches `docs_url` or `redoc_url` off (or only on in debug) but leaves `openapi_url` at its default or a fixed path. `OWASP-A09-NO-READ-AUDIT` (low, INFERRED, one per app root) reports signed-in export and download routes (file responses, CSV, PDF, spreadsheets, or GET paths naming export, download, csv or pdf) whose followed code writes no audit record, and names any audit table the app already has. The matching not-covered lines are removed.
+
+**Files:**
+- Create: `src/dpr/data/rule_text/roles_audit.yaml`, `src/dpr/reviews/abuse_roles.py`, `src/dpr/reviews/owasp_audit.py`
+- Modify: `src/dpr/report/coverage.py` (drop the three lines these rules now cover)
+- Modify: `src/dpr/reviews/abuse.py` (import the rule module)
+- Modify: `src/dpr/reviews/baseline_debug.py` (the schema rule sits beside the debug rule)
+- Modify: `src/dpr/reviews/owasp.py` (import the rule module)
+- Test: `tests/reviews/test_roles_audit.py`
+- Fixture files: `tests/fixtures/fastapi-good/api/app/services/audit.py`
+- Modify fixture: `tests/fixtures/fastapi-bad/api/app/core/deps.py` (an admin role dependency)
+- Modify fixture: `tests/fixtures/fastapi-bad/api/app/main.py` (docs off, schema left on)
+- Modify fixture: `tests/fixtures/fastapi-bad/api/app/routes/files.py` (CSV export with no audit)
+- Modify fixture: `tests/fixtures/fastapi-bad/expected.yaml` (three new findings; import shifts lines by one)
+- Modify fixture: `tests/fixtures/fastapi-good/api/app/main.py` (docs and schema both off)
+- Modify fixture: `tests/fixtures/fastapi-good/api/app/routes/files.py` (audited export)
+- Modify fixture: `tests/fixtures/fastapi-good/expected.yaml` (new rules must not report)
+- Modify test: `tests/report/test_questions_lawyer.py` (those lines are no longer listed)
+
+**Interfaces:**
+- Consumes: `paid_routes` and `access` from Milestone 2, `attacker` (Task 60), app roots (Task 54), flows code follower (Task 63)
+- Produces:
+  - `dpr.reviews.abuse_roles`:
+
+```python
+def role_checks(ctx: Context, route: Route) -> list[str]: ...
+@rule('ABUSE-PAID-ANY-ROLE', review='abuse', severity='medium', exploitability='medium', owasp='A01')
+def paid_any_role(ctx: Context) -> Iterator[Finding]: ...
+```
+
+  - `dpr.reviews.baseline_debug`:
+
+```python
+@rule('BASE-OPENAPI-ALWAYS-ON', review='baseline', severity='low', exploitability='low', owasp='A05')
+def openapi_always_on(ctx: Context) -> Iterator[Finding]: ...
+```
+
+  - `dpr.reviews.owasp_audit`:
+
+```python
+def export_routes(ctx: Context) -> list[tuple[Route, str]]: ...
+@rule('OWASP-A09-NO-READ-AUDIT', review='owasp', severity='low', exploitability='low', owasp='A09')
+def no_read_audit(ctx: Context) -> Iterator[Finding]: ...
+```
+
+
+**Earlier tests updated on purpose:** `tests/report/test_questions_lawyer.py` (Task 75) now asserts that the paid-role and `openapi.json` not-covered lines are absent.
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/fixtures/fastapi-bad/api/app/core/deps.py`, replace:
+
+```python
+from app.core.security import get_current_user
+
+CurrentUser = Annotated[dict, Depends(get_current_user)]
+```
+
+with:
+
+```python
+from app.core.security import get_current_user
+
+CurrentUser = Annotated[dict, Depends(get_current_user)]
+
+
+async def get_admin_user(user: CurrentUser) -> dict:
+    return user
+
+
+AdminUser = Annotated[dict, Depends(get_admin_user)]
+```
+
+Modify `tests/fixtures/fastapi-bad/api/app/main.py`, replace:
+
+```python
+from app.core.rate_limit import limiter
+from app.routes import auth, chat, files
+
+app = FastAPI(debug=settings.debug)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(
+```
+
+with:
+
+```python
+from app.core.rate_limit import limiter
+from app.routes import auth, chat, files
+
+app = FastAPI(debug=settings.debug, docs_url=None, redoc_url=None)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(
+```
+
+Modify `tests/fixtures/fastapi-bad/api/app/routes/files.py`, replace:
+
+```python
+from pathlib import Path
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from sqlalchemy import select
+
+from app.config import settings
+```
+
+with:
+
+```python
+from pathlib import Path
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from sqlalchemy import select
+
+from app.config import settings
+```
+
+Modify `tests/fixtures/fastapi-bad/api/app/routes/files.py`, replace:
+
+```python
+
+    workbook = openpyxl.load_workbook(file.file, read_only=True)
+    return {"sheets": workbook.sheetnames}
+```
+
+with:
+
+```python
+
+    workbook = openpyxl.load_workbook(file.file, read_only=True)
+    return {"sheets": workbook.sheetnames}
+
+
+@router.get("/export")
+async def export_files(current_user: CurrentUser):
+    return FileResponse(settings.export_file, media_type="text/csv", filename="files.csv")
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: ABUSE-LIMITER-NOT-APPLIED, file: api/app/core/rate_limit.py, line: 15, tag: CONFIRMED}
+  - {rule: ABUSE-LIMITER-PROXY-IP, file: api/app/core/rate_limit.py, line: 13, tag: INFERRED}
+  - {rule: ABUSE-NO-KILL-SWITCH, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-UPLOAD-UNBOUNDED, file: api/app/routes/files.py, line: 17, tag: CONFIRMED}
+  - {rule: AUTH-EMAIL-CHANGE-UNVERIFIED, file: api/app/services/accounts.py, line: 73, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-LOCKOUT-STATUS, file: api/app/routes/account.py, line: 19, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: ABUSE-LIMITER-NOT-APPLIED, file: api/app/core/rate_limit.py, line: 15, tag: CONFIRMED}
+  - {rule: ABUSE-LIMITER-PROXY-IP, file: api/app/core/rate_limit.py, line: 13, tag: INFERRED}
+  - {rule: ABUSE-NO-KILL-SWITCH, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-PAID-ANY-ROLE, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-UPLOAD-UNBOUNDED, file: api/app/routes/files.py, line: 18, tag: CONFIRMED}
+  - {rule: AUTH-EMAIL-CHANGE-UNVERIFIED, file: api/app/services/accounts.py, line: 73, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-LOCKOUT-STATUS, file: api/app/routes/account.py, line: 19, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: BASE-HEADER-MISSING-XCTO, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HTTPS-NOT-ENFORCED, file: infra/main.tf, line: 12, tag: CONFIRMED}
+  - {rule: BASE-LITERAL-PASSWORD-HASH, file: api/app/db/seed.py, line: 8, tag: CONFIRMED}
+  - {rule: BASE-SAMESITE-NONE-NO-CSRF, file: infra/main.tf, line: 15, tag: INFERRED}
+  - {rule: BASE-SEED-ON-START, file: api/startup.sh, line: 3, tag: INFERRED}
+  - {rule: BASE-SHORT-PASSWORD-MIN, file: api/app/schemas.py, line: 11, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: BASE-HEADER-MISSING-XCTO, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HTTPS-NOT-ENFORCED, file: infra/main.tf, line: 12, tag: CONFIRMED}
+  - {rule: BASE-LITERAL-PASSWORD-HASH, file: api/app/db/seed.py, line: 8, tag: CONFIRMED}
+  - {rule: BASE-OPENAPI-ALWAYS-ON, file: api/app/main.py, line: 10, tag: CONFIRMED}
+  - {rule: BASE-SAMESITE-NONE-NO-CSRF, file: infra/main.tf, line: 15, tag: INFERRED}
+  - {rule: BASE-SEED-ON-START, file: api/startup.sh, line: 3, tag: INFERRED}
+  - {rule: BASE-SHORT-PASSWORD-MIN, file: api/app/schemas.py, line: 11, tag: CONFIRMED}
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: LEAK-PUBLIC-GATE-KEY, file: .github/workflows/deploy.yml, line: 3, tag: CONFIRMED}
+  - {rule: LEAK-SOURCEMAP, file: web/vite.config.ts, line: 5, tag: CONFIRMED}
+  - {rule: OWASP-A01-EMAIL-OWNERSHIP, file: api/app/services/portal.py, line: 7, tag: INFERRED}
+  - {rule: OWASP-A01-PATH-TRAVERSAL, file: api/app/routes/files.py, line: 16, tag: CONFIRMED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: api/app/routes/files.py, line: 27, tag: CONFIRMED}
+  - {rule: OWASP-A03-HTML-EMAIL, file: api/app/services/email_service.py, line: 2, tag: INFERRED}
+  - {rule: OWASP-A05-XML-PARSER, file: api/app/routes/files.py, line: 35, tag: INFERRED}
+  - {rule: OWASP-A08-UNPINNED-DEPS, file: api/requirements.txt, line: 1, tag: CONFIRMED}
+  - {rule: OWASP-A08-UNPINNED-INSTALL, file: .github/workflows/deploy.yml, line: 8, tag: CONFIRMED}
+  - {rule: OWASP-A08-UNPINNED-INSTALL, file: api/startup.sh, line: 2, tag: CONFIRMED}
+  - {rule: OWASP-A09-NO-AUTH-FAIL-LOG, file: api/app/routes/account.py, line: 15, tag: INFERRED}
+```
+
+with:
+
+```yaml
+  - {rule: LEAK-PUBLIC-GATE-KEY, file: .github/workflows/deploy.yml, line: 3, tag: CONFIRMED}
+  - {rule: LEAK-SOURCEMAP, file: web/vite.config.ts, line: 5, tag: CONFIRMED}
+  - {rule: OWASP-A01-EMAIL-OWNERSHIP, file: api/app/services/portal.py, line: 7, tag: INFERRED}
+  - {rule: OWASP-A01-PATH-TRAVERSAL, file: api/app/routes/files.py, line: 17, tag: CONFIRMED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: api/app/routes/files.py, line: 28, tag: CONFIRMED}
+  - {rule: OWASP-A03-HTML-EMAIL, file: api/app/services/email_service.py, line: 2, tag: INFERRED}
+  - {rule: OWASP-A05-XML-PARSER, file: api/app/routes/files.py, line: 36, tag: INFERRED}
+  - {rule: OWASP-A08-UNPINNED-DEPS, file: api/requirements.txt, line: 1, tag: CONFIRMED}
+  - {rule: OWASP-A08-UNPINNED-INSTALL, file: .github/workflows/deploy.yml, line: 8, tag: CONFIRMED}
+  - {rule: OWASP-A08-UNPINNED-INSTALL, file: api/startup.sh, line: 2, tag: CONFIRMED}
+  - {rule: OWASP-A09-NO-AUTH-FAIL-LOG, file: api/app/routes/account.py, line: 15, tag: INFERRED}
+  - {rule: OWASP-A09-NO-READ-AUDIT, file: api/app/routes/files.py, line: 41, tag: INFERRED}
+```
+
+Modify `tests/fixtures/fastapi-good/api/app/main.py`, replace:
+
+```python
+from app.core.rate_limit import limiter
+from app.routes import auth, chat, files
+
+app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+```
+
+with:
+
+```python
+from app.core.rate_limit import limiter
+from app.routes import auth, chat, files
+
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+```
+
+Modify `tests/fixtures/fastapi-good/api/app/routes/files.py`, replace:
+
+```python
+from uuid import uuid4
+
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from sqlalchemy import select
+
+from app.config import settings
+```
+
+with:
+
+```python
+from uuid import uuid4
+
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
+from sqlalchemy import select
+
+from app.config import settings
+```
+
+Modify `tests/fixtures/fastapi-good/api/app/routes/files.py`, replace:
+
+```python
+from app.db.session import db
+from app.models import Attachment
+from app.schemas import AttachmentOut
+
+router = APIRouter(prefix="/files")
+MAX_BYTES = 10 * 1024 * 1024
+```
+
+with:
+
+```python
+from app.db.session import db
+from app.models import Attachment
+from app.schemas import AttachmentOut
+from app.services.audit import record_audit
+
+router = APIRouter(prefix="/files")
+MAX_BYTES = 10 * 1024 * 1024
+```
+
+Modify `tests/fixtures/fastapi-good/api/app/routes/files.py`, replace:
+
+```python
+
+    workbook = openpyxl.load_workbook(file.file, read_only=True)
+    return {"sheets": workbook.sheetnames}
+```
+
+with:
+
+```python
+
+    workbook = openpyxl.load_workbook(file.file, read_only=True)
+    return {"sheets": workbook.sheetnames}
+
+
+@router.get("/export")
+async def export_files(current_user: CurrentUser):
+    await record_audit(current_user.id, "files.export")
+    return FileResponse(settings.export_file, media_type="text/csv", filename="files.csv")
+```
+
+`tests/fixtures/fastapi-good/api/app/services/audit.py`:
+
+```python
+import logging
+
+audit_log = logging.getLogger("audit")
+
+
+async def record_audit(actor_id: str, action: str) -> None:
+    audit_log.info("action=%s actor=%s", action, actor_id)
+```
+
+Modify `tests/fixtures/fastapi-good/expected.yaml`, replace:
+
+```yaml
+  - ABUSE-LIMITER-NOT-APPLIED
+  - ABUSE-LIMITER-PROXY-IP
+  - ABUSE-NO-KILL-SWITCH
+  - ABUSE-PAID-UNAUTH
+  - ABUSE-PAID-UNLIMITED
+  - ABUSE-UPLOAD-UNBOUNDED
+```
+
+with:
+
+```yaml
+  - ABUSE-LIMITER-NOT-APPLIED
+  - ABUSE-LIMITER-PROXY-IP
+  - ABUSE-NO-KILL-SWITCH
+  - ABUSE-PAID-ANY-ROLE
+  - ABUSE-PAID-UNAUTH
+  - ABUSE-PAID-UNLIMITED
+  - ABUSE-UPLOAD-UNBOUNDED
+```
+
+Modify `tests/fixtures/fastapi-good/expected.yaml`, replace:
+
+```yaml
+  - BASE-HEADER-MISSING-XCTO
+  - BASE-HTTPS-NOT-ENFORCED
+  - BASE-LITERAL-PASSWORD-HASH
+  - BASE-SAMESITE-NONE-NO-CSRF
+  - BASE-SEED-ON-START
+  - BASE-SHORT-PASSWORD-MIN
+```
+
+with:
+
+```yaml
+  - BASE-HEADER-MISSING-XCTO
+  - BASE-HTTPS-NOT-ENFORCED
+  - BASE-LITERAL-PASSWORD-HASH
+  - BASE-OPENAPI-ALWAYS-ON
+  - BASE-SAMESITE-NONE-NO-CSRF
+  - BASE-SEED-ON-START
+  - BASE-SHORT-PASSWORD-MIN
+```
+
+Modify `tests/fixtures/fastapi-good/expected.yaml`, replace:
+
+```yaml
+  - OWASP-A05-XML-PARSER
+  - OWASP-A08-UNPINNED-DEPS
+  - OWASP-A08-UNPINNED-INSTALL
+  - OWASP-A10-SSRF
+  - RLS-AUTHENTICATED-NOT-OWNER
+  - RLS-CLIENT-OWNER
+```
+
+with:
+
+```yaml
+  - OWASP-A05-XML-PARSER
+  - OWASP-A08-UNPINNED-DEPS
+  - OWASP-A08-UNPINNED-INSTALL
+  - OWASP-A09-NO-READ-AUDIT
+  - OWASP-A10-SSRF
+  - RLS-AUTHENTICATED-NOT-OWNER
+  - RLS-CLIENT-OWNER
+```
+
+Modify `tests/report/test_questions_lawyer.py`, replace:
+
+```python
+        "1 committed documents, images, spreadsheets or database files (for example docs/customers.pdf)"
+        in not_covered
+    )
+    assert "- Paid routes are not compared with the roles the product intends" in not_covered
+    assert "openapi.json" in not_covered
+    detection = text[text.index("## Detection") : text.index("## 1. Data inventory")]
+    assert "| CI | none detected |" in detection
+```
+
+with:
+
+```python
+        "1 committed documents, images, spreadsheets or database files (for example docs/customers.pdf)"
+        in not_covered
+    )
+    assert "- Request lists that fan out into many renders" in not_covered
+    assert "Paid routes are not compared" not in not_covered
+    assert "openapi.json" not in not_covered
+    detection = text[text.index("## Detection") : text.index("## 1. Data inventory")]
+    assert "| CI | none detected |" in detection
+```
+
+`tests/reviews/test_roles_audit.py`:
+
+```python
+from tests.reviews.helpers import findings_for, write
+
+DEPS = (
+    "from typing import Annotated\nfrom fastapi import Depends\n\n"
+    "CurrentUser = Annotated[dict, Depends(get_current_user)]\n"
+)
+ROLE_DEPS = DEPS + "AdminUser = Annotated[dict, Depends(get_admin_user)]\n"
+CHAT = (
+    "import anthropic\nfrom fastapi import APIRouter\nfrom app.deps import CurrentUser\n\n"
+    "client = anthropic.Anthropic()\nrouter = APIRouter()\n\n"
+    "@router.post('/chat')\nasync def chat(current_user: CurrentUser, body: dict):\n"
+    "    return client.messages.create(model='m', max_tokens=10, messages=body['m'])\n"
+)
+
+
+def paid_app(root, deps):
+    write(root, "api/requirements.txt", "fastapi\nanthropic\n")
+    write(root, "api/app/deps.py", deps)
+    write(root, "api/app/routes/chat.py", CHAT)
+    return root
+
+
+def test_paid_route_for_any_signed_in_user_is_reported_when_roles_exist(tmp_path):
+    paid_app(tmp_path, ROLE_DEPS)
+    [finding] = findings_for(tmp_path, "abuse", "ABUSE-PAID-ANY-ROLE")
+    assert str(finding.locations[0]) == "api/app/routes/chat.py:9"
+    assert (finding.severity.value, finding.tag.value) == ("medium", "INFERRED")
+    assert "get_admin_user" in finding.detail
+    assert finding.proof_needed
+
+
+def test_paid_route_is_not_reported_when_the_app_has_no_roles(tmp_path):
+    paid_app(tmp_path, DEPS)
+    assert findings_for(tmp_path, "abuse", "ABUSE-PAID-ANY-ROLE") == []
+
+
+def test_role_checks_in_another_app_root_do_not_count(tmp_path):
+    paid_app(tmp_path, DEPS)
+    write(tmp_path, "admin/requirements.txt", "fastapi\n")
+    write(tmp_path, "admin/app/deps.py", ROLE_DEPS)
+    assert findings_for(tmp_path, "abuse", "ABUSE-PAID-ANY-ROLE") == []
+
+
+def test_paid_route_behind_a_role_is_not_reported(tmp_path):
+    paid_app(tmp_path, ROLE_DEPS + "StaffUser = Annotated[dict, Depends(get_staff_user)]\n")
+    route = CHAT.replace("CurrentUser", "StaffUser")
+    write(tmp_path, "api/app/routes/chat.py", route)
+    assert findings_for(tmp_path, "abuse", "ABUSE-PAID-ANY-ROLE") == []
+
+
+def main_with(root, call):
+    write(root, "api/requirements.txt", "fastapi\n")
+    write(root, "api/app/main.py", f"from fastapi import FastAPI\n\napp = FastAPI(\n{call})\n")
+
+
+def test_schema_left_on_when_docs_are_gated_is_reported(tmp_path):
+    main_with(
+        tmp_path,
+        "    openapi_url=f'{settings.prefix}/openapi.json',\n"
+        "    docs_url='/docs' if settings.debug else None,\n",
+    )
+    [finding] = findings_for(tmp_path, "baseline", "BASE-OPENAPI-ALWAYS-ON")
+    assert str(finding.locations[0]) == "api/app/main.py:4"
+    assert (finding.severity.value, finding.tag.value) == ("low", "CONFIRMED")
+    assert "fixed path" in finding.detail
+
+
+def test_default_schema_with_docs_off_is_reported_at_the_call(tmp_path):
+    main_with(tmp_path, "    docs_url=None, redoc_url=None,\n")
+    [finding] = findings_for(tmp_path, "baseline", "BASE-OPENAPI-ALWAYS-ON")
+    assert str(finding.locations[0]) == "api/app/main.py:3"
+    assert "left at its default" in finding.detail
+
+
+def test_schema_gated_like_the_docs_or_docs_left_on_is_not_reported(tmp_path):
+    main_with(
+        tmp_path,
+        "    openapi_url='/openapi.json' if settings.debug else None,\n"
+        "    docs_url='/docs' if settings.debug else None,\n",
+    )
+    assert findings_for(tmp_path, "baseline", "BASE-OPENAPI-ALWAYS-ON") == []
+    main_with(tmp_path, "    title='api',\n")
+    assert findings_for(tmp_path, "baseline", "BASE-OPENAPI-ALWAYS-ON") == []
+    main_with(tmp_path, "    docs_url=None, openapi_url=settings.schema_path,\n")
+    assert findings_for(tmp_path, "baseline", "BASE-OPENAPI-ALWAYS-ON") == []
+
+
+EXPORTS = (
+    "from fastapi.responses import FileResponse, StreamingResponse\n"
+    "from app.deps import CurrentUser\n\n"
+    "@router.get('/clients/export')\nasync def export(current_user: CurrentUser):\n"
+    "    return StreamingResponse(rows(), media_type='text/csv')\n\n"
+    "@router.get('/files/{file_id}')\nasync def download(file_id: str, current_user: CurrentUser):\n"
+    "    return FileResponse(path_for(file_id))\n\n"
+    "@router.post('/chat')\nasync def chat(current_user: CurrentUser):\n"
+    "    return StreamingResponse(tokens(), media_type='text/event-stream')\n\n"
+    "@router.get('/public/brochure.pdf')\nasync def brochure():\n"
+    "    return FileResponse('brochure.pdf')\n"
+)
+
+
+def test_exports_without_an_audit_write_are_grouped_per_app(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    write(tmp_path, "api/app/deps.py", DEPS)
+    write(tmp_path, "api/app/routes/exports.py", EXPORTS)
+    [finding] = findings_for(tmp_path, "owasp", "OWASP-A09-NO-READ-AUDIT")
+    assert [str(loc) for loc in finding.locations] == [
+        "api/app/routes/exports.py:5",
+        "api/app/routes/exports.py:9",
+    ]
+    assert (finding.severity.value, finding.tag.value) == ("low", "INFERRED")
+    assert finding.title == "Exports and downloads in api leave no audit record"
+    assert "no audit table" in finding.detail
+
+
+def test_exports_that_write_an_audit_record_are_not_reported(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    write(tmp_path, "api/app/deps.py", DEPS)
+    audited = EXPORTS.replace(
+        "    return StreamingResponse(rows()",
+        "    await audit.record(current_user.id, 'clients.export')\n"
+        "    return StreamingResponse(rows()",
+    ).replace(
+        "    return FileResponse(path_for(file_id))",
+        "    await log_activity(current_user, 'file.download', file_id)\n"
+        "    return FileResponse(path_for(file_id))",
+    )
+    write(tmp_path, "api/app/routes/exports.py", audited)
+    assert findings_for(tmp_path, "owasp", "OWASP-A09-NO-READ-AUDIT") == []
+
+
+def test_express_download_names_the_existing_audit_model(tmp_path):
+    write(tmp_path, "package.json", '{"dependencies": {"express": "4", "@prisma/client": "5"}}')
+    write(
+        tmp_path,
+        "prisma/schema.prisma",
+        "model AuditLog {\n  id String @id\n  action String\n}\n",
+    )
+    write(
+        tmp_path,
+        "src/routes/reports.ts",
+        "router.get('/reports/:id/pdf', authenticate, async (req, res) => {\n"
+        "  res.setHeader('Content-Type', 'application/pdf')\n  res.send(await render(req.params.id))\n"
+        "})\n",
+    )
+    [finding] = findings_for(tmp_path, "owasp", "OWASP-A09-NO-READ-AUDIT")
+    assert str(finding.locations[0]) == "src/routes/reports.ts:1"
+    assert "audit tables (AuditLog)" in finding.detail
+    assert finding.title == "Exports and downloads in this repository leave no audit record"
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_roles_audit.py tests/report/test_questions_lawyer.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 7 failed, 14 passed)
+
+- [ ] **Step 3: Write the three rules**
+
+`src/dpr/data/rule_text/roles_audit.yaml`:
+
+```yaml
+ABUSE-PAID-ANY-ROLE:
+  title: Paid route ${method} ${path} is open to every signed-in role
+  effort_minutes: 10
+  detail: ${method} ${path} calls ${sdk} (${cost}) and only checks that the caller is signed in (${evidence}), although the app defines role checks (${checks}) that this route does not use.
+  proof_needed: Confirm with the product owner which roles are meant to use this feature.
+  attack: Sign up or use any low-privilege account and call the route in a loop.
+  blast: Provider spend, and the data the route sends to the provider, for every account type.
+  fix: Put the narrowest role dependency the feature needs on the route, and keep per-user limits on top.
+  verify: Call the route as the lowest role and expect 403.
+BASE-OPENAPI-ALWAYS-ON:
+  title: API schema stays public when the docs pages are off
+  effort_minutes: 5
+  detail: The FastAPI app turns docs_url or redoc_url off outside debug, but ${where}, so the full OpenAPI schema with every route and parameter is still served.
+  attack: Download the schema and use it as a map of every endpoint, including admin and legacy routes.
+  blast: A complete description of the API surface.
+  fix: Gate openapi_url with the same condition as docs_url, for example openapi_url=None when debug is off.
+  verify: Request the openapi.json path on the deployed API and expect 404.
+OWASP-A09-NO-READ-AUDIT:
+  title: Exports and downloads in ${app} leave no audit record
+  effort_minutes: 60
+  detail: '${what}. ${count} export, download or report route(s): ${routes}.'
+  proof_needed: Check whether a gateway, log pipeline or database audit extension records these reads outside the code.
+  blast: After a stolen account or insider misuse, nobody can say which personal records were viewed or exported.
+  fix: Write an audit row (actor, action, record ids, row count, time) for every export, bulk report and download, to a table the application login cannot update or delete.
+  verify: Export a report in a test and confirm one audit row with the actor and record ids.
+```
+
+Modify `src/dpr/report/coverage.py`, replace:
+
+```python
+DOCUMENTS = re.compile(
+    r"(?i)\.(?:pdf|xlsx|xlsm|xls|docx|doc|pptx|png|jpe?g|sqlite3?|db|bak|bacpac|dump)$"
+)
+PAID_ROLE = (
+    "Paid routes are not compared with the roles the product intends, so a paid route open to "
+    "every signed-in role is not reported"
+)
+BULK = (
+    "Request lists that fan out into many renders, sends or imports are not checked for size caps"
+)
+READ_AUDIT = (
+    "Whether reads, exports and downloads of personal data are written to an audit trail is not "
+    "checked"
+)
+OPENAPI = (
+    "Whether the API schema route (openapi.json) stays public when interactive docs are turned "
+    "off is not checked"
+)
+BREACHED = "Screening new passwords against breached-password lists is not checked"
+EMAILS = "Email addresses in tests and documentation are not checked for real people"
+
+```
+
+with:
+
+```python
+DOCUMENTS = re.compile(
+    r"(?i)\.(?:pdf|xlsx|xlsm|xls|docx|doc|pptx|png|jpe?g|sqlite3?|db|bak|bacpac|dump)$"
+)
+BULK = (
+    "Request lists that fan out into many renders, sends or imports are not checked for size caps"
+)
+BREACHED = "Screening new passwords against breached-password lists is not checked"
+EMAILS = "Email addresses in tests and documentation are not checked for real people"
+
+```
+
+Modify `src/dpr/report/coverage.py`, replace:
+
+```python
+            f"{len(documents)} committed documents, images, spreadsheets or database files (for "
+            f"example {examples}) were not read, so personal data inside them is not inventoried"
+        )
+    if "abuse" in sections and any(s.paid for s in detection.sdks):
+        notes.append(PAID_ROLE)
+    if detection.routes:
+        notes += [BULK, READ_AUDIT, EMAILS]
+    if "fastapi" in detection.frameworks:
+        notes.append(OPENAPI)
+    if "auth" in sections:
+        notes.append(BREACHED)
+    return notes
+```
+
+with:
+
+```python
+            f"{len(documents)} committed documents, images, spreadsheets or database files (for "
+            f"example {examples}) were not read, so personal data inside them is not inventoried"
+        )
+    if detection.routes:
+        notes += [BULK, EMAILS]
+    if "auth" in sections:
+        notes.append(BREACHED)
+    return notes
+```
+
+Modify `src/dpr/reviews/abuse.py`, replace:
+
+```python
+import dpr.reviews.abuse_cors  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_limits  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_paid  # noqa: F401  (registers rules)
+from dpr.model import Finding, Part, ReviewSection
+from dpr.reviews.abuse_paid import is_limited
+from dpr.reviews.access import PUBLIC, access
+```
+
+with:
+
+```python
+import dpr.reviews.abuse_cors  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_limits  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_paid  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_roles  # noqa: F401  (registers rules)
+from dpr.model import Finding, Part, ReviewSection
+from dpr.reviews.abuse_paid import is_limited
+from dpr.reviews.access import PUBLIC, access
+```
+
+`src/dpr/reviews/abuse_roles.py`:
+
+```python
+"""Review 7, abuse: paid routes every signed-in role can call although the app has role checks."""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Iterator
+
+from dpr.discovery.approots import root_of
+from dpr.model import Finding, Location, Route, Tag
+from dpr.parsing import pyast
+from dpr.redact import snippet
+from dpr.reviews.access import AUTHENTICATED, PY_DEP, access
+from dpr.reviews.owasp_a01 import attacker
+from dpr.reviews.paid import costs, paid_routes
+from dpr.reviews.paths import is_test
+from dpr.rules import Context, make_finding, rule
+
+ROLE_NAME = re.compile(r"(?i)admin|manager|staff|agent|editor|owner|superuser|moderator|role")
+JS_ROLE_CHECK = re.compile(r"\b(?:requireRole|authorize|hasRole|checkRole|requireAdmin)\b")
+
+
+def role_checks(ctx: Context, route: Route) -> list[str]:
+    """Role-restricted dependencies or checks used anywhere in the route's app root."""
+    home = root_of(ctx.detection.app_roots, route.file)
+    prefix = f"{home.path}/" if home is not None and home.path else ""
+    names: list[str] = []
+    for entry in ctx.index.py_files:
+        if not entry.rel.startswith(prefix) or is_test(entry.rel):
+            continue
+        if "Depends" not in ctx.index.text(entry.rel):
+            continue
+        tree = pyast.parse_file(ctx.index, entry.rel)
+        for call in pyast.calls(tree, PY_DEP) if tree else []:
+            target = (pyast.dotted(call.args[0]) or "").split(".")[-1] if call.args else ""
+            if ROLE_NAME.search(target):
+                names.append(target)
+    for entry in ctx.index.js_files:
+        if entry.rel.startswith(prefix) and not is_test(entry.rel):
+            names += JS_ROLE_CHECK.findall(ctx.index.text(entry.rel))
+    return list(dict.fromkeys(names))
+
+
+@rule(
+    "ABUSE-PAID-ANY-ROLE", review="abuse", severity="medium", exploitability="medium", owasp="A01"
+)
+def paid_any_role(ctx: Context) -> Iterator[Finding]:
+    for paid in paid_routes(ctx):
+        route = paid.route
+        level = access(ctx, route)
+        if level.level != AUTHENTICATED or is_test(route.file):
+            continue
+        if attacker(level.evidence) != "any signed-in user":
+            continue
+        checks = role_checks(ctx, route)
+        if not checks:
+            continue
+        cost = costs().get(paid.sdk.category, {"note": "provider pricing"})
+        yield make_finding(
+            "ABUSE-PAID-ANY-ROLE",
+            tag=Tag.INFERRED,
+            locations=[Location(route.file, route.line)],
+            snippet=snippet(ctx.index.text(route.file), route.line),
+            method=route.method,
+            path=route.path,
+            sdk=paid.sdk.name,
+            cost=cost["note"],
+            evidence=level.evidence,
+            checks=", ".join(checks[:5]),
+        )
+```
+
+Modify `src/dpr/reviews/baseline_debug.py`, replace:
+
+```python
+                yield _debug(ctx, rel, stmt.lineno, what, severity="low")
+
+
+@rule("BASE-DEBUG-ON", review="baseline", severity="high", exploitability="medium", owasp="A05")
+def debug_on(ctx: Context) -> Iterator[Finding]:
+    for entry in ctx.index.py_files:
+```
+
+with:
+
+```python
+                yield _debug(ctx, rel, stmt.lineno, what, severity="low")
+
+
+def _switched_off(node: ast.AST | None) -> bool:
+    """A docs keyword that is None outright or only in some configurations."""
+    if node is None:
+        return False
+    return isinstance(node, ast.IfExp) or (isinstance(node, ast.Constant) and node.value is None)
+
+
+def _always_served(node: ast.AST | None) -> bool:
+    """openapi_url left at its default, or a fixed string with no condition."""
+    if node is None:
+        return True
+    if isinstance(node, ast.Constant):
+        return isinstance(node.value, str)
+    return isinstance(node, ast.JoinedStr | ast.BinOp) and not any(
+        isinstance(sub, ast.IfExp) for sub in ast.walk(node)
+    )
+
+
+@rule(
+    "BASE-OPENAPI-ALWAYS-ON", review="baseline", severity="low", exploitability="low", owasp="A05"
+)
+def openapi_always_on(ctx: Context) -> Iterator[Finding]:
+    for entry in ctx.index.py_files:
+        text = ctx.index.text(entry.rel)
+        if "FastAPI(" not in text or is_test(entry.rel):
+            continue
+        tree = pyast.parse_file(ctx.index, entry.rel)
+        for call in pyast.calls(tree, r"(?:\w+\.)?FastAPI") if tree else []:
+            docs = [pyast.kwarg(call, k) for k in ("docs_url", "redoc_url")]
+            schema = pyast.kwarg(call, "openapi_url")
+            if not any(_switched_off(d) for d in docs) or not _always_served(schema):
+                continue
+            line = schema.lineno if schema is not None else call.lineno
+            yield make_finding(
+                "BASE-OPENAPI-ALWAYS-ON",
+                tag=Tag.CONFIRMED,
+                locations=[Location(entry.rel, line)],
+                snippet=snippet(text, line),
+                where="openapi_url is a fixed path"
+                if schema is not None
+                else "openapi_url is left at its default",
+            )
+
+
+@rule("BASE-DEBUG-ON", review="baseline", severity="high", exploitability="medium", owasp="A05")
+def debug_on(ctx: Context) -> Iterator[Finding]:
+    for entry in ctx.index.py_files:
+```
+
+Modify `src/dpr/reviews/owasp.py`, replace:
+
+```python
+
+import dpr.reviews.owasp_a01  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_assign  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_inject  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_integrity  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_misc  # noqa: F401  (registers rules)
+```
+
+with:
+
+```python
+
+import dpr.reviews.owasp_a01  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_assign  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_audit  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_inject  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_integrity  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_misc  # noqa: F401  (registers rules)
+```
+
+`src/dpr/reviews/owasp_audit.py`:
+
+```python
+"""Review 5, OWASP A09: exports, downloads and reports that leave no audit record."""
+
+from __future__ import annotations
+
+import ast
+import re
+from collections.abc import Iterator
+
+from dpr.discovery.approots import root_of
+from dpr.model import Finding, Location, Route, Tag
+from dpr.reviews.access import PUBLIC, access
+from dpr.reviews.auth_flows import _js_code, _py_code
+from dpr.reviews.paths import is_test
+from dpr.rules import Context, make_finding, rule
+
+EXPORT_PATH = re.compile(r"(?i)export|download|csv|pdf|xlsx|bulk|statement|backup|dump")
+EXPORT_RESPONSE = re.compile(
+    r"FileResponse|send_file|text/csv|application/pdf|spreadsheetml|attachment; filename"
+    r"|Content-Disposition|res\.download\(|res\.attachment\("
+)
+AUDIT_CALL = re.compile(
+    r"(?i)audit|log_?activity|record_?access|access_?log|activity_?log|track_?export"
+)
+AUDIT_MODEL = re.compile(r"(?i)audit|activity|access_?log|event_?log")
+
+
+def export_routes(ctx: Context) -> list[tuple[Route, str]]:
+    found = []
+    for route in ctx.detection.routes:
+        if is_test(route.file) or route.handler is None or access(ctx, route).level == PUBLIC:
+            continue
+        code = _py_code(ctx, route) if isinstance(route.handler, ast.AST) else _js_code(ctx, route)
+        text = "\n".join(c.text() for c in code)
+        if EXPORT_RESPONSE.search(text) or (
+            EXPORT_PATH.search(route.path) and route.method == "GET"
+        ):
+            found.append((route, text))
+    return found
+
+
+@rule("OWASP-A09-NO-READ-AUDIT", review="owasp", severity="low", exploitability="low", owasp="A09")
+def no_read_audit(ctx: Context) -> Iterator[Finding]:
+    by_root: dict[str, list[Route]] = {}
+    for route, text in export_routes(ctx):
+        if AUDIT_CALL.search(text):
+            continue
+        home = root_of(ctx.detection.app_roots, route.file)
+        by_root.setdefault(home.path if home else "", []).append(route)
+    for root, routes in sorted(by_root.items()):
+        prefix = f"{root}/" if root else ""
+        models = [
+            m.name
+            for m in ctx.detection.models
+            if m.location.file.startswith(prefix) and AUDIT_MODEL.search(m.name)
+        ]
+        what = (
+            (
+                f"The app has audit tables ({', '.join(models)}), but "
+                "these routes write no audit record"
+            )
+            if models
+            else "The app has no audit table, so no read or export is recorded"
+        )
+        yield make_finding(
+            "OWASP-A09-NO-READ-AUDIT",
+            tag=Tag.INFERRED,
+            locations=[Location(r.file, r.line) for r in routes][:10],
+            app=root or "this repository",
+            what=what,
+            routes=", ".join(f"{r.method} {r.path}" for r in routes[:6]),
+            count=len(routes),
+        )
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (412 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/rule_text/roles_audit.yaml src/dpr/report/coverage.py src/dpr/reviews/abuse.py src/dpr/reviews/abuse_roles.py src/dpr/reviews/baseline_debug.py src/dpr/reviews/owasp.py src/dpr/reviews/owasp_audit.py tests/fixtures/fastapi-bad/api/app/core/deps.py tests/fixtures/fastapi-bad/api/app/main.py tests/fixtures/fastapi-bad/api/app/routes/files.py tests/fixtures/fastapi-bad/expected.yaml tests/fixtures/fastapi-good/api/app/main.py tests/fixtures/fastapi-good/api/app/routes/files.py tests/fixtures/fastapi-good/api/app/services/audit.py tests/fixtures/fastapi-good/expected.yaml tests/report/test_questions_lawyer.py tests/reviews/test_roles_audit.py
+git commit -m "Report paid routes open to every role, always-on API schemas and unaudited exports"
+```
+
+---
+
+### Task 78: Bulk fan-out and committed data files
+
+Judge gaps 6 and 7. `ABUSE-BULK-UNBOUNDED` (low, CONFIRMED) reports a request schema list field with no cap or a cap above 25 that the handler, directly or through a copied variable, loops over while calling a render, send, import or PDF function; truncating the list to 25 or fewer first clears it. `LEAK-COMMITTED-DATA-FILE` (medium, INFERRED) reports tracked database files, spreadsheets the review cannot read, documents whose names suggest records (report, statement, invoice, export, UAT, client, customer) and screenshots, grouped per folder; and separately counts email addresses in tests and documentation whose domains are not reserved (`example.com`, `.test`, `.invalid`), not placeholders and not named by the project's own configuration. Addresses are never printed. The matching not-covered lines are removed.
+
+**Files:**
+- Create: `src/dpr/data/rule_text/bulk_files.yaml`, `src/dpr/reviews/abuse_bulk.py`, `src/dpr/reviews/leaks_files.py`
+- Modify: `src/dpr/report/coverage.py` (drop the bulk and email lines)
+- Modify: `src/dpr/reviews/abuse.py` (import the rule module)
+- Modify: `src/dpr/reviews/leaks.py` (import the rule module)
+- Test: `tests/reviews/test_bulk_files.py`
+- Fixture files: `tests/fixtures/django-bad/docs/uat/order_report.pdf`, `tests/fixtures/django-bad/shop/tests/orders_cases.py`
+- Modify fixture: `tests/fixtures/django-bad/expected.yaml` (two data file findings)
+- Modify fixture: `tests/fixtures/fastapi-bad/api/app/routes/files.py` (bulk PDF route with a 500-item list)
+- Modify fixture: `tests/fixtures/fastapi-bad/expected.yaml` (bulk finding; import shifts lines by one)
+- Modify fixture: `tests/fixtures/fastapi-good/api/app/routes/files.py` (bulk PDF route capped at 20)
+- Modify fixture: `tests/fixtures/fastapi-good/expected.yaml` (new rules must not report)
+- Modify fixture: `tests/fixtures/next-supabase-good/expected.yaml` (Tasks 77 and 78 rules must not report)
+- Modify test: `tests/report/test_questions_lawyer.py` (bulk line no longer listed)
+
+**Interfaces:**
+- Consumes: `tracked_files` (Task 73), routes and `pyast` from Milestone 1
+- Produces:
+  - `dpr.reviews.abuse_bulk`:
+
+```python
+def list_fields(ctx: Context) -> dict[str, list[Fields]]: ...
+def nearest(definitions: list[Fields], rel: str) -> Fields: ...
+def fan_out(route: Route, param: str, field: str) -> tuple[int, list[str]] | None: ...
+@rule('ABUSE-BULK-UNBOUNDED', review='abuse', severity='low', exploitability='medium', owasp='A04')
+def bulk_unbounded(ctx: Context) -> Iterator[Finding]: ...
+```
+
+  - `dpr.reviews.leaks_files`:
+
+```python
+def data_files(ctx: Context) -> list[str]: ...
+def registrable(domain: str) -> str: ...
+def own_domains(ctx: Context) -> set[str]: ...
+def real_looking(domain: str, own: set[str]) -> bool: ...
+def email_sites(ctx: Context) -> list[tuple[str, int, int]]: ...
+@rule('LEAK-COMMITTED-DATA-FILE', review='leaks', severity='medium', exploitability='medium')
+def committed_data(ctx: Context) -> Iterator[Finding]: ...
+```
+
+
+**Earlier tests updated on purpose:** `tests/report/test_questions_lawyer.py` asserts the request-list line is absent. The `django-bad` fixture's new test data file is named `orders_cases.py` so pytest does not collect it.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/fixtures/django-bad/docs/uat/order_report.pdf`:
+
+```text
+%PDF-1.4
+% order report sample
+```
+
+Modify `tests/fixtures/django-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: INV-NO-DELETION-PATH, file: shop/models.py, line: 5, tag: INFERRED}
+  - {rule: INV-PII-FILE-IN-REPO, file: exports/customers.csv, line: 1, tag: CONFIRMED}
+  - {rule: LEAK-BROAD-RESPONSE, file: shop/serializers.py, line: 9, tag: INFERRED}
+  - {rule: LEAK-SENTRY-PII, file: shop/settings.py, line: 20, tag: CONFIRMED}
+  - {rule: OWASP-A01-GUESSABLE-ID, file: shop/views.py, line: 14, tag: CONFIRMED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: shop/views.py, line: 14, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: INV-NO-DELETION-PATH, file: shop/models.py, line: 5, tag: INFERRED}
+  - {rule: INV-PII-FILE-IN-REPO, file: exports/customers.csv, line: 1, tag: CONFIRMED}
+  - {rule: LEAK-BROAD-RESPONSE, file: shop/serializers.py, line: 9, tag: INFERRED}
+  - {rule: LEAK-COMMITTED-DATA-FILE, file: docs/uat/order_report.pdf, line: 1, tag: INFERRED}
+  - {rule: LEAK-COMMITTED-DATA-FILE, file: shop/tests/orders_cases.py, line: 5, tag: INFERRED}
+  - {rule: LEAK-SENTRY-PII, file: shop/settings.py, line: 20, tag: CONFIRMED}
+  - {rule: OWASP-A01-GUESSABLE-ID, file: shop/views.py, line: 14, tag: CONFIRMED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: shop/views.py, line: 14, tag: CONFIRMED}
+```
+
+`tests/fixtures/django-bad/shop/tests/orders_cases.py`:
+
+```python
+from shop.views import confirmation_recipient
+
+
+def test_confirmation_goes_to_the_customer():
+    assert confirmation_recipient("maria.okafor@gmail.com") == "maria.okafor@gmail.com"
+    assert confirmation_recipient("buyer@example.com") == "buyer@example.com"
+```
+
+Modify `tests/fixtures/fastapi-bad/api/app/routes/files.py`, replace:
+
+```python
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from sqlalchemy import select
+
+from app.config import settings
+```
+
+with:
+
+```python
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+
+from app.config import settings
+```
+
+Modify `tests/fixtures/fastapi-bad/api/app/routes/files.py`, replace:
+
+```python
+@router.get("/export")
+async def export_files(current_user: CurrentUser):
+    return FileResponse(settings.export_file, media_type="text/csv", filename="files.csv")
+```
+
+with:
+
+```python
+@router.get("/export")
+async def export_files(current_user: CurrentUser):
+    return FileResponse(settings.export_file, media_type="text/csv", filename="files.csv")
+
+
+class BulkPdfRequest(BaseModel):
+    file_ids: list[str] = Field(..., min_length=1, max_length=500)
+
+
+@router.post("/bulk-pdf")
+async def bulk_pdf(payload: BulkPdfRequest, current_user: CurrentUser):
+    for file_id in payload.file_ids:
+        await render_pdf(file_id)
+    return {"rendered": len(payload.file_ids)}
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+# Every finding the scan must report, and nothing else.
+findings:
+  - {rule: ABUSE-ERROR-LEAK, file: api/app/main.py, line: 30, tag: CONFIRMED}
+  - {rule: ABUSE-FORM-NO-CHALLENGE, file: api/app/routes/account.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-FORM-NO-CHALLENGE, file: api/app/routes/auth.py, line: 13, tag: INFERRED}
+```
+
+with:
+
+```yaml
+# Every finding the scan must report, and nothing else.
+findings:
+  - {rule: ABUSE-BULK-UNBOUNDED, file: api/app/routes/files.py, line: 47, tag: CONFIRMED}
+  - {rule: ABUSE-ERROR-LEAK, file: api/app/main.py, line: 30, tag: CONFIRMED}
+  - {rule: ABUSE-FORM-NO-CHALLENGE, file: api/app/routes/account.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-FORM-NO-CHALLENGE, file: api/app/routes/auth.py, line: 13, tag: INFERRED}
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: ABUSE-NO-KILL-SWITCH, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-PAID-ANY-ROLE, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-UPLOAD-UNBOUNDED, file: api/app/routes/files.py, line: 18, tag: CONFIRMED}
+  - {rule: AUTH-EMAIL-CHANGE-UNVERIFIED, file: api/app/services/accounts.py, line: 73, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-LOCKOUT-STATUS, file: api/app/routes/account.py, line: 19, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
+```
+
+with:
+
+```yaml
+  - {rule: ABUSE-NO-KILL-SWITCH, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-PAID-ANY-ROLE, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-PAID-UNLIMITED, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
+  - {rule: ABUSE-UPLOAD-UNBOUNDED, file: api/app/routes/files.py, line: 19, tag: CONFIRMED}
+  - {rule: AUTH-EMAIL-CHANGE-UNVERIFIED, file: api/app/services/accounts.py, line: 73, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-LOCKOUT-STATUS, file: api/app/routes/account.py, line: 19, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
+```
+
+Modify `tests/fixtures/fastapi-bad/expected.yaml`, replace:
+
+```yaml
+  - {rule: LEAK-PUBLIC-GATE-KEY, file: .github/workflows/deploy.yml, line: 3, tag: CONFIRMED}
+  - {rule: LEAK-SOURCEMAP, file: web/vite.config.ts, line: 5, tag: CONFIRMED}
+  - {rule: OWASP-A01-EMAIL-OWNERSHIP, file: api/app/services/portal.py, line: 7, tag: INFERRED}
+  - {rule: OWASP-A01-PATH-TRAVERSAL, file: api/app/routes/files.py, line: 17, tag: CONFIRMED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: api/app/routes/files.py, line: 28, tag: CONFIRMED}
+  - {rule: OWASP-A03-HTML-EMAIL, file: api/app/services/email_service.py, line: 2, tag: INFERRED}
+  - {rule: OWASP-A05-XML-PARSER, file: api/app/routes/files.py, line: 36, tag: INFERRED}
+  - {rule: OWASP-A08-UNPINNED-DEPS, file: api/requirements.txt, line: 1, tag: CONFIRMED}
+  - {rule: OWASP-A08-UNPINNED-INSTALL, file: .github/workflows/deploy.yml, line: 8, tag: CONFIRMED}
+  - {rule: OWASP-A08-UNPINNED-INSTALL, file: api/startup.sh, line: 2, tag: CONFIRMED}
+  - {rule: OWASP-A09-NO-AUTH-FAIL-LOG, file: api/app/routes/account.py, line: 15, tag: INFERRED}
+  - {rule: OWASP-A09-NO-READ-AUDIT, file: api/app/routes/files.py, line: 41, tag: INFERRED}
+```
+
+with:
+
+```yaml
+  - {rule: LEAK-PUBLIC-GATE-KEY, file: .github/workflows/deploy.yml, line: 3, tag: CONFIRMED}
+  - {rule: LEAK-SOURCEMAP, file: web/vite.config.ts, line: 5, tag: CONFIRMED}
+  - {rule: OWASP-A01-EMAIL-OWNERSHIP, file: api/app/services/portal.py, line: 7, tag: INFERRED}
+  - {rule: OWASP-A01-PATH-TRAVERSAL, file: api/app/routes/files.py, line: 18, tag: CONFIRMED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: api/app/routes/files.py, line: 29, tag: CONFIRMED}
+  - {rule: OWASP-A03-HTML-EMAIL, file: api/app/services/email_service.py, line: 2, tag: INFERRED}
+  - {rule: OWASP-A05-XML-PARSER, file: api/app/routes/files.py, line: 37, tag: INFERRED}
+  - {rule: OWASP-A08-UNPINNED-DEPS, file: api/requirements.txt, line: 1, tag: CONFIRMED}
+  - {rule: OWASP-A08-UNPINNED-INSTALL, file: .github/workflows/deploy.yml, line: 8, tag: CONFIRMED}
+  - {rule: OWASP-A08-UNPINNED-INSTALL, file: api/startup.sh, line: 2, tag: CONFIRMED}
+  - {rule: OWASP-A09-NO-AUTH-FAIL-LOG, file: api/app/routes/account.py, line: 15, tag: INFERRED}
+  - {rule: OWASP-A09-NO-READ-AUDIT, file: api/app/routes/files.py, line: 42, tag: INFERRED}
+```
+
+Modify `tests/fixtures/fastapi-good/api/app/routes/files.py`, replace:
+
+```python
+
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
+from sqlalchemy import select
+
+from app.config import settings
+```
+
+with:
+
+```python
+
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+
+from app.config import settings
+```
+
+Modify `tests/fixtures/fastapi-good/api/app/routes/files.py`, replace:
+
+```python
+async def export_files(current_user: CurrentUser):
+    await record_audit(current_user.id, "files.export")
+    return FileResponse(settings.export_file, media_type="text/csv", filename="files.csv")
+```
+
+with:
+
+```python
+async def export_files(current_user: CurrentUser):
+    await record_audit(current_user.id, "files.export")
+    return FileResponse(settings.export_file, media_type="text/csv", filename="files.csv")
+
+
+class BulkPdfRequest(BaseModel):
+    file_ids: list[str] = Field(..., min_length=1, max_length=20)
+
+
+@router.post("/bulk-pdf")
+async def bulk_pdf(payload: BulkPdfRequest, current_user: CurrentUser):
+    for file_id in payload.file_ids:
+        await render_pdf(file_id)
+    return {"rendered": len(payload.file_ids)}
+```
+
+Modify `tests/fixtures/fastapi-good/expected.yaml`, replace:
+
+```yaml
+# Rule ids that must not appear anywhere in this fixture's report.
+must_not_report:
+  - ABUSE-CORS-REFLECT
+  - ABUSE-CORS-WILDCARD
+  - ABUSE-ERROR-LEAK
+```
+
+with:
+
+```yaml
+# Rule ids that must not appear anywhere in this fixture's report.
+must_not_report:
+  - ABUSE-BULK-UNBOUNDED
+  - ABUSE-CORS-REFLECT
+  - ABUSE-CORS-WILDCARD
+  - ABUSE-ERROR-LEAK
+```
+
+Modify `tests/fixtures/fastapi-good/expected.yaml`, replace:
+
+```yaml
+  - INV-SPECIAL-CATEGORY
+  - INV-UNUSED-FIELD
+  - LEAK-BROAD-RESPONSE
+  - LEAK-DEFAULT-CREDENTIAL
+  - LEAK-ENV-IN-HISTORY
+  - LEAK-ENV-TRACKED
+```
+
+with:
+
+```yaml
+  - INV-SPECIAL-CATEGORY
+  - INV-UNUSED-FIELD
+  - LEAK-BROAD-RESPONSE
+  - LEAK-COMMITTED-DATA-FILE
+  - LEAK-DEFAULT-CREDENTIAL
+  - LEAK-ENV-IN-HISTORY
+  - LEAK-ENV-TRACKED
+```
+
+Modify `tests/fixtures/next-supabase-good/expected.yaml`, replace:
+
+```yaml
+# Rule ids that must not appear anywhere in this fixture's report.
+must_not_report:
+  - ABUSE-CORS-REFLECT
+  - ABUSE-CORS-WILDCARD
+  - ABUSE-ERROR-LEAK
+```
+
+with:
+
+```yaml
+# Rule ids that must not appear anywhere in this fixture's report.
+must_not_report:
+  - ABUSE-BULK-UNBOUNDED
+  - ABUSE-CORS-REFLECT
+  - ABUSE-CORS-WILDCARD
+  - ABUSE-ERROR-LEAK
+```
+
+Modify `tests/fixtures/next-supabase-good/expected.yaml`, replace:
+
+```yaml
+  - ABUSE-LIMITER-NOT-APPLIED
+  - ABUSE-LIMITER-PROXY-IP
+  - ABUSE-NO-KILL-SWITCH
+  - ABUSE-PAID-UNAUTH
+  - ABUSE-PAID-UNLIMITED
+  - ABUSE-UPLOAD-UNBOUNDED
+```
+
+with:
+
+```yaml
+  - ABUSE-LIMITER-NOT-APPLIED
+  - ABUSE-LIMITER-PROXY-IP
+  - ABUSE-NO-KILL-SWITCH
+  - ABUSE-PAID-ANY-ROLE
+  - ABUSE-PAID-UNAUTH
+  - ABUSE-PAID-UNLIMITED
+  - ABUSE-UPLOAD-UNBOUNDED
+```
+
+Modify `tests/fixtures/next-supabase-good/expected.yaml`, replace:
+
+```yaml
+  - BASE-HEADER-MISSING-XCTO
+  - BASE-HTTPS-NOT-ENFORCED
+  - BASE-LITERAL-PASSWORD-HASH
+  - BASE-SAMESITE-NONE-NO-CSRF
+  - BASE-SEED-ON-START
+  - BASE-SHORT-PASSWORD-MIN
+```
+
+with:
+
+```yaml
+  - BASE-HEADER-MISSING-XCTO
+  - BASE-HTTPS-NOT-ENFORCED
+  - BASE-LITERAL-PASSWORD-HASH
+  - BASE-OPENAPI-ALWAYS-ON
+  - BASE-SAMESITE-NONE-NO-CSRF
+  - BASE-SEED-ON-START
+  - BASE-SHORT-PASSWORD-MIN
+```
+
+Modify `tests/fixtures/next-supabase-good/expected.yaml`, replace:
+
+```yaml
+  - INV-CHILDREN-SIGNAL
+  - INV-SPECIAL-CATEGORY
+  - LEAK-BROAD-RESPONSE
+  - LEAK-DEFAULT-CREDENTIAL
+  - LEAK-ENV-IN-HISTORY
+  - LEAK-ENV-TRACKED
+```
+
+with:
+
+```yaml
+  - INV-CHILDREN-SIGNAL
+  - INV-SPECIAL-CATEGORY
+  - LEAK-BROAD-RESPONSE
+  - LEAK-COMMITTED-DATA-FILE
+  - LEAK-DEFAULT-CREDENTIAL
+  - LEAK-ENV-IN-HISTORY
+  - LEAK-ENV-TRACKED
+```
+
+Modify `tests/fixtures/next-supabase-good/expected.yaml`, replace:
+
+```yaml
+  - OWASP-A05-XML-PARSER
+  - OWASP-A08-UNPINNED-DEPS
+  - OWASP-A08-UNPINNED-INSTALL
+  - OWASP-A10-SSRF
+  - RLS-AUTHENTICATED-NOT-OWNER
+  - RLS-CLIENT-OWNER
+```
+
+with:
+
+```yaml
+  - OWASP-A05-XML-PARSER
+  - OWASP-A08-UNPINNED-DEPS
+  - OWASP-A08-UNPINNED-INSTALL
+  - OWASP-A09-NO-READ-AUDIT
+  - OWASP-A10-SSRF
+  - RLS-AUTHENTICATED-NOT-OWNER
+  - RLS-CLIENT-OWNER
+```
+
+Modify `tests/report/test_questions_lawyer.py`, replace:
+
+```python
+        "1 committed documents, images, spreadsheets or database files (for example docs/customers.pdf)"
+        in not_covered
+    )
+    assert "- Request lists that fan out into many renders" in not_covered
+    assert "Paid routes are not compared" not in not_covered
+    assert "openapi.json" not in not_covered
+    detection = text[text.index("## Detection") : text.index("## 1. Data inventory")]
+```
+
+with:
+
+```python
+        "1 committed documents, images, spreadsheets or database files (for example docs/customers.pdf)"
+        in not_covered
+    )
+    assert "Request lists that fan out" not in not_covered
+    assert "Paid routes are not compared" not in not_covered
+    assert "openapi.json" not in not_covered
+    detection = text[text.index("## Detection") : text.index("## 1. Data inventory")]
+```
+
+`tests/reviews/test_bulk_files.py`:
+
+```python
+from tests.fixture_builder import git
+from tests.reviews.helpers import findings_for, write
+
+ROUTE = (
+    "from fastapi import APIRouter\nfrom pydantic import BaseModel, Field\n\n"
+    "router = APIRouter()\nBATCH = 20\n\n\n"
+    "class BulkRequest(BaseModel):\n    ids: list[str] = Field(..., max_length={cap})\n\n\n"
+    "@router.post('/reports/bulk')\nasync def bulk(payload: BulkRequest):\n"
+    "    unique = list(dict.fromkeys(payload.ids))\n{body}"
+)
+LOOP = "    for item in unique:\n        await service.generate_pdf(item)\n"
+
+
+def bulk_app(root, cap="200", body=LOOP):
+    write(root, "api/requirements.txt", "fastapi\npydantic\n")
+    write(root, "api/app/routes/reports.py", ROUTE.format(cap=cap, body=body))
+    return root
+
+
+def test_large_list_driving_a_render_loop_is_reported(tmp_path):
+    bulk_app(tmp_path)
+    [finding] = findings_for(tmp_path, "abuse", "ABUSE-BULK-UNBOUNDED")
+    assert [str(loc) for loc in finding.locations] == [
+        "api/app/routes/reports.py:9",
+        "api/app/routes/reports.py:15",
+    ]
+    assert finding.title == "POST /reports/bulk does one render or send per item, up to 200 items"
+    assert "service.generate_pdf" in finding.detail
+    assert (finding.severity.value, finding.tag.value) == ("low", "CONFIRMED")
+
+
+def test_list_with_no_cap_is_reported(tmp_path):
+    bulk_app(tmp_path)
+    write(
+        tmp_path,
+        "api/app/routes/reports.py",
+        ROUTE.format(cap="0", body=LOOP).replace(" = Field(..., max_length=0)", ""),
+    )
+    [finding] = findings_for(tmp_path, "abuse", "ABUSE-BULK-UNBOUNDED")
+    assert finding.title.endswith("with no size cap")
+
+
+def test_small_cap_truncation_or_cheap_loop_is_not_reported(tmp_path):
+    bulk_app(tmp_path, cap="25")
+    assert findings_for(tmp_path, "abuse", "ABUSE-BULK-UNBOUNDED") == []
+    truncated = "    unique = unique[:BATCH]\n" + LOOP
+    bulk_app(tmp_path, body=truncated)
+    assert findings_for(tmp_path, "abuse", "ABUSE-BULK-UNBOUNDED") == []
+    cheap = "    for item in unique:\n        results.append(Result(id=item))\n"
+    bulk_app(tmp_path, body=cheap)
+    assert findings_for(tmp_path, "abuse", "ABUSE-BULK-UNBOUNDED") == []
+
+
+def committed(root):
+    git(root, "init", "-q")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "initial")
+
+
+def test_committed_reports_databases_and_screenshots_are_grouped(tmp_path):
+    write(tmp_path, "docs/uat/orders_report.pdf", "%PDF-1.4\n")
+    write(tmp_path, "docs/uat/screenshot_orders.png", "png")
+    write(tmp_path, "data/app.sqlite3", "db")
+    write(tmp_path, "docs/brand/logo.png", "png")
+    write(tmp_path, "docs/architecture.pdf", "%PDF-1.4\n")
+    write(tmp_path, "web/public/hero.jpg", "jpg")
+    committed(tmp_path)
+    [finding] = findings_for(tmp_path, "leaks", "LEAK-COMMITTED-DATA-FILE")
+    assert [str(loc) for loc in finding.locations] == [
+        "data/app.sqlite3:1",
+        "docs/uat/orders_report.pdf:1",
+    ]
+    assert finding.title.startswith("Committed 3 document, spreadsheet or database file(s)")
+    assert "docs/uat (2)" in finding.detail
+    assert (finding.severity.value, finding.tag.value) == ("medium", "INFERRED")
+
+
+def test_untracked_or_asset_files_are_not_reported(tmp_path):
+    write(tmp_path, "docs/brand/logo.png", "png")
+    committed(tmp_path)
+    write(tmp_path, "exports/customers_report.pdf", "%PDF-1.4\n")
+    assert findings_for(tmp_path, "leaks", "LEAK-COMMITTED-DATA-FILE") == []
+
+
+def test_real_looking_emails_in_tests_are_counted_but_not_printed(tmp_path):
+    domain = "north" + "field-farms.com"
+    write(
+        tmp_path,
+        "api/app/config.py",
+        "SUPPORT = 'help@ourapp.io'\nSITE = 'https://app.ourapp.io'\n",
+    )
+    write(
+        tmp_path,
+        "api/tests/test_mail.py",
+        "OWNER = 'ops@ourapp.io'\nOTHER = 'a@example.com'\nFAKE = 'b@shop.test'\n"
+        f"REAL = 'jane.doe@{domain}'\nALSO = 'sam.lee@{domain}'\n",
+    )
+    write(tmp_path, "api/app/mail.py", f"TO = 'jane.doe@{domain}'\n")
+    [finding] = findings_for(tmp_path, "leaks", "LEAK-COMMITTED-DATA-FILE")
+    assert [str(loc) for loc in finding.locations] == ["api/tests/test_mail.py:4"]
+    assert finding.detail.startswith("2 email addresses in 1 test or documentation files")
+    assert domain not in finding.detail and "jane" not in finding.detail
+
+
+def test_reserved_placeholder_and_own_domains_are_not_reported(tmp_path):
+    write(tmp_path, "api/app/settings.py", "FROM = 'noreply@ourapp.io'\n")
+    write(
+        tmp_path,
+        "docs/guide.md",
+        "Write to a@example.org, b@x.com, c@company.com, d@ourapp.io or e@db.postgres.database.azure.com\n",
+    )
+    assert findings_for(tmp_path, "leaks", "LEAK-COMMITTED-DATA-FILE") == []
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_bulk_files.py tests/report/test_questions_lawyer.py tests/test_fixtures.py`
+Expected: FAIL (pytest reports 7 failed, 11 passed)
+
+- [ ] **Step 3: Write the two rules**
+
+`src/dpr/data/rule_text/bulk_files.yaml`:
+
+```yaml
+ABUSE-BULK-UNBOUNDED:
+  title: ${method} ${path} does one render or send per item, ${cap}
+  effort_minutes: 30
+  detail: '${field} accepts a list ${cap}, and the handler loops over it calling ${calls} once per item inside the request.'
+  attack: Send one request with the largest list allowed, then repeat it in parallel.
+  blast: Worker time, memory and any per-call provider cost for every item, which slows or stops the API for everyone.
+  fix: Cap the list at about ${limit} items, or move the work to a background job with its own queue and per-user limits.
+  verify: Send a list one item over the new cap and expect 422 before any work starts.
+LEAK-COMMITTED-DATA-FILE:
+  title: Committed ${what} may hold real people's data
+  effort_minutes: 60
+  detail: ${detail_text}
+  proof_needed: Open the files and check whether they name real people, customers or their records.
+  attack: Anyone with read access to the repository, any fork or any old clone, now or later, reads the files.
+  blast: Every person named in the files, kept in git history until the history is rewritten.
+  fix: Replace real records with generated data, remove the files, and purge them from git history if they held real data.
+  verify: Search the tracked files again and confirm no real names, emails or records remain.
+```
+
+Modify `src/dpr/report/coverage.py`, replace:
+
+```python
+DOCUMENTS = re.compile(
+    r"(?i)\.(?:pdf|xlsx|xlsm|xls|docx|doc|pptx|png|jpe?g|sqlite3?|db|bak|bacpac|dump)$"
+)
+BULK = (
+    "Request lists that fan out into many renders, sends or imports are not checked for size caps"
+)
+BREACHED = "Screening new passwords against breached-password lists is not checked"
+EMAILS = "Email addresses in tests and documentation are not checked for real people"
+
+
+def coverage_notes(root, detection: Detection, options: Options, sections: set[str]) -> list[str]:
+```
+
+with:
+
+```python
+DOCUMENTS = re.compile(
+    r"(?i)\.(?:pdf|xlsx|xlsm|xls|docx|doc|pptx|png|jpe?g|sqlite3?|db|bak|bacpac|dump)$"
+)
+BREACHED = "Screening new passwords against breached-password lists is not checked"
+
+
+def coverage_notes(root, detection: Detection, options: Options, sections: set[str]) -> list[str]:
+```
+
+Modify `src/dpr/report/coverage.py`, replace:
+
+```python
+            f"{len(documents)} committed documents, images, spreadsheets or database files (for "
+            f"example {examples}) were not read, so personal data inside them is not inventoried"
+        )
+    if detection.routes:
+        notes += [BULK, EMAILS]
+    if "auth" in sections:
+        notes.append(BREACHED)
+    return notes
+```
+
+with:
+
+```python
+            f"{len(documents)} committed documents, images, spreadsheets or database files (for "
+            f"example {examples}) were not read, so personal data inside them is not inventoried"
+        )
+    if "auth" in sections:
+        notes.append(BREACHED)
+    return notes
+```
+
+Modify `src/dpr/reviews/abuse.py`, replace:
+
+```python
+
+import re
+
+import dpr.reviews.abuse_cors  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_limits  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_paid  # noqa: F401  (registers rules)
+```
+
+with:
+
+```python
+
+import re
+
+import dpr.reviews.abuse_bulk  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_cors  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_limits  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_paid  # noqa: F401  (registers rules)
+```
+
+`src/dpr/reviews/abuse_bulk.py`:
+
+```python
+"""Review 7, abuse: request lists that fan out into many renders, sends or imports."""
+
+from __future__ import annotations
+
+import ast
+import os
+import re
+from collections.abc import Iterator
+
+from dpr.model import Finding, Location, Route, Tag
+from dpr.parsing import pyast
+from dpr.redact import snippet
+from dpr.reviews.paths import is_test
+from dpr.rules import Context, make_finding, rule
+
+BULK_LIMIT = 25
+LIST_TYPE = re.compile(r"^(?:typing\.)?(?:list|List|Sequence|set|Set|conlist)\b")
+HEAVY_CALL = re.compile(
+    r"^(?:generate|render|send|deliver|e?mail|notify|import|convert|export|upload|process)"
+    r"|pdf|xlsx|docx"
+)
+CAP_KEYWORDS = ("max_length", "max_items")
+
+
+def _cap(stmt: ast.AnnAssign) -> tuple[bool, int | None]:
+    """(is a list field, its cap or None) for one annotated schema field."""
+    annotation = ast.unparse(stmt.annotation)
+    inner = annotation
+    if annotation.startswith(("Annotated[", "typing.Annotated[")):
+        inner = annotation.split("[", 1)[1]
+    if not LIST_TYPE.match(inner):
+        return False, None
+    for node in ast.walk(stmt):
+        if isinstance(node, ast.Call):
+            for key in CAP_KEYWORDS:
+                value = pyast.constant(pyast.kwarg(node, key), None)
+                if isinstance(value, int):
+                    return True, value
+    return True, None
+
+
+Fields = dict[str, tuple[int | None, Location]]
+
+
+def list_fields(ctx: Context) -> dict[str, list[Fields]]:
+    """Schema class name to each definition's list fields, with size cap and location."""
+    key = ("bulk-list-fields", "")
+    if key in ctx.index.cache:
+        return ctx.index.cache[key]
+    found: dict[str, list[Fields]] = {}
+    for entry in ctx.index.py_files:
+        if is_test(entry.rel) or "BaseModel" not in ctx.index.text(entry.rel):
+            continue
+        tree = pyast.parse_file(ctx.index, entry.rel)
+        for cls in pyast.class_defs(tree) if tree else []:
+            fields: Fields = {}
+            for stmt in cls.body:
+                if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                    is_list, cap = _cap(stmt)
+                    if is_list:
+                        fields[stmt.target.id] = (cap, Location(entry.rel, stmt.lineno))
+            if fields:
+                found.setdefault(cls.name, []).append(fields)
+    ctx.index.cache[key] = found
+    return found
+
+
+def nearest(definitions: list[Fields], rel: str) -> Fields:
+    """The definition that shares the longest folder path with the route file."""
+
+    def shared(fields: Fields) -> int:
+        other = next(iter(fields.values()))[1].file
+        return len(os.path.commonpath([rel, other])) if "/" in rel and "/" in other else 0
+
+    return max(definitions, key=shared) if definitions else {}
+
+
+def _module_ints(tree: ast.Module) -> dict[str, int]:
+    return {
+        name: value.value
+        for name, value in pyast.assignments(tree.body).items()
+        if isinstance(value, ast.Constant) and isinstance(value.value, int)
+    }
+
+
+def _slice_cap(value: ast.AST, ints: dict[str, int]) -> int | None:
+    if isinstance(value, ast.Subscript) and isinstance(value.slice, ast.Slice):
+        upper = value.slice.upper
+        if isinstance(upper, ast.Constant) and isinstance(upper.value, int):
+            return upper.value
+        if isinstance(upper, ast.Name):
+            return ints.get(upper.id)
+    return None
+
+
+def _heavy_calls(body: list[ast.stmt]) -> list[str]:
+    names = []
+    for stmt in body:
+        for node in ast.walk(stmt):
+            if isinstance(node, ast.Call):
+                name = pyast.dotted(node.func) or ""
+                final = name.split(".")[-1]
+                if final[:1].islower() and HEAVY_CALL.search(final.lower()):
+                    names.append(name)
+    return names
+
+
+def fan_out(route: Route, param: str, field: str) -> tuple[int, list[str]] | None:
+    """The loop line and heavy calls when the list, or a copy of it, drives a loop."""
+    fn = route.handler
+    ints = _module_ints(route.tree)
+    tainted = {f"{param}.{field}"}
+    for node in sorted(ast.walk(fn), key=lambda n: getattr(n, "lineno", 0)):
+        text = ast.unparse(node.value) if isinstance(node, ast.Assign) else ""
+        if text and any(re.search(rf"(?<![\w.]){re.escape(t)}\b", text) for t in tainted):
+            cap = _slice_cap(node.value, ints)
+            targets = {ast.unparse(t) for t in node.targets}
+            tainted = (
+                tainted - targets if cap is not None and cap <= BULK_LIMIT else tainted | targets
+            )
+        elif isinstance(node, ast.For | ast.AsyncFor) and ast.unparse(node.iter) in tainted:
+            calls = _heavy_calls(node.body)
+            if calls:
+                return node.lineno, calls
+    return None
+
+
+@rule("ABUSE-BULK-UNBOUNDED", review="abuse", severity="low", exploitability="medium", owasp="A04")
+def bulk_unbounded(ctx: Context) -> Iterator[Finding]:
+    schemas = list_fields(ctx)
+    for route in ctx.detection.routes:
+        fn = route.handler
+        if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef) or is_test(route.file):
+            continue
+        for arg in [*fn.args.args, *fn.args.kwonlyargs]:
+            name = pyast.dotted(arg.annotation) if arg.annotation is not None else None
+            for field, (cap, where) in nearest(schemas.get(name or "", []), route.file).items():
+                if cap is not None and cap <= BULK_LIMIT:
+                    continue
+                loop = fan_out(route, arg.arg, field)
+                if loop is None:
+                    continue
+                line, calls = loop
+                yield make_finding(
+                    "ABUSE-BULK-UNBOUNDED",
+                    tag=Tag.CONFIRMED,
+                    locations=[where, Location(route.file, line)],
+                    snippet=snippet(ctx.index.text(where.file), where.line),
+                    method=route.method,
+                    path=route.path,
+                    field=f"{name}.{field}",
+                    cap=f"up to {cap} items" if cap is not None else "with no size cap",
+                    calls=", ".join(dict.fromkeys(calls[:4])),
+                    limit=BULK_LIMIT,
+                )
+```
+
+Modify `src/dpr/reviews/leaks.py`, replace:
+
+```python
+from pathlib import PurePosixPath
+
+import dpr.reviews.leaks_creds  # noqa: F401  (registers rules)
+import dpr.reviews.leaks_logs  # noqa: F401  (registers rules)
+from dpr.facts import fact
+from dpr.model import Finding, Location, Part, ReviewSection, Tag
+```
+
+with:
+
+```python
+from pathlib import PurePosixPath
+
+import dpr.reviews.leaks_creds  # noqa: F401  (registers rules)
+import dpr.reviews.leaks_files  # noqa: F401  (registers rules)
+import dpr.reviews.leaks_logs  # noqa: F401  (registers rules)
+from dpr.facts import fact
+from dpr.model import Finding, Location, Part, ReviewSection, Tag
+```
+
+`src/dpr/reviews/leaks_files.py`:
+
+```python
+"""Review 6, leaks: committed documents, databases and real-looking email addresses."""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Iterator
+from pathlib import PurePosixPath
+
+from dpr.gitutil import tracked_files
+from dpr.model import Finding, Location, Tag
+from dpr.reviews.paths import is_test
+from dpr.rules import Context, make_finding, rule
+
+DATABASE = re.compile(r"(?i)\.(?:sqlite3?|db|bak|bacpac|dump|mdf|ldf)$|\.sql\.gz$")
+SPREADSHEET = re.compile(r"(?i)\.(?:xlsx|xlsm|xls|ods|csv)$")
+DOCUMENT = re.compile(r"(?i)\.(?:pdf|docx?|odt|pptx?)$")
+IMAGE = re.compile(r"(?i)\.(?:png|jpe?g|heic|webp)$")
+SCREENSHOT_WORDS = re.compile(r"(?i)uat|screenshot|screen[ _-]?shot|capture|export|report")
+RECORD_WORDS = re.compile(
+    r"(?i)report|statement|invoice|export|uat|screenshot|screen[ _-]?shot|sample|client|customer"
+    r"|producer|patient|member|payroll|backup|dump|test[ _-]?data|record|letter|contract"
+)
+ASSET_WORDS = re.compile(r"(?i)logo|brand|icon|favicon|style[ _-]?guide|avatar|banner|hero")
+SKIPPED_DIRS = re.compile(r"(?:^|/)(?:node_modules|vendor|\.venv|venv|site-packages)/")
+EMAIL = re.compile(
+    r"(?<![\w.+-])[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})"
+)
+RESERVED_TLDS = ("test", "invalid", "localhost", "example", "local", "internal")
+PLACEHOLDER_LABELS = frozenset(
+    {
+        "example",
+        "domain",
+        "email",
+        "company",
+        "yourcompany",
+        "mycompany",
+        "acme",
+        "foo",
+        "bar",
+        "baz",
+        "sample",
+        "demo",
+        "fake",
+        "dummy",
+        "else",
+        "somewhere",
+        "website",
+        "test",
+        "testing",
+    }
+)
+HOSTING_WORDS = re.compile(
+    r"(?i)database|postgres|mysql|redis|amazonaws|azure|windows\.net|cloudapp|herokuapp|supabase"
+    r"|neon\.tech|render\.com|github|gitlab|sentry|googleusercontent|users\.noreply"
+)
+TEXT_SUFFIXES = (
+    ".py",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".md",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".sql",
+    ".txt",
+)
+CONFIG_FILE = re.compile(
+    r"(?i)(?:^|/)(?:config|settings|constants|env)[\w.-]*\.(?:py|ts|js|json)$|\.tf$"
+    r"|\.env\.(?:example|sample|template)$|(?:^|/)[\w.-]*\.ya?ml$|(?:^|/)index\.html$"
+)
+URL_HOST = re.compile(r"https?://([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)")
+
+
+def data_files(ctx: Context) -> list[str]:
+    """Tracked files whose contents dpr cannot read and that look like records about people."""
+    tracked = tracked_files(ctx.index.root) or []
+    readable = {f.rel for f in ctx.index.files}
+    found = []
+    for rel in tracked:
+        if SKIPPED_DIRS.search(rel) or ASSET_WORDS.search(rel):
+            continue
+        if DATABASE.search(rel) or (SPREADSHEET.search(rel) and rel not in readable):
+            found.append(rel)
+        elif DOCUMENT.search(rel) and RECORD_WORDS.search(rel):
+            found.append(rel)
+        elif IMAGE.search(rel) and SCREENSHOT_WORDS.search(rel):
+            found.append(rel)
+    return found
+
+
+def registrable(domain: str) -> str:
+    return ".".join(domain.lower().split(".")[-2:])
+
+
+def own_domains(ctx: Context) -> set[str]:
+    """Domains the project's own configuration names: its sites, senders and services."""
+    domains = set()
+    for entry in ctx.index.files:
+        if is_test(entry.rel) or "docs/" in entry.rel or not CONFIG_FILE.search(entry.rel):
+            continue
+        text = ctx.index.text(entry.rel)
+        domains |= {registrable(d) for d in EMAIL.findall(text)}
+        domains |= {registrable(d) for d in URL_HOST.findall(text)}
+    return domains
+
+
+def real_looking(domain: str, own: set[str]) -> bool:
+    labels = domain.lower().split(".")
+    if labels[-1] in RESERVED_TLDS or HOSTING_WORDS.search(domain):
+        return False
+    name = labels[-2]
+    return len(name) > 2 and name not in PLACEHOLDER_LABELS and registrable(domain) not in own
+
+
+def email_sites(ctx: Context) -> list[tuple[str, int, int]]:
+    """(file, first line, count) for test and documentation files with real-looking addresses."""
+    own = own_domains(ctx)
+    sites = []
+    for entry in ctx.index.files:
+        docs = entry.rel.startswith("docs/") or "/docs/" in entry.rel
+        if not (is_test(entry.rel) or docs) or not entry.rel.endswith(TEXT_SUFFIXES):
+            continue
+        text = ctx.index.text(entry.rel)
+        hits = [m for m in EMAIL.finditer(text) if real_looking(m.group(1), own)]
+        if hits:
+            sites.append((entry.rel, text.count("\n", 0, hits[0].start()) + 1, len(hits)))
+    return sites
+
+
+def _folders(paths: list[str]) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for rel in paths:
+        grouped.setdefault(str(PurePosixPath(rel).parent), []).append(rel)
+    return grouped
+
+
+@rule("LEAK-COMMITTED-DATA-FILE", review="leaks", severity="medium", exploitability="medium")
+def committed_data(ctx: Context) -> Iterator[Finding]:
+    files = data_files(ctx)
+    if files:
+        grouped = _folders(files)
+        yield make_finding(
+            "LEAK-COMMITTED-DATA-FILE",
+            tag=Tag.INFERRED,
+            locations=[Location(paths[0], 1) for paths in grouped.values()][:10],
+            what=f"{len(files)} document, spreadsheet or database file(s)",
+            detail_text=(
+                "These tracked files cannot be read by this review and their names suggest records "
+                "about people: "
+                + "; ".join(f"{folder} ({len(paths)})" for folder, paths in grouped.items())
+                + "."
+            ),
+        )
+    sites = email_sites(ctx)
+    if sites:
+        total = sum(count for _, _, count in sites)
+        yield make_finding(
+            "LEAK-COMMITTED-DATA-FILE",
+            tag=Tag.INFERRED,
+            locations=[Location(rel, line) for rel, line, _ in sites][:10],
+            what="email addresses in tests and documentation",
+            detail_text=(
+                f"{total} email addresses in {len(sites)} test or documentation files use domains "
+                "that are not reserved for examples (example.com, .test, .invalid) and are not "
+                "named by the project's own configuration. The addresses are not printed here."
+            ),
+        )
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (419 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/rule_text/bulk_files.yaml src/dpr/report/coverage.py src/dpr/reviews/abuse.py src/dpr/reviews/abuse_bulk.py src/dpr/reviews/leaks.py src/dpr/reviews/leaks_files.py tests/fixtures/django-bad/docs/uat/order_report.pdf tests/fixtures/django-bad/expected.yaml tests/fixtures/django-bad/shop/tests/orders_cases.py tests/fixtures/fastapi-bad/api/app/routes/files.py tests/fixtures/fastapi-bad/expected.yaml tests/fixtures/fastapi-good/api/app/routes/files.py tests/fixtures/fastapi-good/expected.yaml tests/fixtures/next-supabase-good/expected.yaml tests/report/test_questions_lawyer.py tests/reviews/test_bulk_files.py
+git commit -m "Report unbounded bulk renders and committed data files"
+```
+
+---
+
+### Task 79: Cost surface traced through services, labelled by app
+
+Judge gap 6. The cost surface table lists every route that reaches a billed SDK, a CPU-heavy library (PDF, vector store, headless browser, image), a spreadsheet parse or an outbound HTTP call, following the handler three calls deep and resolving SDK clients held on `self` in service classes and module-level clients. Public forms join the same rows. "Auth required" names who can call the route (no, admin only, any signed-in user, any agent account), and an App column appears when rows come from more than one app root. Findings do not change: `paid_routes` still decides the paid-route rules.
+
+**Files:**
+- Create: `src/dpr/reviews/cost_trace.py`
+- Modify: `src/dpr/data/costs.yaml` (notes and starting limits for PDF, vector store, spreadsheet and HTTP)
+- Modify: `src/dpr/reviews/abuse.py` (table rows from the traced surface)
+- Modify: `src/dpr/reviews/auth_flows.py` (public `route_code` with a depth)
+- Modify: `src/dpr/reviews/inventory_map.py` (use `route_code`)
+- Modify: `src/dpr/reviews/owasp_audit.py` (use `route_code`)
+- Test: `tests/reviews/test_cost_trace.py`
+- Modify test: `tests/reviews/test_abuse_section.py` (auth column names the caller)
+
+**Interfaces:**
+- Consumes: flows code follower (Task 63), `access` and `attacker` (Task 60), paid SDK name resolution from Milestone 2 Task 44, app roots (Task 54)
+- Produces:
+  - `dpr.reviews.auth_flows`:
+
+```python
+def route_code(ctx: Context, route: Route, depth: int=2) -> list[Code]: ...
+```
+
+  - `dpr.reviews.cost_trace`:
+
+```python
+@dataclass(frozen=True)
+class CostRow:
+    app: str
+    route: Route
+    calls: tuple[str, ...]
+    categories: tuple[str, ...]
+def cost_names(ctx: Context) -> dict[str, dict[str, SdkUse]]: ...
+def code_costs(ctx: Context, code: Code) -> list[tuple[str, str]]: ...
+def app_label(ctx: Context, rel: str) -> str: ...
+def auth_label(ctx: Context, route: Route) -> str: ...
+def cost_rows(ctx: Context) -> list[CostRow]: ...
+```
+
+
+**Earlier tests updated on purpose:** `tests/reviews/test_abuse_section.py` (Milestone 2 Task 47) expects "any signed-in user" instead of "yes" in the Auth required column.
+
+- [ ] **Step 1: Write the failing tests**
+
+Modify `tests/reviews/test_abuse_section.py`, replace:
+
+```python
+        "Alerts and kill switches",
+    ]
+    assert parts["Cost surface"].rows == (
+        ("POST /api/chat", "anthropic", "tokens per call, priced per model", "yes", "none found"),
+        (
+            "POST /api/auth/register",
+            "public form",
+```
+
+with:
+
+```python
+        "Alerts and kill switches",
+    ]
+    assert parts["Cost surface"].rows == (
+        (
+            "POST /api/chat",
+            "anthropic",
+            "tokens per call, priced per model",
+            "any signed-in user",
+            "none found",
+        ),
+        (
+            "POST /api/auth/register",
+            "public form",
+```
+
+`tests/reviews/test_cost_trace.py`:
+
+```python
+from dpr.discovery.detect import detect
+from dpr.reviews import cost_trace
+from dpr.rules import Context
+from dpr.walk import RepoIndex
+from tests.reviews.helpers import write
+
+MAILER = (
+    "from azure.communication.email import EmailClient\n\n\n"
+    "class Mailer:\n    def __init__(self, conn):\n"
+    "        self._client = EmailClient.from_connection_string(conn)\n\n"
+    "    def _deliver(self, message):\n        return self._client.begin_send(message)\n\n"
+    "    def send_invite(self, address):\n        return self._deliver({'to': address})\n"
+)
+ACCOUNTS = (
+    "from app.services.mailer import Mailer\n\nmailer = Mailer('x')\n\n\n"
+    "def invite_user(address):\n    return mailer.send_invite(address)\n"
+)
+ROUTES = (
+    "import httpx\nimport openpyxl\nfrom fastapi import APIRouter, Depends\n"
+    "from app.services.accounts import invite_user\n\nrouter = APIRouter()\n\n\n"
+    "@router.post('/users')\nasync def create_user(body: dict, admin=Depends(get_admin_user)):\n"
+    "    return invite_user(body['email'])\n\n\n"
+    "@router.post('/imports')\nasync def import_rows(file, user=Depends(get_current_user)):\n"
+    "    return openpyxl.load_workbook(file.file).sheetnames\n\n\n"
+    "@router.get('/prices')\nasync def prices():\n"
+    "    async with httpx.AsyncClient() as client:\n"
+    "        return (await client.get(PRICES_URL)).json()\n\n\n"
+    "@router.get('/orders')\nasync def orders(user=Depends(get_current_user)):\n"
+    "    return await db.execute(select(Order))\n"
+)
+
+
+def api(root, prefix="api"):
+    write(root, f"{prefix}/requirements.txt", "fastapi\nazure-communication-email\nopenpyxl\n")
+    write(root, f"{prefix}/app/services/mailer.py", MAILER)
+    write(root, f"{prefix}/app/services/accounts.py", ACCOUNTS)
+    write(root, f"{prefix}/app/routes.py", ROUTES)
+    return root
+
+
+def ctx_for(root):
+    index = RepoIndex(root)
+    return Context(index=index, detection=detect(index))
+
+
+def test_email_client_held_on_a_service_is_traced_three_calls_deep(tmp_path):
+    ctx = ctx_for(api(tmp_path))
+    rows = {f"{r.route.method} {r.route.path}": r for r in cost_trace.cost_rows(ctx)}
+    assert rows["POST /users"].calls == ("azure-communication-email",)
+    assert rows["POST /users"].app == "api"
+    assert cost_trace.auth_label(ctx, rows["POST /users"].route) == "admin only"
+
+
+def test_spreadsheet_parse_and_public_outbound_calls_are_listed(tmp_path):
+    ctx = ctx_for(api(tmp_path))
+    rows = {f"{r.route.method} {r.route.path}": r for r in cost_trace.cost_rows(ctx)}
+    assert rows["POST /imports"].categories == ("spreadsheet",)
+    assert rows["GET /prices"].calls == ("outbound HTTP",)
+    assert cost_trace.auth_label(ctx, rows["GET /prices"].route) == "no"
+    assert "GET /orders" not in rows
+
+
+def test_shallow_trace_does_not_reach_the_client(tmp_path):
+    ctx = ctx_for(api(tmp_path))
+    route = next(r for r in ctx.detection.routes if r.path == "/users")
+    codes = cost_trace.route_code(ctx, route, 1)
+    assert not any(cost_trace.code_costs(ctx, code) for code in codes)
+
+
+def test_cost_surface_gains_an_app_column_with_two_apps(tmp_path):
+    from dpr.api import review
+
+    api(tmp_path, "apps/admin")
+    write(tmp_path, "apps/shop/requirements.txt", "fastapi\n")
+    write(
+        tmp_path,
+        "apps/shop/app/main.py",
+        "import httpx\nfrom fastapi import FastAPI\napp = FastAPI()\n\n"
+        "@app.get('/rates')\nasync def rates():\n    return httpx.get(RATES_URL).json()\n",
+    )
+    report = review(tmp_path, reviews=["abuse"])
+    parts = {p.title: p for p in report.sections["abuse"].parts}
+    surface = parts["Cost surface"]
+    assert surface.columns[0] == "App"
+    assert ("apps/shop", "GET /rates", "outbound HTTP") == surface.rows[-1][:3]
+    limits = parts["Limits per endpoint"].rows
+    assert limits[-1][:5] == (
+        "apps/shop: GET /rates",
+        "outbound provider quota per call",
+        "60",
+        "120",
+        "1 min",
+    )
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/reviews/test_cost_trace.py tests/reviews/test_abuse_section.py`
+Expected: FAIL (pytest reports 1 error; collection stops at `ImportError: cannot import name 'cost_trace' from 'dpr.reviews'`)
+
+- [ ] **Step 3: Trace costs and rebuild the tables**
+
+Modify `src/dpr/data/costs.yaml`, replace:
+
+```yaml
+payments: {note: "provider fees and card testing", per_user: 10, per_ip: 20, window: "1 h"}
+ml: {note: "per document or media minute", per_user: 10, per_ip: 20, window: "1 h"}
+search: {note: "per search operation", per_user: 120, per_ip: 240, window: "1 h"}
+login: {note: "password hashing CPU and credential stuffing", per_user: 10, per_ip: 20, window: "15 min"}
+form: {note: "a stored row and often an email per submission", per_user: 5, per_ip: 10, window: "1 h"}
+```
+
+with:
+
+```yaml
+payments: {note: "provider fees and card testing", per_user: 10, per_ip: 20, window: "1 h"}
+ml: {note: "per document or media minute", per_user: 10, per_ip: 20, window: "1 h"}
+search: {note: "per search operation", per_user: 120, per_ip: 240, window: "1 h"}
+pdf: {note: "CPU and memory per render", per_user: 30, per_ip: 60, window: "1 h"}
+vector-store: {note: "embedding CPU and disk per document", per_user: 10, per_ip: 20, window: "1 day"}
+spreadsheet: {note: "CPU and memory to parse the whole file", per_user: 10, per_ip: 20, window: "1 h"}
+http: {note: "outbound provider quota per call", per_user: 60, per_ip: 120, window: "1 min"}
+login: {note: "password hashing CPU and credential stuffing", per_user: 10, per_ip: 20, window: "15 min"}
+form: {note: "a stored row and often an email per submission", per_user: 5, per_ip: 10, window: "1 h"}
+```
+
+Modify `src/dpr/reviews/abuse.py`, replace:
+
+```python
+import dpr.reviews.abuse_limits  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_paid  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_roles  # noqa: F401  (registers rules)
+from dpr.model import Finding, Part, ReviewSection
+from dpr.reviews.abuse_paid import is_limited
+from dpr.reviews.access import PUBLIC, access
+from dpr.reviews.paid import costs, paid_routes
+from dpr.rules import Context
+
+```
+
+with:
+
+```python
+import dpr.reviews.abuse_limits  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_paid  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_roles  # noqa: F401  (registers rules)
+from dpr.model import Finding, Part, ReviewSection, Route
+from dpr.reviews.abuse_paid import is_limited
+from dpr.reviews.access import PUBLIC, access
+from dpr.reviews.cost_trace import app_label, auth_label, cost_rows
+from dpr.reviews.paid import costs, paid_routes
+from dpr.rules import Context
+
+```
+
+Modify `src/dpr/reviews/abuse.py`, replace:
+
+```python
+    return (re.sub(r"[^A-Z0-9]+", "_", path.upper()).strip("_") or "PAID_ROUTE") + "_ENABLED"
+
+
+def _cost_rows(ctx: Context) -> tuple[tuple[str, ...], ...]:
+    rows = []
+    for paid in paid_routes(ctx):
+        route = paid.route
+        cost = costs().get(paid.sdk.category, {"note": "provider pricing"})
+        rows.append(
+            (
+                f"{route.method} {route.path}",
+                paid.sdk.name,
+                cost["note"],
+                "no" if access(ctx, route).level == PUBLIC else "yes",
+                "yes" if is_limited(ctx, route) else "none found",
+            )
+        )
+    for route in ctx.detection.routes:
+        if route.is_public_form and access(ctx, route).level == PUBLIC and route.method != "GET":
+            kind = "login" if re.search(r"(?i)log-?in|sign-?in", route.path) else "form"
+            limited = "yes" if is_limited(ctx, route) else "none found"
+            rows.append(
+                (
+                    f"{route.method} {route.path}",
+                    "public form",
+                    costs()[kind]["note"],
+                    "no",
+                    limited,
+                )
+            )
+    return tuple(rows)
+
+
+def _limit_rows(rows: tuple[tuple[str, ...], ...], ctx: Context) -> tuple[tuple[str, ...], ...]:
+    by_route = {f"{p.route.method} {p.route.path}": p.sdk.category for p in paid_routes(ctx)}
+    limits = []
+    for endpoint, _calls, note, _auth, _limited in rows:
+        if endpoint in by_route:
+            key = by_route[endpoint]
+        else:
+            key = "login" if re.search(r"(?i)log-?in|sign-?in", endpoint) else "form"
+        cost = costs().get(key, costs()["form"])
+        limits.append(
+            (
+                endpoint,
+                note,
+                str(cost["per_user"]),
+                str(cost["per_ip"]),
+                cost["window"],
+```
+
+with:
+
+```python
+    return (re.sub(r"[^A-Z0-9]+", "_", path.upper()).strip("_") or "PAID_ROUTE") + "_ENABLED"
+
+
+def _form_kind(route) -> str:
+    return "login" if re.search(r"(?i)log-?in|sign-?in", route.path) else "form"
+
+
+def _surface(ctx: Context) -> list[tuple[str, Route, list[str], list[str]]]:
+    """(app, route, calls, cost categories) for traced routes, paid routes and public forms."""
+    rows: dict[tuple[str, str, str], tuple[str, Route, list[str], list[str]]] = {}
+    for row in cost_rows(ctx):
+        key = (row.app, row.route.method, row.route.path)
+        rows[key] = (row.app, row.route, list(row.calls), list(row.categories))
+    for paid in paid_routes(ctx):
+        key = (app_label(ctx, paid.route.file), paid.route.method, paid.route.path)
+        entry = rows.setdefault(key, (key[0], paid.route, [], []))
+        if paid.sdk.name not in entry[2]:
+            entry[2].append(paid.sdk.name)
+            entry[3].append(paid.sdk.category)
+    for route in ctx.detection.routes:
+        if route.is_public_form and access(ctx, route).level == PUBLIC and route.method != "GET":
+            key = (app_label(ctx, route.file), route.method, route.path)
+            entry = rows.setdefault(key, (key[0], route, [], []))
+            entry[2].append("public form")
+            entry[3].append(_form_kind(route))
+    return list(rows.values())
+
+
+def _note(category: str) -> str:
+    return costs().get(category, {"note": "provider pricing"})["note"]
+
+
+def _cost_rows(ctx: Context) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
+    surface = _surface(ctx)
+    multi = len({app for app, _, _, _ in surface}) > 1
+    header = ("Route", "Calls", "Cost per call", "Auth required", "Current limit")
+    rows = []
+    for app, route, calls, categories in surface:
+        row = (
+            f"{route.method} {route.path}",
+            ", ".join(calls),
+            "; ".join(dict.fromkeys(_note(c) for c in categories)),
+            auth_label(ctx, route),
+            "yes" if is_limited(ctx, route) else "none found",
+        )
+        rows.append((app, *row) if multi else row)
+    return (("App", *header) if multi else header), tuple(rows)
+
+
+def _limit_rows(ctx: Context) -> tuple[tuple[str, ...], ...]:
+    limits = []
+    for app, route, _calls, categories in _surface(ctx):
+        cost = costs().get(categories[0], costs()["form"])
+        endpoint = f"{route.method} {route.path}"
+        limits.append(
+            (
+                endpoint if app == "." else f"{app}: {endpoint}",
+                _note(categories[0]),
+                str(cost["per_user"]),
+                str(cost["per_ip"]),
+                cost["window"],
+```
+
+Modify `src/dpr/reviews/abuse.py`, replace:
+
+```python
+
+
+def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None:
+    rows = _cost_rows(ctx)
+    position = next(i for i, p in enumerate(section.parts) if p.kind == "findings")
+    added = [
+        Part(
+            "table",
+            "Cost surface",
+            ("Route", "Calls", "Cost per call", "Auth required", "Current limit"),
+            rows,
+        ),
+        Part(
+            "table",
+            "Limits per endpoint",
+            ("Endpoint", "Cost", "Per user", "Per IP", "Window", "Reasoning"),
+            _limit_rows(rows, ctx),
+        ),
+        Part("text", "Implementation for this stack", body=_snippet(ctx)),
+    ]
+```
+
+with:
+
+```python
+
+
+def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None:
+    header, rows = _cost_rows(ctx)
+    position = next(i for i, p in enumerate(section.parts) if p.kind == "findings")
+    added = [
+        Part("table", "Cost surface", header, rows),
+        Part(
+            "table",
+            "Limits per endpoint",
+            ("Endpoint", "Cost", "Per user", "Per IP", "Window", "Reasoning"),
+            _limit_rows(ctx),
+        ),
+        Part("text", "Implementation for this stack", body=_snippet(ctx)),
+    ]
+```
+
+Modify `src/dpr/reviews/auth_flows.py`, replace:
+
+```python
+    return None
+
+
+def _py_code(ctx: Context, route: Route) -> list[Code]:
+    found = [Code(route.file, route.handler, route.tree, route.line)]
+    queue = [(route.file, route.handler, 0)]
+    seen = {(route.file, route.line)}
+    while queue:
+        rel, fn, depth = queue.pop(0)
+        if depth >= 2:
+            continue
+        for call in [n for n in ast.walk(fn) if isinstance(n, ast.Call)]:
+            parts = (pyast.dotted(call.func) or "").split(".")
+```
+
+with:
+
+```python
+    return None
+
+
+def _py_code(ctx: Context, route: Route, depth: int = 2) -> list[Code]:
+    found = [Code(route.file, route.handler, route.tree, route.line)]
+    queue = [(route.file, route.handler, 0)]
+    seen = {(route.file, route.line)}
+    while queue:
+        rel, fn, level = queue.pop(0)
+        if level >= depth:
+            continue
+        for call in [n for n in ast.walk(fn) if isinstance(n, ast.Call)]:
+            parts = (pyast.dotted(call.func) or "").split(".")
+```
+
+Modify `src/dpr/reviews/auth_flows.py`, replace:
+
+```python
+            seen.add(key)
+            tree = pyast.parse_file(ctx.index, helper[0])
+            found.append(Code(helper[0], helper[1], tree, helper[1].lineno))
+            queue.append((helper[0], helper[1], depth + 1))
+    return found
+
+
+def _js_code(ctx: Context, route: Route) -> list[Code]:
+    handler = route.handler
+    if handler is None or getattr(handler, "type", "") not in jsts.FUNCTION_TYPES:
+        return []
+```
+
+with:
+
+```python
+            seen.add(key)
+            tree = pyast.parse_file(ctx.index, helper[0])
+            found.append(Code(helper[0], helper[1], tree, helper[1].lineno))
+            queue.append((helper[0], helper[1], level + 1))
+    return found
+
+
+def _js_code(ctx: Context, route: Route, depth: int = 2) -> list[Code]:
+    handler = route.handler
+    if handler is None or getattr(handler, "type", "") not in jsts.FUNCTION_TYPES:
+        return []
+```
+
+Modify `src/dpr/reviews/auth_flows.py`, replace:
+
+```python
+    queue = [(route.tree, handler, 0)]
+    seen = {(route.file, handler.start_byte)}
+    while queue:
+        tree, fn, depth = queue.pop(0)
+        if depth >= 2:
+            continue
+        for call in jsts.walk(fn, {"call_expression"}):
+            name = jsts.callee(call).split(".")[-1]
+```
+
+with:
+
+```python
+    queue = [(route.tree, handler, 0)]
+    seen = {(route.file, handler.start_byte)}
+    while queue:
+        tree, fn, level = queue.pop(0)
+        if level >= depth:
+            continue
+        for call in jsts.walk(fn, {"call_expression"}):
+            name = jsts.callee(call).split(".")[-1]
+```
+
+Modify `src/dpr/reviews/auth_flows.py`, replace:
+
+```python
+                found.append(
+                    Code(target_tree.rel, target, target_tree, jsts.line(target_tree, target))
+                )
+                queue.append((target_tree, target, depth + 1))
+    return found
+
+
+def flows(ctx: Context) -> list[Flow]:
+    if "auth_flows" not in ctx.facts:
+        found = []
+```
+
+with:
+
+```python
+                found.append(
+                    Code(target_tree.rel, target, target_tree, jsts.line(target_tree, target))
+                )
+                queue.append((target_tree, target, level + 1))
+    return found
+
+
+def route_code(ctx: Context, route: Route, depth: int = 2) -> list[Code]:
+    """The handler plus the helpers it calls, followed `depth` calls deep."""
+    if isinstance(route.handler, ast.AST):
+        return _py_code(ctx, route, depth)
+    return _js_code(ctx, route, depth)
+
+
+def flows(ctx: Context) -> list[Flow]:
+    if "auth_flows" not in ctx.facts:
+        found = []
+```
+
+Modify `src/dpr/reviews/auth_flows.py`, replace:
+
+```python
+            kind = _kind(ctx, route)
+            if kind is None:
+                continue
+            code = (
+                _py_code(ctx, route) if isinstance(route.handler, ast.AST) else _js_code(ctx, route)
+            )
+            if code:
+                found.append(Flow(kind, route, tuple(code)))
+        ctx.facts["auth_flows"] = found
+```
+
+with:
+
+```python
+            kind = _kind(ctx, route)
+            if kind is None:
+                continue
+            code = route_code(ctx, route)
+            if code:
+                found.append(Flow(kind, route, tuple(code)))
+        ctx.facts["auth_flows"] = found
+```
+
+`src/dpr/reviews/cost_trace.py`:
+
+```python
+"""Review 7, abuse: everything a route costs to run, traced from the handler into its helpers."""
+
+from __future__ import annotations
+
+import ast
+import re
+from dataclasses import dataclass
+
+from dpr.discovery.approots import root_of
+from dpr.model import Route, SdkUse
+from dpr.parsing import pyast
+from dpr.reviews.access import ADMIN, PUBLIC, access
+from dpr.reviews.auth_flows import Code, route_code
+from dpr.reviews.owasp_a01 import attacker
+from dpr.reviews.paid import _names_from_import, _tree_names, _uses
+from dpr.reviews.paths import is_test
+from dpr.rules import Context
+
+CPU_CATEGORIES = frozenset({"pdf", "vector-store", "browser", "image"})
+TRACE_DEPTH = 3
+SPREADSHEET = re.compile(
+    r"\b(?:load_workbook|read_excel|open_workbook|XLSX\.read|ExcelJS\.Workbook|csv\.DictReader)\s*\("
+)
+PY_HTTP = re.compile(r"\b(?:httpx|requests|aiohttp)\.\w+\(|\bAsyncClient\(|\bClientSession\(")
+JS_HTTP = re.compile(r"\b(?:axios\.\w+|fetch)\(\s*[`'\"]https://")
+
+
+@dataclass(frozen=True)
+class CostRow:
+    app: str
+    route: Route
+    calls: tuple[str, ...]
+    categories: tuple[str, ...]
+
+
+def cost_names(ctx: Context) -> dict[str, dict[str, SdkUse]]:
+    """File to imported identifier to SDK, for SDKs that bill or burn CPU per call."""
+    if "cost_names" not in ctx.facts:
+        found: dict[str, dict[str, SdkUse]] = {}
+        for sdk in ctx.detection.sdks:
+            if not (sdk.paid or sdk.category in CPU_CATEGORIES):
+                continue
+            for loc in sdk.locations:
+                lines = ctx.index.text(loc.file).splitlines()
+                if loc.line > len(lines):
+                    continue
+                for name in _names_from_import(lines[loc.line - 1], loc.file.endswith(".py")):
+                    found.setdefault(loc.file, {})[name] = sdk
+        ctx.facts["cost_names"] = found
+    return ctx.facts["cost_names"]
+
+
+def _self_clients(tree: ast.Module, node: ast.AST, names: dict[str, SdkUse]) -> dict[str, SdkUse]:
+    """Attributes such as self._client built from an SDK anywhere in the method's class."""
+    found: dict[str, SdkUse] = {}
+    for cls in pyast.class_defs(tree):
+        if node not in cls.body:
+            continue
+        for sub in ast.walk(cls):
+            if isinstance(sub, ast.Assign):
+                sdk = _uses(ast.unparse(sub.value), names)
+                for target in sub.targets if sdk else []:
+                    if isinstance(target, ast.Attribute) and pyast.dotted(target.value) == "self":
+                        found[f"self.{target.attr}"] = sdk
+    return found
+
+
+def code_costs(ctx: Context, code: Code) -> list[tuple[str, str]]:
+    names = _tree_names(code.tree, cost_names(ctx).get(code.rel, {}))
+    text = code.text()
+    hits: list[tuple[str, str]] = []
+    if code.python and isinstance(code.tree, ast.Module):
+        for attr, sdk in _self_clients(code.tree, code.node, names).items():
+            if re.search(rf"{re.escape(attr)}\b", text):
+                hits.append((sdk.name, sdk.category))
+    sdk = _uses(text, names)
+    if sdk is not None:
+        hits.append((sdk.name, sdk.category))
+    if SPREADSHEET.search(text):
+        hits.append(("spreadsheet parse", "spreadsheet"))
+    if (PY_HTTP if code.python else JS_HTTP).search(text):
+        hits.append(("outbound HTTP", "http"))
+    return hits
+
+
+def app_label(ctx: Context, rel: str) -> str:
+    home = root_of(ctx.detection.app_roots, rel)
+    return home.path if home is not None and home.path else "."
+
+
+def auth_label(ctx: Context, route: Route) -> str:
+    level = access(ctx, route)
+    if level.level == PUBLIC:
+        return "no"
+    if level.level == ADMIN:
+        return "admin only"
+    return attacker(level.evidence)
+
+
+def cost_rows(ctx: Context) -> list[CostRow]:
+    """One row per route that reaches a billed SDK, a CPU-heavy library or an outbound call."""
+    if "cost_rows" not in ctx.facts:
+        rows = []
+        for route in ctx.detection.routes:
+            if is_test(route.file) or route.handler is None:
+                continue
+            hits: list[tuple[str, str]] = []
+            for code in route_code(ctx, route, TRACE_DEPTH):
+                hits += code_costs(ctx, code)
+            if hits:
+                unique = list(dict.fromkeys(hits))
+                rows.append(
+                    CostRow(
+                        app_label(ctx, route.file),
+                        route,
+                        tuple(name for name, _ in unique),
+                        tuple(dict.fromkeys(category for _, category in unique)),
+                    )
+                )
+        ctx.facts["cost_rows"] = rows
+    return ctx.facts["cost_rows"]
+```
+
+Modify `src/dpr/reviews/inventory_map.py`, replace:
+
+```python
+
+from __future__ import annotations
+
+import ast
+import re
+
+from dpr.discovery.approots import root_of
+from dpr.model import DataModel, Location
+from dpr.reviews.auth_flows import _js_code, _py_code
+from dpr.reviews.inventory_retention import iac_retention, readers, retention_text
+from dpr.reviews.inventory_sources import Collection, collection_points, sdk_receipts
+from dpr.reviews.leaks import sentry_inits
+```
+
+with:
+
+```python
+
+from __future__ import annotations
+
+import re
+
+from dpr.discovery.approots import root_of
+from dpr.model import DataModel, Location
+from dpr.reviews.auth_flows import route_code
+from dpr.reviews.inventory_retention import iac_retention, readers, retention_text
+from dpr.reviews.inventory_sources import Collection, collection_points, sdk_receipts
+from dpr.reviews.leaks import sentry_inits
+```
+
+Modify `src/dpr/reviews/inventory_map.py`, replace:
+
+```python
+
+def _reached_sdks(ctx: Context, point: Collection) -> list[str]:
+    route = point.route
+    code = _py_code(ctx, route) if isinstance(route.handler, ast.AST) else _js_code(ctx, route)
+    files = {c.rel for c in code}
+    return [
+        sdk.name
+```
+
+with:
+
+```python
+
+def _reached_sdks(ctx: Context, point: Collection) -> list[str]:
+    route = point.route
+    code = route_code(ctx, route)
+    files = {c.rel for c in code}
+    return [
+        sdk.name
+```
+
+Modify `src/dpr/reviews/owasp_audit.py`, replace:
+
+```python
+
+from __future__ import annotations
+
+import ast
+import re
+from collections.abc import Iterator
+
+from dpr.discovery.approots import root_of
+from dpr.model import Finding, Location, Route, Tag
+from dpr.reviews.access import PUBLIC, access
+from dpr.reviews.auth_flows import _js_code, _py_code
+from dpr.reviews.paths import is_test
+from dpr.rules import Context, make_finding, rule
+
+```
+
+with:
+
+```python
+
+from __future__ import annotations
+
+import re
+from collections.abc import Iterator
+
+from dpr.discovery.approots import root_of
+from dpr.model import Finding, Location, Route, Tag
+from dpr.reviews.access import PUBLIC, access
+from dpr.reviews.auth_flows import route_code
+from dpr.reviews.paths import is_test
+from dpr.rules import Context, make_finding, rule
+
+```
+
+Modify `src/dpr/reviews/owasp_audit.py`, replace:
+
+```python
+    for route in ctx.detection.routes:
+        if is_test(route.file) or route.handler is None or access(ctx, route).level == PUBLIC:
+            continue
+        code = _py_code(ctx, route) if isinstance(route.handler, ast.AST) else _js_code(ctx, route)
+        text = "\n".join(c.text() for c in code)
+        if EXPORT_RESPONSE.search(text) or (
+            EXPORT_PATH.search(route.path) and route.method == "GET"
+```
+
+with:
+
+```python
+    for route in ctx.detection.routes:
+        if is_test(route.file) or route.handler is None or access(ctx, route).level == PUBLIC:
+            continue
+        code = route_code(ctx, route)
+        text = "\n".join(c.text() for c in code)
+        if EXPORT_RESPONSE.search(text) or (
+            EXPORT_PATH.search(route.path) and route.method == "GET"
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (423 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/data/costs.yaml src/dpr/reviews/abuse.py src/dpr/reviews/auth_flows.py src/dpr/reviews/cost_trace.py src/dpr/reviews/inventory_map.py src/dpr/reviews/owasp_audit.py tests/reviews/test_abuse_section.py tests/reviews/test_cost_trace.py
+git commit -m "Trace the cost surface through services and label rows by app"
+```
+
+---
+
+### Task 80: Milestone 3 safety tests and the remaining documented limits
+
+Closes the comparability bar. Every fixture, bad and good, runs all seven reviews with the same twelve top-level sections and the register, map, table status, cases, checks that pass, place 1, cost surface and lawyer parts. Every finding in every fixture keeps the evidence rules (CONFIRMED has a location, INFERRED has proof needed) with no unfilled template placeholder, no legal verdict phrase and no em dash. No secret or planted email address appears in Markdown, JSON or SARIF output, and `express-prisma` opens no network connection. Two limits found by the comparison that no general static rule decides are listed in "What this review did not cover": infrastructure hostnames in example env files and docs, and personal data copies outside the repository.
+
+**Files:**
+- Modify: `src/dpr/report/coverage.py` (two documented limits)
+- Test: `tests/test_safety_m3.py`
+
+**Interfaces:**
+- Consumes: everything above
+- Produces:
+  - no new public names
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/test_safety_m3.py`:
+
+```python
+import json
+import socket
+
+import pytest
+
+from dpr import reviews, rules
+from dpr.api import review
+from dpr.cli import main
+from dpr.model import Tag
+from dpr.report.markdown import BANNED_PHRASES, render_markdown
+from tests.fixture_builder import SECRETS, build
+
+ALL = (
+    "next-supabase-bad",
+    "django-bad",
+    "fastapi-bad",
+    "express-prisma",
+    "next-supabase-good",
+    "fastapi-good",
+)
+SECTIONS = (
+    "## Summary",
+    "## Evidence tags",
+    "## Detection",
+    "## 1. Data inventory",
+    "## 2. Database lock check",
+    "## 3. Failure path test plan",
+    "## 4. Security baseline",
+    "## 5. OWASP sweep",
+    "## 6. Leak hunt",
+    "## 7. Abuse and bill guard",
+    "## Open questions",
+    "## What this review did not cover",
+)
+REQUIRED_PARTS = (
+    "### Findings register",
+    "### Personal data map",
+    "### Table protection status",
+    "### Cases",
+    "### Checks that pass",
+    "### Place 1: public variables reviewed",
+    "### Cost surface",
+    "### For the data protection lawyer",
+)
+PLANTED_EMAIL = "maria.okafor" + "@" + "gmail.com"
+
+
+@pytest.mark.parametrize("name", ALL)
+def test_every_review_runs_with_the_same_section_structure(tmp_path, name):
+    report = review(build(name, tmp_path))
+    assert all(status == "runs" for _, status in report.meta.applicability)
+    text = render_markdown(report)
+    assert tuple(line for line in text.splitlines() if line.startswith("## ")) == SECTIONS
+    for heading in REQUIRED_PARTS:
+        assert f"\n{heading}\n" in text, heading
+
+
+@pytest.mark.parametrize("name", ALL)
+def test_evidence_wording_and_templates_hold_in_every_fixture(tmp_path, name):
+    report = review(build(name, tmp_path))
+    for finding in report.findings:
+        if finding.tag is Tag.CONFIRMED:
+            assert finding.locations, finding.rule_id
+        if finding.tag is Tag.INFERRED:
+            assert finding.proof_needed, finding.rule_id
+        for text in (finding.title, finding.detail, finding.fix, finding.proof_needed or ""):
+            assert "${" not in text, finding.rule_id
+    text = render_markdown(report)
+    assert not any(phrase in text.lower() for phrase in BANNED_PHRASES)
+    assert "\u2014" not in text
+
+
+@pytest.mark.parametrize("name", ("express-prisma", "django-bad"))
+def test_no_secret_or_planted_address_in_any_format(tmp_path, capsys, name):
+    root = build(name, tmp_path)
+    out_dir = tmp_path / "out"
+    assert main(["scan", str(root), "--format", "md,json,sarif", "--out", str(out_dir)]) == 0
+    outputs = [p.read_text() for p in out_dir.iterdir()]
+    captured = capsys.readouterr()
+    outputs += [captured.out, captured.err]
+    for value in (*SECRETS, PLANTED_EMAIL):
+        assert not any(value in text for text in outputs), value
+    data = json.loads(next(p for p in out_dir.iterdir() if p.suffix == ".json").read_text())
+    assert data["register"]
+
+
+def test_express_prisma_opens_no_network_connection(tmp_path, monkeypatch):
+    root = build("express-prisma", tmp_path)
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("network connection attempted")
+
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    monkeypatch.setattr(socket.socket, "connect_ex", refuse)
+    monkeypatch.setattr(socket, "create_connection", refuse)
+    review(root, semgrep="off")
+
+
+def test_every_rule_has_a_title_and_fix_without_em_dashes():
+    reviews.available()
+    for rule_id in rules.SPECS:
+        text = rules.rule_text(rule_id)
+        assert text.title and text.fix, rule_id
+        assert "\u2014" not in f"{text.title}{text.detail}{text.fix}{text.proof_needed}", rule_id
+
+
+def test_limits_found_by_the_comparison_are_listed_as_not_covered(tmp_path):
+    report = review(build("express-prisma", tmp_path))
+    assert any(
+        n.startswith("Infrastructure hostnames and internal endpoints") for n in report.not_covered
+    )
+    assert any(
+        n.startswith("Copies of personal data kept outside the repository")
+        for n in report.not_covered
+    )
+    assert any(n.startswith("Screening new passwords") for n in report.not_covered)
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest -q tests/test_safety_m3.py`
+Expected: FAIL (pytest reports 1 failed, 16 passed: only `test_limits_found_by_the_comparison_are_listed_as_not_covered` fails; the other tests guard behaviour Tasks 53 to 79 built and pass already)
+
+- [ ] **Step 3: List the two limits**
+
+Modify `src/dpr/report/coverage.py`, replace:
+
+```python
+    r"(?i)\.(?:pdf|xlsx|xlsm|xls|docx|doc|pptx|png|jpe?g|sqlite3?|db|bak|bacpac|dump)$"
+)
+BREACHED = "Screening new passwords against breached-password lists is not checked"
+
+
+def coverage_notes(root, detection: Detection, options: Options, sections: set[str]) -> list[str]:
+```
+
+with:
+
+```python
+    r"(?i)\.(?:pdf|xlsx|xlsm|xls|docx|doc|pptx|png|jpe?g|sqlite3?|db|bak|bacpac|dump)$"
+)
+BREACHED = "Screening new passwords against breached-password lists is not checked"
+HOSTNAMES = (
+    "Infrastructure hostnames and internal endpoints named in committed example env files and "
+    "documentation are not reported"
+)
+OFF_REPO = (
+    "Copies of personal data kept outside the repository, such as database restores or exports "
+    "on developer machines, cannot be seen from the code"
+)
+
+
+def coverage_notes(root, detection: Detection, options: Options, sections: set[str]) -> list[str]:
+```
+
+Modify `src/dpr/report/coverage.py`, replace:
+
+```python
+        )
+    if "auth" in sections:
+        notes.append(BREACHED)
+    return notes
+```
+
+with:
+
+```python
+        )
+    if "auth" in sections:
+        notes.append(BREACHED)
+    if "leaks" in sections:
+        notes.append(HOSTNAMES)
+    if "inventory" in sections:
+        notes.append(OFF_REPO)
+    return notes
+```
+
+- [ ] **Step 4: Run the whole suite and lint**
+
+Run: `uv run ruff format && uv run ruff check && uv run pytest -q`
+Expected: ruff reports no changes and no errors; PASS (440 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/dpr/report/coverage.py tests/test_safety_m3.py
+git commit -m "Add Milestone 3 safety tests and list the remaining limits"
+```
+
+---
+
+### After Milestone 3: follow-on items not in this plan
+
+Out of scope by decision for Milestone 3, as in the brief: the Semgrep adapter, the npm audit and pip-audit adapters, the CI Semgrep job and CI example, the Markdown snapshot test, smoke runs on other repositories and the project agent instructions file.
+
+Smaller items the comparison judge mentioned that no bar criterion needs, left for a later milestone:
+
+- API responses on authenticated routes: check `Cache-Control: no-store` (the judge's suggestion for API-only header checks). Task 60 stops the false positives; it does not add this check.
+- Place 2 rules for session tokens returned in JSON bodies next to cookies, and personal data inside JWT claims (from the judge's structure row for review 6). Place 2 currently summarises `LEAK-BROAD-RESPONSE`.
+- Opt-in seed guards (a seed that runs only when an `ALLOW_*` flag is set) recognised as a suppressing condition for `BASE-SEED-ON-START` and `BASE-LITERAL-PASSWORD-HASH`. Neither report flags such a guarded seed today.
+- Route classification that follows service ownership helpers, so routes checked in a service are labelled ownership-checked in review 5's table. This changes a table, not findings.
+- Hosting-aware alert queries in review 7 (for example log queries for the detected monitoring exporter).
+- The report header prints the scope as given on the command line; resolving it to an absolute path or the repository name is cosmetic.
