@@ -171,3 +171,12 @@ def test_redaction_stays_linear_on_long_runs():
         started = time.perf_counter()
         redact(text)
         assert time.perf_counter() - started < 1.0, text[:20]
+
+
+def test_snippet_masks_quoted_values_inside_query_and_form_strings():
+    line = f"""curl -X POST "https://api.example.invalid/v1" -d "user=bob&password='{SECRET}'" """
+    out = snippet(line, 1)
+    assert SECRET not in out
+    assert "&password='<redacted:secret>'" in out
+    dynamic = 'url = "https://x.example/?token="+token+"&a=1"'
+    assert snippet(dynamic, 1) == dynamic

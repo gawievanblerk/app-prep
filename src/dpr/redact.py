@@ -39,6 +39,7 @@ SECRET_LITERAL = re.compile(
     r"[ \t]{0,8})(" + LITERAL + ")"
 )
 NEXT_LITERAL = re.compile(r"([ \t]{0,8}\+?[ \t]{0,8})(" + LITERAL + ")")
+QUERY_QUOTED = re.compile(r"([?&](?:" + SECRET_PARAM_NAMES + r")=)(['\"])([^'\"\s&#+]+)\2")
 QUERY_CONCAT = re.compile(
     r"([?&](?:" + SECRET_PARAM_NAMES + r")=[\"'`][ \t]{0,8}\+[ \t]{0,8})(" + LITERAL + ")"
 )
@@ -126,7 +127,8 @@ def _masked_literal(literal: str, kind: str = "secret") -> str:
 
 
 def _in_query(text: str, start: int) -> bool:
-    """The secret name is a URL query parameter (?api_key=), which SECRET_QUERY handles."""
+    """The secret name is a URL query or form parameter (?api_key=), which the query patterns
+    handle (a bare, quoted or concatenated value)."""
     begin = start
     while (
         begin > 0 and start - begin < 64 and (text[begin - 1].isalnum() or text[begin - 1] in "_.-")
@@ -163,6 +165,7 @@ def redact(text: str) -> str:
     text = URL_CREDS.sub(r"\1<redacted:password>\3", text)
     text = CLI_SECRET.sub(_cli_secret, text)
     text = SECRET_QUERY.sub(r"\1<redacted:secret>", text)
+    text = QUERY_QUOTED.sub(r"\1\2<redacted:secret>\2", text)
     text = QUERY_CONCAT.sub(lambda m: m.group(1) + _masked_literal(m.group(2)), text)
     text = _mask_secret_literals(text)
     return SECRET_ENV.sub(_env_secret, text)

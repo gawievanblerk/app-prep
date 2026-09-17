@@ -603,3 +603,51 @@ def test_drf_default_permissions_are_read_from_the_settings_tree(tmp_path):
     found = classify(required)
     assert found[("ANY", "/summary")].level == "authenticated"
     assert found[("ANY", "/page")].level == "public"
+
+
+def test_local_and_test_settings_never_override_production_settings(tmp_path):
+    views = (
+        "from openai import OpenAI\nfrom rest_framework.decorators import api_view\n"
+        "from rest_framework.response import Response\nclient = OpenAI()\n"
+        "@api_view(['POST'])\ndef generate(request):\n"
+        "    return Response(client.responses.create(model='x', input=request.data['text']))\n"
+    )
+    write(tmp_path, "requirements.txt", "django==5.1\ndjangorestframework==3.16\nopenai==1.0.0\n")
+    write(tmp_path, "manage.py", "import django\n")
+    write(
+        tmp_path,
+        "config/settings/base.py",
+        "INSTALLED_APPS = ['rest_framework', 'shop']\n"
+        "REST_FRAMEWORK = {'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated']}\n",
+    )
+    for name in ("local", "test", "development"):
+        write(
+            tmp_path,
+            f"config/settings/{name}.py",
+            "from .base import *  # noqa\n"
+            "REST_FRAMEWORK['DEFAULT_PERMISSION_CLASSES'] = ['rest_framework.permissions.AllowAny']\n",
+        )
+    write(tmp_path, "config/settings/production.py", "from .base import *  # noqa\nDEBUG = False\n")
+    write(
+        tmp_path,
+        "shop/urls.py",
+        "from django.urls import path\nfrom . import views\nurlpatterns = [path('generate/', views.generate)]\n",
+    )
+    write(tmp_path, "shop/views.py", views)
+    assert classify(tmp_path)[("ANY", "/generate")].level == "authenticated"
+    assert findings_for(tmp_path, "abuse", "ABUSE-PAID-UNAUTH") == []
+
+    only_local = tmp_path / "only_local"
+    write(
+        only_local,
+        "config/settings/local.py",
+        "INSTALLED_APPS = ['rest_framework', 'shop']\n"
+        "REST_FRAMEWORK = {'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated']}\n",
+    )
+    write(
+        only_local,
+        "shop/urls.py",
+        "from django.urls import path\nfrom . import views\nurlpatterns = [path('generate/', views.generate)]\n",
+    )
+    write(only_local, "shop/views.py", views)
+    assert classify(only_local)[("ANY", "/generate")].level == "authenticated"

@@ -28,6 +28,7 @@ from dpr.reviews.access_names import (
     strongest,
     unread_guard,
 )
+from dpr.reviews.access_next import next_js
 from dpr.reviews.paths import is_test
 from dpr.rules import Context
 
@@ -379,7 +380,7 @@ def _classify(ctx: Context, route: Route) -> Access:
     if route.framework in ("django", "drf"):
         return frameworks.django(ctx, route)
     if route.framework.startswith("next"):
-        return frameworks.next_js(ctx, route)
+        return next_js(ctx, route)
     if route.framework in ("express", "fastify") and route.tree is not None:
         return _express(ctx, route)
     return public("framework not classified")

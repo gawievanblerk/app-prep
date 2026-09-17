@@ -1,22 +1,20 @@
-"""Route access for Flask, Django and Next.js, and app-level Python guards the classifier
-cannot read."""
+"""Route access for Flask and Django, and app-level Python guards the classifier cannot read."""
 
 from __future__ import annotations
 
 import ast
 import re
+from pathlib import PurePosixPath
 
 from dpr.model import Route
-from dpr.parsing import jsts, pyast
+from dpr.parsing import pyast
 from dpr.reviews.access_names import (
     ADMIN,
-    ADMIN_WORD,
     AUTHENTICATED,
     MIXED,
     PUBLIC,
     Access,
     auth_middleware,
-    auth_name,
     public,
 )
 from dpr.reviews.paths import is_test
@@ -37,18 +35,12 @@ DJANGO_DECORATORS = re.compile(
 DJANGO_MIXINS = re.compile(r"(LoginRequired|PermissionRequired|UserPassesTest)Mixin")
 DRF_VIEW = re.compile(r"(?:APIView|ViewSet|GenericAPIView)$")
 READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+LOCAL_SETTINGS = frozenset({"test", "tests", "testing", "local", "dev", "development"})
 VIEW_ACTIONS = {
     "get": "GET", "head": "HEAD", "options": "OPTIONS", "list": "GET", "retrieve": "GET",
     "post": "POST", "create": "POST", "put": "PUT", "update": "PUT", "patch": "PATCH",
     "partial_update": "PATCH", "delete": "DELETE", "destroy": "DELETE",
 }  # fmt: skip
-JS_AUTH_CALL = re.compile(
-    r"\b(auth|getServerSession|getSession|currentUser|getAuth|requireAuth|requireUser"
-    r"|getCurrentUser|verifyToken|getToken|validateRequest|getKindeServerSession|getUser"
-    r"|withAuth)\s*\("
-)
-JS_ADMIN_CHECK = re.compile(r"""isAdmin|role\s*[!=]==?\s*['"]admin['"]|['"]admin['"]\s*[!=]==?""")
-NEXT_AUTH_TEXT = re.compile(r"auth|clerkMiddleware|withAuth|getToken|updateSession|session")
 DJANGO_SUBJECTS = ("request.user", "self.request.user")
 FLASK_SUBJECTS = ("current_user", "g.user", "get_jwt_identity")
 
@@ -154,34 +146,56 @@ def _drf_default(node: ast.AST) -> ast.AST | None:
     return None
 
 
+def _local_settings(rel: str) -> bool:
+    """A test, local or development settings module (settings/local.py, dev_settings.py) or
+    any settings file under a tests folder."""
+    words = set(re.split(r"[_.-]", PurePosixPath(rel).stem.lower()))
+    return is_test(rel) or bool(words & LOCAL_SETTINGS)
+
+
+def _settings_module(ctx: Context, rel: str) -> dict | None:
+    """What one settings module sets: LoginRequiredMiddleware, DRF default kinds, and a custom
+    auth middleware. None when the file sets none of INSTALLED_APPS, REST_FRAMEWORK and
+    MIDDLEWARE."""
+    text = ctx.index.text(rel)
+    if not re.search(r"INSTALLED_APPS|REST_FRAMEWORK|MIDDLEWARE", text):
+        return None
+    holds = "INSTALLED_APPS" in text or "REST_FRAMEWORK" in text
+    found: dict = {"login": False, "drf": [], "unread": ""}
+    tree = pyast.parse_file(ctx.index, rel)
+    for node in ast.walk(tree) if tree else []:
+        default = _drf_default(node) if holds else None
+        if default is not None:
+            found["drf"].append(_permission_kind(_permission_names(default)))
+        if "MIDDLEWARE" not in _settings_names(node):
+            continue
+        for item in ast.walk(node):
+            value = pyast.constant(item, None)
+            if not isinstance(value, str):
+                continue
+            if value.endswith("LoginRequiredMiddleware"):
+                found["login"] = True
+            elif not value.startswith("django.") and auth_middleware(value.split(".")[-1]):
+                found["unread"] = found["unread"] or f"{value} in {rel}"
+    return found
+
+
 def django_settings(ctx: Context) -> tuple[bool, str | None, str]:
-    """From every non-test settings module, read as a syntax tree so comments never count:
-    LoginRequiredMiddleware listed, the DRF default permission kind, and a custom auth
-    middleware the classifier cannot read."""
+    """From the settings modules, read as syntax trees so comments never count:
+    LoginRequiredMiddleware listed, the DRF default permission kind ("mixed" when production
+    modules disagree), and a custom auth middleware the classifier cannot read. Test, local and
+    development modules are used only when no other settings module exists."""
     key = ("django-settings-auth", "")
     if key in ctx.index.cache:
         return ctx.index.cache[key]
-    login, drf, unread = False, None, ""
-    for entry in ctx.index.py_files:
-        text = ctx.index.text(entry.rel)
-        if not re.search(r"INSTALLED_APPS|REST_FRAMEWORK|MIDDLEWARE", text) or is_test(entry.rel):
-            continue
-        holds = "INSTALLED_APPS" in text or "REST_FRAMEWORK" in text
-        tree = pyast.parse_file(ctx.index, entry.rel)
-        for node in ast.walk(tree) if tree else []:
-            default = _drf_default(node) if holds else None
-            if default is not None:
-                drf = _permission_kind(_permission_names(default))
-            if "MIDDLEWARE" not in _settings_names(node):
-                continue
-            for item in ast.walk(node):
-                value = pyast.constant(item, None)
-                if not isinstance(value, str):
-                    continue
-                if value.endswith("LoginRequiredMiddleware"):
-                    login = True
-                elif not value.startswith("django.") and auth_middleware(value.split(".")[-1]):
-                    unread = unread or f"{value} in {entry.rel}"
+    modules = [(entry.rel, _settings_module(ctx, entry.rel)) for entry in ctx.index.py_files]
+    modules = [(rel, found) for rel, found in modules if found is not None]
+    chosen = [found for rel, found in modules if not _local_settings(rel)]
+    chosen = chosen or [found for _rel, found in modules]
+    kinds = list(dict.fromkeys(kind for found in chosen for kind in found["drf"]))
+    drf = kinds[0] if len(kinds) == 1 else ("mixed" if kinds else None)
+    login = any(found["login"] for found in chosen)
+    unread = next((found["unread"] for found in chosen if found["unread"]), "")
     ctx.index.cache[key] = (login, drf, unread)
     return ctx.index.cache[key]
 
@@ -215,6 +229,9 @@ def _permission_access(route: Route, kind: str, evidence: str) -> Access:
         return Access(ADMIN, DJANGO_SUBJECTS, evidence)
     if kind == "authenticated":
         return Access(AUTHENTICATED, DJANGO_SUBJECTS, evidence)
+    if kind == "mixed":
+        where = "sign-in required by some settings modules only"
+        return Access(PUBLIC, (), f"{evidence} differs between settings modules", MIXED, where)
     methods = _view_methods(route.handler)
     if methods is not None and methods <= READ_METHODS:
         return Access(PUBLIC, (), f"{evidence} on a read-only view")
@@ -289,103 +306,3 @@ def django(ctx: Context, route: Route) -> Access:
     if drf and drf_view:
         return _permission_access(route, drf, "DEFAULT_PERMISSION_CLASSES")
     return public("no login decorator or permission class", unread)
-
-
-def _js_subjects(handler) -> tuple[str, ...]:
-    names = []
-    for decl in jsts.walk(handler, {"variable_declarator"}):
-        value = jsts.node_text(decl.child_by_field_name("value"))
-        if not JS_AUTH_CALL.search(value) and "auth.getUser" not in value:
-            continue
-        target = decl.child_by_field_name("name")
-        if target is not None and target.type == "identifier":
-            names.append(jsts.node_text(target))
-        elif target is not None:
-            for ident in jsts.walk(target, {"shorthand_property_identifier_pattern", "identifier"}):
-                names.append(jsts.node_text(ident))
-    return tuple(dict.fromkeys(names))
-
-
-def _path_regex(pattern: str) -> re.Pattern[str] | None:
-    """A Next.js matcher (path-to-regexp syntax with regex groups) as a Python regex."""
-    out: list[str] = []
-    i = 0
-    while i < len(pattern):
-        param = re.match(r":(\w+)([*+?])?", pattern[i:])
-        if param:
-            optional = param.group(2) in ("*", "?") and out and out[-1] == "/"
-            if optional:
-                out.pop()
-            segment = "(?:/.*)?" if param.group(2) == "*" else "(?:/[^/]+)?"
-            out.append(segment if optional else "[^/]+" + (".*" if param.group(2) else ""))
-            i += param.end()
-        elif pattern[i] == "(":
-            depth, j = 0, i
-            while j < len(pattern):
-                if pattern[j] == "\\":
-                    j += 2
-                    continue
-                depth += {"(": 1, ")": -1}.get(pattern[j], 0)
-                j += 1
-                if depth == 0:
-                    break
-            out.append(pattern[i:j])
-            i = j
-        else:
-            out.append(".*" if pattern[i] == "*" else re.escape(pattern[i]))
-            i += 1
-    try:
-        return re.compile("".join(out))
-    except re.error:
-        return None
-
-
-def _matcher_covers(text: str, path: str) -> bool:
-    patterns = re.findall(r"""['"](/[^'"]*)['"]""", text[text.find("matcher") :])
-    if "matcher" not in text or not patterns:
-        return True
-    for pattern in patterns:
-        prefix = re.split(r"[:(\[*]", pattern, maxsplit=1)[0].rstrip("/")
-        regex = _path_regex(pattern) if path.startswith("/") else None
-        if regex is not None and regex.fullmatch(path):
-            return True
-        if regex is None and (not prefix or path == prefix or path.startswith(prefix + "/")):
-            return True
-    return False
-
-
-def _next_middleware(ctx: Context, path: str) -> tuple[bool, str] | None:
-    """(reads as auth, file) for a middleware file whose matcher covers the path."""
-    found = None
-    for entry in ctx.index.named("middleware.ts", "middleware.js"):
-        if entry.rel not in (
-            "middleware.ts",
-            "middleware.js",
-            "src/middleware.ts",
-            "src/middleware.js",
-        ):
-            continue
-        text = ctx.index.text(entry.rel)
-        if _matcher_covers(text, path):
-            found = (bool(NEXT_AUTH_TEXT.search(text)), entry.rel)
-            if found[0]:
-                return found
-    return found
-
-
-def next_js(ctx: Context, route: Route) -> Access:
-    handler = route.handler
-    text = jsts.node_text(handler) if handler is not None else ""
-    if JS_AUTH_CALL.search(text) or "auth.getUser" in text:
-        level = ADMIN if JS_ADMIN_CHECK.search(text) else AUTHENTICATED
-        return Access(level, _js_subjects(handler), "auth call in handler")
-    names = [n for n in route.wrappers if auth_name(n) or ADMIN_WORD.search(n)]
-    if names:
-        level = ADMIN if any(ADMIN_WORD.search(name) for name in names) else AUTHENTICATED
-        subjects = _js_subjects(handler) if handler is not None else ()
-        return Access(level, subjects, "wrapper " + ", ".join(names[:3]))
-    middleware = _next_middleware(ctx, route.path)
-    if middleware is not None and middleware[0]:
-        return Access(AUTHENTICATED, (), "middleware matcher")
-    unread = f"the middleware in {middleware[1]}" if middleware is not None else ""
-    return public("no auth call and no middleware matcher", unread)
