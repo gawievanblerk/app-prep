@@ -34,18 +34,18 @@ def test_full_run(tmp_path):
     before = files(root)
     report = review(root, today=datetime.date(2026, 9, 16))
     assert files(root) == before
-    assert set(report.sections) == {"leaks", "rls"}
-    assert report.meta.reviews_run == ("rls", "leaks")
+    assert set(report.sections) == {"leaks", "rls", "baseline", "owasp", "abuse"}
+    assert report.meta.reviews_run == ("rls", "baseline", "owasp", "leaks", "abuse")
     assert report.meta.date == "2026-09-16"
     assert report.meta.project == root.name
     assert dict(report.meta.applicability) == {
         "inventory": "not available in this version",
         "rls": "runs",
         "auth": "not available in this version",
-        "baseline": "not available in this version",
-        "owasp": "not available in this version",
+        "baseline": "runs",
+        "owasp": "runs",
         "leaks": "runs",
-        "abuse": "not available in this version",
+        "abuse": "runs",
     }
     assert [s for s, _ in report.meta.applicability] == [
         "inventory",
@@ -105,9 +105,12 @@ def test_validation(tmp_path):
         review(root, reviews=["9"])
 
 
-def test_url_note_until_baseline_exists(tmp_path):
-    report = review(app(tmp_path), url="https://example.com", owns_host=True)
-    assert any("Live header read skipped" in n for n in report.not_covered)
+def test_url_note_when_baseline_does_not_run(tmp_path):
+    report = review(app(tmp_path), reviews=["leaks"], url="https://example.com", owns_host=True)
+    assert (
+        "Live header read skipped: it belongs to review 4 (baseline), which did not run"
+        in report.not_covered
+    )
 
 
 def test_sanity_check_propagates(tmp_path):
@@ -141,7 +144,7 @@ def test_failing_review_module_is_recorded_when_not_strict(tmp_path, monkeypatch
     monkeypatch.delenv("DPR_STRICT")
     report = review(root)
     assert "review leaks failed: RuntimeError" in report.not_covered
-    assert set(report.sections) == {"rls"}
+    assert set(report.sections) == {"rls", "baseline", "owasp", "abuse"}
     assert not any(f.review == "leaks" for f in report.findings)
     assert dict(report.meta.applicability)["leaks"] == "failed: RuntimeError"
     monkeypatch.setenv("DPR_STRICT", "1")

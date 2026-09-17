@@ -14,7 +14,7 @@ def test_bad_fixture_reports_exactly_the_planted_defects(tmp_path):
     root = build("next-supabase-bad", tmp_path)
     expected = yaml.safe_load((FIXTURES / "next-supabase-bad" / "expected.yaml").read_text())
     want = {(e["rule"], e["file"], e["line"], e["tag"]) for e in expected["findings"]}
-    got = found(review(root))
+    got = {item for item in found(review(root)) if item[0].startswith(("LEAK-", "RLS-"))}
     assert got - want == set(), "unexpected findings"
     assert want - got == set(), "missing findings"
 
@@ -36,4 +36,4 @@ def test_good_fixture_reports_none_of_the_defects(tmp_path):
         ]
     )
     assert [f for f in report.findings if f.rule_id in banned] == []
-    assert set(report.sections) == {"leaks", "rls"}
+    assert set(report.sections) == {"leaks", "rls", "baseline", "owasp", "abuse"}

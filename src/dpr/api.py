@@ -21,14 +21,12 @@ SKIPPED_OPTIONS = (
     (
         "url",
         "baseline",
-        "Live header read skipped: it belongs to review 4 (baseline), "
-        "which is not available in this version",
+        "Live header read skipped: it belongs to review 4 (baseline), which did not run",
     ),
     (
         "with_audit",
         "owasp",
-        "Dependency audit skipped: it belongs to review 5 (owasp), "
-        "which is not available in this version",
+        "Dependency audit skipped: it belongs to review 5 (owasp), which did not run",
     ),
 )
 
@@ -120,7 +118,7 @@ def review(
         findings.extend(run_checks(slug, ctx))
 
     for option, owner, note in SKIPPED_OPTIONS:
-        if getattr(options, option) and owner not in modules:
+        if getattr(options, option) and owner not in sections:
             ctx.not_covered.append(note)
 
     applicability = tuple(
