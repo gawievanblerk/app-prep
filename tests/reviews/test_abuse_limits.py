@@ -85,3 +85,37 @@ def test_upload_read_without_limit(tmp_path):
         ),
         ("api/files.py:10", "The handler reads the whole upload into memory with no size limit."),
     ]
+
+
+INMEMORY_LIMITER = (
+    "from slowapi import Limiter\nfrom slowapi.util import get_remote_address\n"
+    "limiter = Limiter(key_func=get_remote_address)\n"
+)
+
+
+def test_multi_process_ignores_comments_and_other_tools(tmp_path):
+    commented = tmp_path / "commented"
+    write(commented, "api/app/rate_limit.py", INMEMORY_LIMITER)
+    write(
+        commented,
+        "startup.sh",
+        "# gunicorn app:app --workers 4\ngunicorn app:app --workers 1\n",
+    )
+    assert findings_for(commented, "abuse", "ABUSE-INMEMORY-LIMITER") == []
+
+    other_tool = tmp_path / "other_tool"
+    write(other_tool, "api/app/rate_limit.py", INMEMORY_LIMITER)
+    write(other_tool, "start.sh", "curl -w 4 https://example.com\n")
+    assert findings_for(other_tool, "abuse", "ABUSE-INMEMORY-LIMITER") == []
+
+    procfile = tmp_path / "procfile"
+    write(procfile, "api/app/rate_limit.py", INMEMORY_LIMITER)
+    write(procfile, "Procfile", "web: gunicorn app:app -w 3\n")
+    [found] = findings_for(procfile, "abuse", "ABUSE-INMEMORY-LIMITER")
+    assert str(found.locations[1]) == "Procfile:1"
+
+    pm2 = tmp_path / "pm2"
+    write(pm2, "api/app/rate_limit.py", INMEMORY_LIMITER)
+    write(pm2, "startup.sh", "pm2 start app.js -i max\n")
+    [found] = findings_for(pm2, "abuse", "ABUSE-INMEMORY-LIMITER")
+    assert str(found.locations[1]) == "startup.sh:1"

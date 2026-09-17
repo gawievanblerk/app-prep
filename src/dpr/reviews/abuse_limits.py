@@ -12,13 +12,13 @@ from dpr.redact import snippet
 from dpr.reviews.baseline_accounts import START_FILES
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
-from dpr.walk import line_of
 
 WORKERS = re.compile(
     r"(?:--workers|-w)[ =](\d+)|WEB_CONCURRENCY=(\d+)|^\s*workers\s*=\s*(\d+)"
-    r"|replicas:\s*(\d+)|-i\s+(max|\d+)|instances:\s*(max|\d+)",
-    re.MULTILINE,
+    r"|replicas:\s*(\d+)|-i\s+(max|\d+)|instances:\s*(max|\d+)"
 )
+RUNNER_NAMES = re.compile(r"(?i)gunicorn|uvicorn|hypercorn|daphne|granian")
+PM2_NAME = re.compile(r"(?i)pm2")
 PROXY_TRUST = re.compile(
     r"forwarded-allow-ips|FORWARDED_ALLOW_IPS|ProxyHeadersMiddleware|ProxyFix|trust proxy"
     r"|trustProxy|get_ipaddr|x-forwarded-for",
@@ -29,6 +29,29 @@ COUNTER_NAME = re.compile(r"(?i)rate|limit|attempt|hits|count|bucket")
 UPLOAD_READ = re.compile(r"(?:\w+)\.read")
 
 
+def _strip_comment(line: str) -> str:
+    """Drop text after an unquoted ' #', so a trailing comment is not read as evidence."""
+    quote = None
+    for index, char in enumerate(line[:-1]):
+        if quote:
+            if char == quote:
+                quote = None
+        elif char in "'\"":
+            quote = char
+        elif char == " " and line[index + 1] == "#":
+            return line[:index]
+    return line
+
+
+def _live_lines(text: str) -> Iterator[tuple[int, str]]:
+    """Non-comment, non-blank lines, with trailing comments removed."""
+    for number, raw in enumerate(text.splitlines(), start=1):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith(("#", "//")):
+            continue
+        yield number, _strip_comment(raw)
+
+
 def multi_process(ctx: Context, near: str = "") -> Location | None:
     """Evidence that more than one process or instance serves requests, closest to `near`."""
     if ctx.detection.serverless:
@@ -37,10 +60,19 @@ def multi_process(ctx: Context, near: str = "") -> Location | None:
     found = []
     for entry in ctx.index.named(*names):
         text = ctx.index.text(entry.rel)
-        for match in WORKERS.finditer(text):
-            value = next(g for g in match.groups() if g)
+        for number, line in _live_lines(text):
+            match = WORKERS.search(line)
+            if match is None:
+                continue
+            groups = match.groups()
+            matched = next(i for i, g in enumerate(groups) if g is not None)
+            if matched == 0 and not RUNNER_NAMES.search(line):
+                continue
+            if matched == 4 and not PM2_NAME.search(line):
+                continue
+            value = groups[matched]
             if value == "max" or int(value) > 1:
-                found.append(Location(entry.rel, line_of(text, match.start())))
+                found.append(Location(entry.rel, number))
                 break
     if not found:
         return None
