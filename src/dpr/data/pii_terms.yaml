@@ -1,0 +1,1 @@
+sensitive_columns: [password, hash, token, secret, stripe_customer_id, role]

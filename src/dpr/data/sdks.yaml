@@ -1,0 +1,36 @@
+- {name: stripe, category: payments, recipient: true, paid: false, packages: [stripe, "@stripe/stripe-js", "@stripe/react-stripe-js"]}
+- {name: paddle, category: payments, recipient: true, paid: false, packages: ["@paddle/paddle-js", "@paddle/paddle-node-sdk"]}
+- {name: lemonsqueezy, category: payments, recipient: true, paid: false, packages: ["@lemonsqueezy/lemonsqueezy.js"]}
+- {name: sendgrid, category: email, recipient: true, paid: true, packages: ["@sendgrid/mail", sendgrid]}
+- {name: postmark, category: email, recipient: true, paid: true, packages: [postmark, postmarker]}
+- {name: resend, category: email, recipient: true, paid: true, packages: [resend]}
+- {name: mailgun, category: email, recipient: true, paid: true, packages: [mailgun.js, mailgun]}
+- {name: nodemailer, category: email, recipient: true, paid: true, packages: [nodemailer]}
+- {name: twilio, category: sms, recipient: true, paid: true, packages: [twilio]}
+- {name: aws-s3, category: storage, recipient: true, paid: true, packages: ["@aws-sdk/client-s3", boto3]}
+- {name: aws-ml, category: ml, recipient: true, paid: true, packages: ["@aws-sdk/client-textract", "@aws-sdk/client-rekognition", "@aws-sdk/client-transcribe"]}
+- {name: openai, category: llm, recipient: true, paid: true, packages: [openai]}
+- {name: anthropic, category: llm, recipient: true, paid: true, packages: ["@anthropic-ai/sdk", anthropic]}
+- {name: google-ai, category: llm, recipient: true, paid: true, packages: ["@google/generative-ai", "@google/genai", google-generativeai, google-genai]}
+- {name: replicate, category: llm, recipient: true, paid: true, packages: [replicate]}
+- {name: segment, category: analytics, recipient: true, paid: false, packages: ["@segment/analytics-next", "@segment/analytics-node", analytics-node]}
+- {name: mixpanel, category: analytics, recipient: true, paid: false, packages: [mixpanel, mixpanel-browser]}
+- {name: amplitude, category: analytics, recipient: true, paid: false, packages: ["@amplitude/analytics-browser", "@amplitude/analytics-node", amplitude-js]}
+- {name: posthog, category: analytics, recipient: true, paid: false, packages: [posthog-js, posthog-node, posthog]}
+- {name: plausible, category: analytics, recipient: true, paid: false, packages: [plausible-tracker, next-plausible]}
+- {name: sentry, category: error-tracking, recipient: true, paid: false, packages: ["@sentry/nextjs", "@sentry/node", "@sentry/react", "@sentry/browser", sentry-sdk]}
+- {name: datadog, category: monitoring, recipient: true, paid: false, packages: [dd-trace, "@datadog/browser-rum", ddtrace]}
+- {name: logrocket, category: session-replay, recipient: true, paid: false, packages: [logrocket]}
+- {name: fullstory, category: session-replay, recipient: true, paid: false, packages: ["@fullstory/browser"]}
+- {name: hotjar, category: session-replay, recipient: true, paid: false, packages: ["@hotjar/browser", react-hotjar]}
+- {name: intercom, category: support, recipient: true, paid: false, packages: ["@intercom/messenger-js-sdk", react-use-intercom]}
+- {name: crisp, category: support, recipient: true, paid: false, packages: [crisp-sdk-web]}
+- {name: zendesk, category: support, recipient: true, paid: false, packages: [node-zendesk, zenpy]}
+- {name: hubspot, category: crm, recipient: true, paid: false, packages: ["@hubspot/api-client", hubspot-api-client]}
+- {name: mailchimp, category: email-marketing, recipient: true, paid: false, packages: ["@mailchimp/mailchimp_marketing", mailchimp-marketing]}
+- {name: algolia, category: search, recipient: true, paid: true, packages: [algoliasearch]}
+- {name: cloudinary, category: image, recipient: true, paid: true, packages: [cloudinary, next-cloudinary]}
+- {name: uploadthing, category: storage, recipient: true, paid: true, packages: [uploadthing]}
+- {name: google-maps, category: maps, recipient: true, paid: true, packages: ["@googlemaps/google-maps-services-js", "@react-google-maps/api", googlemaps]}
+- {name: puppeteer, category: browser, recipient: false, paid: true, packages: [puppeteer, puppeteer-core]}
+- {name: sharp, category: image, recipient: false, paid: true, packages: [sharp]}

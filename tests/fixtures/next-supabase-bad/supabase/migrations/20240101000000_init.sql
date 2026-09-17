@@ -1,0 +1,18 @@
+create table public.profiles (id uuid primary key, user_id uuid not null, full_name text, phone text);
+alter table public.profiles enable row level security;
+create policy "profiles_update" on public.profiles for update using (auth.uid() = user_id) with check (true);
+create policy "profiles_admin" on public.profiles for select using (auth.jwt() -> 'user_metadata' ->> 'role' = 'admin');
+create table public.documents (id bigserial primary key, user_id uuid not null, body text, metadata jsonb);
+alter table public.documents enable row level security;
+create policy "documents_read" on public.documents for select using (true);
+create policy "documents_auth" on public.documents for select to authenticated using (auth.role() = 'authenticated');
+create policy "documents_delete" on public.documents for delete to anon using (body is not null);
+create table public.invoices (id bigserial primary key, user_id uuid not null, amount int);
+create view public.document_list as select id, body from public.documents;
+create table public.members (org_id uuid not null, user_id uuid not null);
+alter table public.members enable row level security;
+create table public.projects (id uuid primary key, org_id uuid not null, name text);
+alter table public.projects enable row level security;
+create policy "projects_read" on public.projects for select to authenticated using (exists (select 1 from public.members where members.user_id = auth.uid()));
+create function public.get_all_documents() returns setof public.documents language sql security definer as $$ select * from public.documents $$;
+insert into storage.buckets (id, name, public) values ('avatars', 'avatars', true);

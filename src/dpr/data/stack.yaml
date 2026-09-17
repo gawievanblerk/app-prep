@@ -1,0 +1,81 @@
+frameworks:
+  next: {packages: [next], files: ["next.config.*"]}
+  nuxt: {packages: [nuxt]}
+  remix: {packages: ["@remix-run/node", "@remix-run/react"]}
+  astro: {packages: [astro]}
+  sveltekit: {packages: ["@sveltejs/kit"]}
+  express: {packages: [express]}
+  fastify: {packages: [fastify]}
+  nestjs: {packages: ["@nestjs/core"]}
+  django: {packages: [django], files: [manage.py]}
+  djangorestframework: {packages: [djangorestframework, rest-framework]}
+  fastapi: {packages: [fastapi]}
+  flask: {packages: [flask]}
+databases:
+  supabase: {packages: ["@supabase/supabase-js", "@supabase/ssr", supabase]}
+  firebase: {packages: [firebase, firebase-admin]}
+  postgres: {packages: [pg, postgres, psycopg, psycopg2, psycopg2-binary, asyncpg, "@neondatabase/serverless", "@vercel/postgres"]}
+  mysql: {packages: [mysql2, pymysql, mysqlclient, "@planetscale/database"]}
+  mongodb: {packages: [mongodb, mongoose, pymongo, motor]}
+  sqlite: {packages: [better-sqlite3, "@libsql/client"]}
+  dynamodb: {packages: ["@aws-sdk/client-dynamodb"]}
+orms:
+  prisma: {packages: [prisma, "@prisma/client"], files: ["*.prisma"]}
+  drizzle: {packages: [drizzle-orm]}
+  sequelize: {packages: [sequelize]}
+  typeorm: {packages: [typeorm]}
+  knex: {packages: [knex]}
+  mongoose: {packages: [mongoose]}
+  sqlalchemy: {packages: [sqlalchemy, flask-sqlalchemy]}
+  django-orm: {packages: [django]}
+  tortoise: {packages: [tortoise-orm]}
+auth_providers:
+  supabase-auth: {text: 'supabase\.auth\.'}
+  clerk: {packages: ["@clerk/nextjs", "@clerk/clerk-sdk-node", "@clerk/express", "@clerk/clerk-react"]}
+  auth0: {packages: ["@auth0/nextjs-auth0", "@auth0/auth0-react", auth0]}
+  nextauth: {packages: [next-auth, "@auth/core"]}
+  firebase-auth: {text: 'firebase/auth|firebase_admin\.auth'}
+  passport: {packages: [passport]}
+  lucia: {packages: [lucia]}
+  better-auth: {packages: [better-auth]}
+  django-auth: {text: 'django\.contrib\.auth'}
+  fastapi-security: {text: 'fastapi\.security'}
+  flask-login: {packages: [flask-login]}
+hosting:
+  vercel: {files: [vercel.json]}
+  netlify: {files: [netlify.toml]}
+  fly: {files: [fly.toml]}
+  render: {files: [render.yaml]}
+  railway: {files: [railway.json, railway.toml]}
+  app-engine: {files: [app.yaml]}
+  heroku: {files: [Procfile]}
+  docker: {files: [Dockerfile, docker-compose.yml, docker-compose.yaml, compose.yaml]}
+  serverless-framework: {files: [serverless.yml]}
+  terraform: {files: ["*.tf"]}
+logging:
+  winston: {packages: [winston]}
+  pino: {packages: [pino]}
+  bunyan: {packages: [bunyan]}
+  sentry: {packages: ["@sentry/nextjs", "@sentry/node", "@sentry/react", "@sentry/browser", sentry-sdk]}
+  loguru: {packages: [loguru]}
+  structlog: {packages: [structlog]}
+  datadog: {packages: [dd-trace, ddtrace]}
+rate_limiters:
+  upstash-ratelimit: {packages: ["@upstash/ratelimit"]}
+  express-rate-limit: {packages: [express-rate-limit]}
+  rate-limiter-flexible: {packages: [rate-limiter-flexible]}
+  fastify-rate-limit: {packages: ["@fastify/rate-limit"]}
+  slowapi: {packages: [slowapi]}
+  django-ratelimit: {packages: [django-ratelimit]}
+  flask-limiter: {packages: [flask-limiter]}
+test_frameworks:
+  jest: {packages: [jest]}
+  vitest: {packages: [vitest]}
+  playwright: {packages: ["@playwright/test"]}
+  cypress: {packages: [cypress]}
+  mocha: {packages: [mocha]}
+  pytest: {packages: [pytest]}
+header_config:
+  files: ["next.config.*", "middleware.[jt]s", nginx.conf, vercel.json, netlify.toml, _headers, settings.py]
+  text: 'helmet|Content-Security-Policy|Strict-Transport-Security|X-Frame-Options|SECURE_HSTS|SECURE_CONTENT_TYPE_NOSNIFF'
+serverless_hosting: [vercel, netlify, serverless-framework]

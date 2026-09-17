@@ -1,0 +1,71 @@
+OWASP-A03-RAW-SQL:
+  title: SQL built from runtime values
+  effort_minutes: 20
+  detail: ${what}
+  proof_needed: Trace whether any value in the string can come from a request.
+  attack: Send a value such as ' OR 1=1 -- in the field that reaches this string and read or change rows the query was not meant to touch.
+  blast: Every table the database login can reach.
+  fix: Use bound parameters (text("... where id = :id") with a params dict, $queryRaw tagged templates, cursor.execute(sql, params)) and never format values into SQL.
+  verify: Send a single quote in the input and confirm the query treats it as data, not an error.
+OWASP-A03-XSS-SINK:
+  title: HTML inserted without escaping through ${sink}
+  effort_minutes: 20
+  detail: Content reaches the page through ${sink}, which skips the framework's escaping.
+  proof_needed: Check whether the inserted value can contain user-supplied content.
+  attack: Store a value such as <img src=x onerror=alert(document.cookie)> where it later renders here.
+  blast: Sessions and actions of every user who views the rendered content.
+  fix: Render the value as text, or sanitise it with a maintained HTML sanitiser (DOMPurify, bleach) before inserting it.
+  verify: Save a value containing a script tag and confirm it renders as text.
+OWASP-A03-COMMAND:
+  title: Code or shell command built at runtime with ${call}
+  effort_minutes: 20
+  detail: ${call} receives a value computed at runtime, so a crafted value can run extra commands or code.
+  proof_needed: Trace whether any part of the value can come from a request, a file upload or stored user data.
+  attack: Put ; or $(...) in the input that reaches this call and run commands on the server.
+  blast: Everything the server process can read, write or reach on the network.
+  fix: Pass arguments as a list without a shell (subprocess.run([...]), execFile), validate values against an allowlist, and remove eval or new Function.
+  verify: Send a value containing ; id and confirm no second command runs.
+OWASP-A03-HTML-EMAIL:
+  title: Email HTML interpolates values without escaping
+  effort_minutes: 15
+  detail: ${count} HTML template string(s) in this email code insert values without html.escape, so a name or note containing markup renders as HTML in the recipient's mail client.
+  proof_needed: Check which interpolated values users can set, such as names, notes or client details.
+  attack: Register or edit a record with a name containing a link or markup; the email goes out under the company's sender with that content rendered.
+  blast: Every recipient of emails built from these templates.
+  fix: Escape every interpolated value with html.escape (or render through a template engine with autoescape on).
+  verify: Set a name to <b>x</b>, trigger the email, and confirm the tags arrive as text.
+OWASP-A02-WEAK-RANDOM-TOKEN:
+  title: ${name} generated with ${call}
+  effort_minutes: 5
+  detail: ${name} comes from ${call}, which is predictable and not meant for secrets.
+  proof_needed: Confirm the value is used as a token, code or secret.
+  attack: Observe a few generated values and predict the next reset code or token.
+  blast: Accounts or actions protected by the predictable value.
+  fix: Use crypto.randomBytes or crypto.randomUUID in JavaScript and secrets.token_urlsafe in Python.
+  verify: Confirm the code path now uses a cryptographic random source.
+OWASP-A02-SECRET-IN-URL:
+  title: ${param} sent in a URL query string
+  effort_minutes: 15
+  detail: A URL built here carries ${param} in the query string, which ends up in server logs, proxy logs, browser history and Referer headers.
+  proof_needed: Check whether the value is a real credential and where the URL is sent or logged.
+  blast: Anyone who can read the logs or history where the URL lands.
+  fix: Send the value in a header or a POST body instead of the query string.
+  verify: Inspect the outgoing request and confirm the value is not in the URL.
+OWASP-A04-CLIENT-PRICE:
+  title: Payment uses the ${field} sent by the client
+  effort_minutes: 30
+  detail: A payment call in this route reads ${field} from the request instead of recomputing it on the server.
+  proof_needed: Check whether the value is recomputed or validated before the charge.
+  attack: Edit the request in devtools and set ${field} to 1 cent, or a paid plan to the cheapest one.
+  blast: Revenue on every purchase made through this route.
+  fix: Look up the price or plan from the server-side catalogue by product ID and ignore client-sent amounts.
+  verify: Send the request with a changed amount and confirm the charge uses the catalogue price.
+OWASP-A10-SSRF:
+  title: Server fetches a URL taken from the request
+  effort_minutes: 30
+  detail: The route passes a request value to an outbound HTTP call with no host allowlist in the handler.
+  proof_needed: Check whether a proxy, egress firewall or wrapper restricts where the server can connect.
+  attack: Send http://169.254.169.254/latest/meta-data/ or an internal hostname as the URL and read the response.
+  blast: Cloud metadata credentials and internal services reachable from the server.
+  fix: Parse the URL, allow only https and an explicit host allowlist, resolve and reject private and link-local addresses, and disable redirects.
+  verify: Send the metadata address and confirm the request is rejected before any connection.

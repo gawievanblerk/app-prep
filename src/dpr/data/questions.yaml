@@ -1,0 +1,152 @@
+questions:
+  - id: user_countries
+    reviews: [inventory]
+    text: Which countries are your users in?
+    type: multi
+    static_options: [South Africa, United Kingdom, European Union, United States]
+    why: Code does not record where users physically are.
+    who: Founder or product owner
+    lawyer: true
+  - id: company_country
+    reviews: [inventory]
+    text: In which country is the company established?
+    type: text
+    why: Company registration is not in the repository.
+    who: Founder
+    lawyer: true
+  - id: db_region
+    reviews: [inventory]
+    text: Which region are the database, object storage and backups provisioned in?
+    type: choice
+    options_from: hosting
+    why: Regions are usually chosen in a provider dashboard, not in code.
+    who: Whoever set up the hosting account
+    lawyer: true
+  - id: retention_policy
+    reviews: [inventory]
+    text: Is there a stated retention or deletion policy, even an informal one?
+    type: text
+    honest_out: [No formal policy, Not sure]
+    why: A policy can exist without any deletion job in code.
+    who: Founder or data owner
+    lawyer: true
+  - id: prod_access
+    reviews: [inventory]
+    text: Who on the team can open production data today?
+    type: text
+    why: Dashboard and database access is granted outside the repository.
+    who: Whoever administers the hosting and database accounts
+    lawyer: true
+  - id: dpas_in_place
+    reviews: [inventory]
+    text: Do data processing agreements exist with the third parties found?
+    type: choice
+    static_options: [Yes for all, For some, None]
+    why: Contracts are not stored in code.
+    who: Founder or legal owner
+    lawyer: true
+  - id: data_outside_repo
+    reviews: [inventory]
+    text: Is personal data held anywhere outside this repository, such as a support inbox, CRM, spreadsheets, analytics dashboards or laptops?
+    type: text
+    why: Systems outside the repository are invisible to a code scan.
+    who: The whole team
+    lawyer: true
+  - id: frontend_key_type
+    reviews: [rls]
+    text: Which database key does the deployed frontend ship?
+    type: choice
+    static_options: [Anon or publishable key only, A service key is also used in the browser]
+    why: Deployed environment values are set in the hosting dashboard.
+    who: Whoever manages the hosting environment variables
+  - id: rls_via_dashboard
+    reviews: [rls]
+    text: Was row level security or any policy changed in the provider dashboard rather than in a migration?
+    type: choice
+    static_options: ["Yes", "No, migrations only"]
+    why: Dashboard changes leave no trace in the repository.
+    who: Whoever administers the database project
+  - id: tables_not_in_migrations
+    reviews: [rls]
+    text: Do tables exist in production that no migration file creates?
+    type: choice
+    static_options: ["Yes", "No"]
+    why: Only the live database can list its tables.
+    who: Whoever administers the database project
+  - id: buckets_public
+    reviews: [rls]
+    text: Are any storage buckets public?
+    type: choice
+    static_options: ["Yes", "No"]
+    why: Buckets are often created in a dashboard.
+    who: Whoever administers the storage project
+  - id: provider_email_templates
+    reviews: [auth]
+    text: Which auth emails does the provider send, such as verification, reset, magic link or invite?
+    type: text
+    why: Email templates are often configured in a provider dashboard.
+    who: Whoever administers the auth provider
+  - id: provider_session_lifetimes
+    reviews: [auth]
+    text: What session and token lifetimes are configured in the auth provider?
+    type: text
+    why: Lifetimes are often set in provider settings.
+    who: Whoever administers the auth provider
+  - id: edge_protection
+    reviews: [auth, baseline, owasp, abuse]
+    text: Does a CDN or WAF in front of the app add headers, rate limits or blocking?
+    type: choice
+    static_options: ["Yes", "No"]
+    why: Edge configuration lives outside the repository.
+    who: Whoever manages DNS and the CDN
+  - id: provider_hash_params
+    reviews: [baseline]
+    text: If a managed provider stores passwords, which hashing settings does it use?
+    type: text
+    why: Provider-side hashing parameters are not visible in code.
+    who: Whoever administers the auth provider
+  - id: tls_termination
+    reviews: [baseline]
+    text: Is TLS terminated somewhere that forwards plain HTTP inside the network?
+    type: choice
+    static_options: ["Yes", "No"]
+    why: Load balancer and proxy settings live in infrastructure consoles.
+    who: Whoever manages the infrastructure
+  - id: prod_config_matches_repo
+    reviews: [owasp]
+    text: Does production run with the same configuration as the repository?
+    type: choice
+    static_options: ["Yes", "No"]
+    why: Production overrides are set outside the repository.
+    who: Whoever deploys the app
+  - id: hosting_env_not_in_repo
+    reviews: [leaks]
+    text: Are environment variables set in the hosting dashboard that do not appear in the repository?
+    type: choice
+    static_options: ["Yes", "No"]
+    why: Dashboard variables are not visible to a code scan.
+    who: Whoever manages the hosting environment variables
+  - id: log_tool_access_retention
+    reviews: [leaks]
+    text: Who can read the logging and error tracking tools, and how long do they keep data?
+    type: text
+    why: Seats and retention are configured in the vendor dashboards.
+    who: Whoever administers the logging and error tracking accounts
+  - id: traffic_peak
+    reviews: [abuse]
+    text: What is the heaviest legitimate use of a paid feature by one user in one hour?
+    type: text
+    why: Real traffic is not in the repository.
+    who: Whoever reads the product analytics
+  - id: spend_caps
+    reviews: [abuse]
+    text: Which spend caps or quotas are set in provider dashboards?
+    type: text
+    why: Caps and quotas are set in provider consoles.
+    who: Whoever owns the provider billing accounts
+  - id: alert_channel
+    reviews: [abuse]
+    text: Which alerting channel does the team actually read?
+    type: text
+    why: Team habits are not in code.
+    who: The team lead

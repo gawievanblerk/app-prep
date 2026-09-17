@@ -1,0 +1,44 @@
+LEAK-ENV-TRACKED:
+  title: Environment file ${path} is tracked in git
+  effort_minutes: 20
+  detail: git tracks ${path}. Everyone with repository access, and every clone and backup, has its values.
+  blast: Every credential in the file.
+  fix: |-
+    Rotate the key now. It already reached a browser or history; removing it from the next build does not undo that.
+    Rotate every credential in ${path}, run git rm --cached ${path}, add it to .gitignore, and commit.
+  verify: Run git ls-files and confirm no .env file is listed except example files.
+LEAK-ENV-IN-HISTORY:
+  title: Environment file ${path} is in git history
+  effort_minutes: 30
+  detail: Commit ${commit} added ${path}. It is no longer tracked, but every clone still has it in history.
+  blast: Every credential that was in the file when it was committed.
+  fix: |-
+    Rotate the key now. It already reached a browser or history; removing it from the next build does not undo that.
+    Rotate every credential that was in ${path}. Rewriting history is optional once the old values no longer work.
+  verify: Confirm each provider rejects the old credentials.
+LEAK-BROAD-RESPONSE:
+  title: Response returns a whole ${source} record
+  effort_minutes: 15
+  detail: ${what}
+  proof_needed: Compare the fields in this response with the fields the page or client actually reads.
+  attack: Call the endpoint as a normal user and read the extra fields of the JSON response in devtools.
+  blast: Every field of the record, for every record this endpoint returns.
+  fix: Return an explicit allowlist of fields at the boundary, such as a Prisma select, a serializer with named fields, or a response model. Do not use a denylist; the next migration adds a column it does not know about.
+  verify: Call the endpoint and confirm the JSON holds only the fields the UI uses.
+LEAK-SSR-PROPS:
+  title: Server-rendered props include a whole record
+  effort_minutes: 15
+  detail: ${what}
+  proof_needed: Open the page source and check which fields of the record appear in the serialized props.
+  attack: View the page source and read the serialized props, including fields the page never renders.
+  blast: Every field of the record, for every visitor who can load the page.
+  fix: Select only the fields the page renders before returning props.
+  verify: View the page source and confirm only rendered fields appear in the props payload.
+LEAK-LOGGED-PII:
+  title: Log call may write personal data
+  effort_minutes: 10
+  detail: ${what}
+  proof_needed: Check what this value holds at runtime and who can read the log destination.
+  blast: Everyone with access to the logs, the log platform, and anything that keeps them for its retention period.
+  fix: Log a request id and an error code instead of the object. If personal data must be logged, list the log destination as a data store in the review 1 inventory.
+  verify: Trigger the path in a test and inspect the log line.

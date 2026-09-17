@@ -1,0 +1,16 @@
+LEAK-PUBLIC-GATE-KEY:
+  title: Access gate key ${name} ships to the browser
+  effort_minutes: 15
+  detail: ${name} starts with ${prefix}, so its value is compiled into JavaScript anyone can download, yet its name says it unlocks something.${where}
+  attack: Download the bundle, search for the key, and use it to pass the gate it protects.
+  blast: Whatever the gate hides, such as a maintenance bypass or a preview area. The value is also in git history when it was committed.
+  fix: Enforce the gate on the server (a signed cookie or a server-side check), drop the public prefix, and rotate the value because shipped bundles and history keep the old one.
+  verify: Search the built JavaScript for the variable's value and confirm it is gone; confirm the gate still holds with the old value.
+LEAK-DEFAULT-CREDENTIAL:
+  title: Default or example credentials committed in ${file}
+  effort_minutes: 15
+  detail: ${file} contains ${kinds}. The values are not printed here. They are low risk only while nothing outside a local machine uses them.
+  attack: Try the committed values against any environment that was started from this file or copied its settings.
+  blast: Whatever database or service accepts the committed value.
+  fix: Read the values from an untracked environment file or a secret store with no committed fallback, and change any deployed service that still uses them.
+  verify: Search the file for password, secret and URL defaults and confirm each one is a variable reference with no fallback value.

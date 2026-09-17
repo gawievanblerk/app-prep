@@ -1,0 +1,44 @@
+LEAK-PUBLIC-SECRET:
+  title: Secret-looking variable ${name} has a public prefix
+  effort_minutes: 15
+  detail: ${name} starts with ${prefix}, so the build puts its value into code the browser downloads. The name suggests a credential, not a publishable key.
+  attack: Open the site, open devtools, search the downloaded JavaScript for the value, then call the provider with it.
+  blast: Whatever this credential grants. A service role key reads and writes every table and ignores row level security.
+  fix: |-
+    Rotate the key now. It already reached a browser or history; removing it from the next build does not undo that.
+    Then rename ${name} to ${renamed} so it has no public prefix, move every call that uses it into server-only code, and redeploy.
+  verify: After redeploying, search the built JavaScript for the old value and confirm the provider rejects the old key.
+LEAK-HARDCODED-KEY:
+  title: Hardcoded ${kind} key in source
+  effort_minutes: 20
+  detail: A ${kind} key is written directly in a source file, so everyone with repository access, and every build that includes the file, has it.
+  attack: Anyone who can read the repository or a build artifact copies the key and uses it.
+  blast: Whatever this key grants at the provider.
+  fix: |-
+    Rotate the key now. It already reached a browser or history; removing it from the next build does not undo that.
+    Then read it from a server-side environment variable instead of the source file.
+  verify: Confirm the provider rejects the old key and a fresh scan reports no hardcoded key here.
+LEAK-KEY-IN-BUILD:
+  title: ${kind} key in build output
+  effort_minutes: 20
+  detail: A ${kind} key appears in built files that are deployed or served to browsers.
+  attack: Download the built file from the site and read the key out of it.
+  blast: Whatever this key grants at the provider.
+  fix: |-
+    Rotate the key now. It already reached a browser or history; removing it from the next build does not undo that.
+    Then find where the value enters the build, usually a public-prefixed variable, move the call behind your own server, rebuild and redeploy.
+  verify: Rebuild, search the new build output for the key type, and confirm the provider rejects the old key.
+LEAK-SOURCEMAP:
+  title: Source maps ship to production
+  effort_minutes: 10
+  detail: ${what}
+  attack: Download the .map file next to a JavaScript bundle and read the original source, including comments and internal endpoints.
+  fix: Turn off production browser source maps, or upload them privately to the error tracker and delete them from the deployed output.
+  verify: On the live site, request a bundle URL with .map appended and expect a 404.
+LEAK-SENTRY-PII:
+  title: Error tracker can send personal data
+  effort_minutes: 10
+  detail: ${what}
+  blast: Error events can carry IP addresses, cookies, request bodies and user details to the error tracking vendor, readable by every seat on that account.
+  fix: Set sendDefaultPii (send_default_pii in Python) to false unless the team decided otherwise, add a beforeSend (before_send) hook that removes request bodies, cookies and user fields, and list the error tracker as a data recipient in the inventory.
+  verify: Trigger a test error and inspect the event in the error tracker for user, IP and request body fields.

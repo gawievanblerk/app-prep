@@ -1,0 +1,49 @@
+# Data Protection Review: {{ meta.project }}
+
+Date: {{ meta.date }}
+Scope: {{ meta.scope }} @ {{ meta.revision }}
+Reviews run: {{ reviews_run }}
+Method: {{ meta.method }}
+
+{{ disclaimer }}
+
+## Summary
+
+{{ summary_table }}
+
+{{ top_fixes }}
+
+## Evidence tags
+
+CONFIRMED: read in the repository and cited. INFERRED: strong signal, not proven.
+UNVERIFIED: needs a runtime or console check. UNKNOWN: no answer available.
+
+## Detection
+
+{{ detection_table }}
+
+{{ applicability }}
+{% for section in sections %}
+
+## {{ section.number }}. {{ section.title }}
+{% for part in section.parts %}
+
+### {{ part.title }}
+
+{{ part.body }}
+{% endfor %}
+{% endfor %}
+
+## Open questions
+
+### Answered by this review
+
+{{ answered }}
+
+### Still open: needs a human
+
+{{ still_open }}
+
+## What this review did not cover
+
+{{ not_covered }}

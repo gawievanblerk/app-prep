@@ -1,0 +1,32 @@
+ABUSE-CORS-WILDCARD:
+  title: CORS allows every origin on an API with signed-in routes
+  effort_minutes: 10
+  detail: ${what} CORS does not authorise anything, but it widens which sites can script calls to this API from a visitor's browser.
+  attack: Host a page that calls the API from the visitor's browser and reads any response the browser is allowed to share.
+  blast: Responses readable cross-site, and every weakness in the API reachable from any web page.
+  fix: Allow only the exact production and preview origins, and keep authorisation checks in every route.
+  verify: curl -sSI -H "Origin https://evil.example" against an API route and confirm no Access-Control-Allow-Origin for it.
+ABUSE-CORS-REFLECT:
+  title: CORS reflects any origin
+  effort_minutes: 15
+  detail: ${what} With credentials allowed, any website can make signed-in requests and read the responses.
+  attack: A page on any domain calls the API with credentials included; the API echoes that origin as allowed, and the page reads the victim's data.
+  blast: Every response the signed-in victim can fetch, for every visitor who opens the attacker's page.
+  fix: Compare the Origin header against an explicit allowlist and only then echo it back; never combine a reflected origin with credentials.
+  verify: curl -sSI -H "Origin https://evil.example" against an API route and confirm the origin is not echoed.
+ABUSE-CORS-LOOSE-REGEX:
+  title: CORS origin pattern is not anchored
+  effort_minutes: 10
+  detail: ${what} A lookalike domain that contains the allowed text also matches.
+  attack: Register a domain such as yourapp.com.evil.example or evil-yourapp.vercel.app that satisfies the pattern.
+  blast: The same as an allowed origin, including credentialed requests when they are enabled.
+  fix: Anchor the pattern with ^ and $, escape the dots, and prefer an explicit list of origins.
+  verify: Test the pattern against a lookalike origin and confirm it does not match.
+ABUSE-ERROR-LEAK:
+  title: Exception text returned to the caller
+  effort_minutes: 10
+  detail: A catch-all error handler puts the exception message, type or traceback into the response, which tells an attacker about the schema, libraries and internal state.
+  attack: Send malformed input until the handler fails, then read table names, file paths or library errors from the response.
+  blast: Internal details that make other attacks faster.
+  fix: Log the exception with a request id and return a generic message with that id; keep specific messages only for errors written for users.
+  verify: Force the error path in a test and confirm the response body holds only the generic message and the id.
