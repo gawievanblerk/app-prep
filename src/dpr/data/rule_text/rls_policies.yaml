@@ -1,0 +1,43 @@
+RLS-POLICY-TRUE:
+  title: Policy ${policy} on ${table} allows every row
+  effort_minutes: 10
+  detail: The policy ${policy} uses true as its condition, so it does not check who owns a row.
+  attack: Sign in as any user, or use the public key if the policy is not limited to signed-in users, and read every row of ${table}.
+  blast: Every row in ${table} for the command this policy covers.
+  fix: Replace the condition with an ownership check.
+RLS-AUTHENTICATED-NOT-OWNER:
+  title: Policy ${policy} checks sign-in, not ownership
+  effort_minutes: 10
+  detail: The policy ${policy} on ${table} lets any signed-in user through without checking that the row belongs to them.
+  attack: Create a free account, sign in, and read every row of ${table}.
+  blast: Every row in ${table}, for anyone who can create an account.
+  fix: Replace the condition with an ownership check.
+RLS-WEAK-WITH-CHECK:
+  title: Policy ${policy} does not check ownership of new rows
+  effort_minutes: 10
+  detail: ${what}
+  attack: Sign in and write a row to ${table} with another user's id in ${owner}.
+  blast: Rows created or moved into another user's ownership in ${table}.
+  fix: Make the with check condition match the ownership check.
+RLS-WRONG-ROLE:
+  title: Write policy ${policy} is granted to ${roles}
+  effort_minutes: 5
+  detail: The ${command} policy ${policy} on ${table} applies to ${roles} and never checks auth.uid() or auth.jwt(), so callers who are not signed in can use it.
+  attack: Use the public key without signing in and run a ${command} against ${table}.
+  blast: Rows in ${table} that the condition matches.
+  fix: Grant the policy to authenticated and add an ownership check.
+RLS-CLIENT-OWNER:
+  title: Policy ${policy} trusts a value the client controls
+  effort_minutes: 15
+  detail: The policy ${policy} on ${table} reads user_metadata or request headers. Users can edit their own user_metadata, and clients set their own headers.
+  attack: Update your own user_metadata (for example set role to admin) with the client library, then query ${table}.
+  blast: Whatever the policy grants to the claimed value.
+  fix: Base the check on auth.uid(), or on app_metadata or a server-side roles table that users cannot edit.
+RLS-TENANT-UNBOUND:
+  title: Policy ${policy} checks membership but not which tenant
+  effort_minutes: 15
+  detail: The policy ${policy} on ${table} checks that the caller belongs to some tenant but never compares the row's ${tenant}, so a member of any tenant can pass.
+  proof_needed: Sign in as a member of tenant A and request a row of ${table} that belongs to tenant B.
+  attack: Join or create any tenant, then read rows of ${table} from every other tenant.
+  blast: Every tenant's rows in ${table}.
+  fix: Compare the row's ${tenant} with the caller's memberships.

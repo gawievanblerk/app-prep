@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from dpr.model import Finding, Location, Part, ReviewSection, Tag
 from dpr.parsing import jsts
 from dpr.parsing.sqlschema import TableDef
+from dpr.reviews import rls_policies  # noqa: F401  (registers the rls_policies rules)
 from dpr.reviews.rls_common import (
     DASHBOARD_QUERIES,
     client_facing,
