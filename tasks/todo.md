@@ -30,7 +30,7 @@
 ## Roadmap
 
 - [x] **Milestone 1: core, leaks, RLS** (this plan, Tasks 1 to 29)
-- [ ] **Milestone 2: baseline, abuse, own OWASP rules, SARIF, Django and FastAPI fixtures** (separate plan, written after Milestone 1 is merged into `develop`)
+- [x] **Milestone 2: baseline, abuse, own OWASP rules, SARIF, Django and FastAPI fixtures** (separate plan, written after Milestone 1 is merged into `develop`)
 - [ ] **Milestone 3: Semgrep and audit adapters, inventory, auth test plan, Semgrep CI job, CI example, smoke runs, project contributor notes** (separate plan)
 
 Milestone 1 also adds a basic `.github/workflows/ci.yml` (lint and tests). The spec places CI in Milestone 3; it moves earlier because every passing test must also run in CI.
@@ -20971,6 +20971,15 @@ git commit -m "Check output safety across every bad fixture and record the Miles
 ```
 
 Do not push. Do not merge into `develop`. Tell the owner the branch is ready and wait for the instruction to push and open a pull request.
+
+
+## Milestone 2 review
+
+- Tests: 301 passed, 0 failed (`uv run pytest -m "not semgrep" --cov=dpr`)
+- Coverage: 95% of `src/dpr`
+- Lint and format: `ruff check` and `ruff format --check` clean
+- CLI smoke run on fastapi-bad: 33 findings (critical 2, high 6, medium 9, low 16), exit code 1 with `--fail-on critical`, Markdown, JSON and SARIF written
+- Not done in this milestone: inventory and auth reviews, Semgrep and audit adapters, snapshot test, smoke runs on real repositories (Milestone 3)
 
 ---
 
