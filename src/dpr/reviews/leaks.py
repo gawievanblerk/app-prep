@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 
+import dpr.reviews.leaks_creds  # noqa: F401  (registers rules)
 from dpr.model import Finding, Location, Part, ReviewSection, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import find_keys, is_secret_name, public_prefix, snippet
