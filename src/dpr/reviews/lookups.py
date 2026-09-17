@@ -10,6 +10,7 @@ from dpr.model import DataModel, Location, Route
 from dpr.parsing import jsts, pyast
 from dpr.parsing.schemas import find_model
 from dpr.reviews.access import Access, path_params
+from dpr.reviews.visibility import js_visible, py_visible
 from dpr.rules import Context
 
 PY_ORM = re.compile(
@@ -39,9 +40,6 @@ OWNER_COLUMNS = {
     "org_id", "organization_id", "tenant_id", "workspace_id", "team_id", "company_id",
 }  # fmt: skip
 USER_MODELS = {"user", "users", "profile", "profiles", "account", "accounts", "customer", "member"}
-VISIBILITY = re.compile(
-    r"(?i)\b(?:is_?)?(?:published|public|visible)\b\s*[:=]|\bvisibility\b|\bpublished_at\b"
-)
 
 
 @dataclass(frozen=True)
@@ -208,14 +206,15 @@ def py_lookups(
         if not used or subject_text(text, subjects):
             continue
         if PY_ORM.search(text):
+            model = _model_name(text, fn)
             found.append(
                 Lookup(
                     Location(rel, stmt.lineno),
                     tuple(sorted(used)),
-                    _model_name(text, fn),
+                    model,
                     bool(PY_PK.search(text)),
                     _target(stmt),
-                    visible=bool(VISIBILITY.search(text)),
+                    visible=py_visible(value, model),
                 )
             )
             continue
@@ -322,7 +321,7 @@ def js_lookups(route: Route, subjects: tuple[str, ...]) -> list[Lookup]:
                 model,
                 pk,
                 target,
-                visible=bool(VISIBILITY.search(text)),
+                visible=js_visible(call),
             )
         )
     return found
