@@ -76,7 +76,18 @@ LONG_PASSWORD = "Corr" + "ectHorseBattery" + "Staple-9931"
 JS_API_KEY = "js" + "ApiKey-" + "60017"
 PY_DB_PASSWORD = "py" + "DbPass-" + "11873"
 SESSION_SECRET = "session" + "Secret-" + "20944"
+CONCAT_KEY = "LIVE" + "wx7Hq2mZ" + "91Ab"
+SPLIT_A = "Split" + "Half-One-" + "5521"
+SPLIT_B = "Split" + "Half-Two-" + "5522"
+ESCAPED = "it" + "\\'s-Secret-" + "4411"
+TRIPLE = "Triple" + "Quoted-Line-" + "One-8812"
 CORPUS = (
+    CONCAT_KEY,
+    SPLIT_A,
+    SPLIT_B,
+    ESCAPED,
+    ESCAPED.replace("\\'", "'"),
+    TRIPLE,
     URL_KEY,
     CLI_PASSWORD,
     CLI_QUOTED,
@@ -138,6 +149,30 @@ def credential_corpus(root):
         "app/sessions.py",
         f'SESSION = {{"same_site": "none", "secret": "{SESSION_SECRET}"}}\n',
     )
+    write(
+        root,
+        "src/forecast.js",
+        "export async function daily(city) {\n"
+        '  const url = "https://api.weather.example/v1?city=" + city + "&api_key=" + '
+        f'"{CONCAT_KEY}"\n'
+        "  return fetch(url)\n}\n",
+    )
+    hasher = "from passlib.context import CryptContext\npwd_context = CryptContext(schemes=['bcrypt'])\n\n"
+    write(
+        root,
+        "app/seed_split.py",
+        f'{hasher}def seed(db):\n    db.add(User(password_hash=pwd_context.hash("{SPLIT_A}" "{SPLIT_B}")))\n',
+    )
+    write(
+        root,
+        "app/seed_escaped.py",
+        f"{hasher}def seed(db):\n    db.add(User(password_hash=pwd_context.hash('{ESCAPED}')))\n",
+    )
+    write(
+        root,
+        "app/seed_triple.py",
+        f'{hasher}def seed(db):\n    db.add(User(password_hash=pwd_context.hash("""{TRIPLE}\nline two""")))\n',
+    )
     return root
 
 
@@ -153,6 +188,10 @@ def test_credential_shapes_never_reach_any_output(tmp_path, capsys):
         ("BASE-LITERAL-PASSWORD-HASH", "app/seed.py"),
         ("OWASP-A03-RAW-SQL", "app/reports.py"),
         ("BASE-SAMESITE-NONE-NO-CSRF", "app/sessions.py"),
+        ("OWASP-A02-SECRET-IN-URL", "src/forecast.js"),
+        ("BASE-LITERAL-PASSWORD-HASH", "app/seed_split.py"),
+        ("BASE-LITERAL-PASSWORD-HASH", "app/seed_escaped.py"),
+        ("BASE-LITERAL-PASSWORD-HASH", "app/seed_triple.py"),
     } <= fired
     outputs = [render_markdown(report), render_json(report), render_sarif(report)]
     out_dir = tmp_path / "out"

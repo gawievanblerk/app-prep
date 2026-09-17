@@ -130,3 +130,44 @@ def test_snippet_masks_before_cutting_long_lines():
     out = snippet(line, 1)
     assert len(out) <= 200
     assert SECRET[:4] not in out
+
+
+def test_snippet_masks_concatenated_adjacent_escaped_and_triple_quoted_secrets():
+    half_a, half_b = "Half" + "One-" + "7310", "Half" + "Two-" + "7311"
+    lines = [
+        f'const url = base + "?city=" + city + "&api_key=" + "{SECRET}"',
+        f"url = BASE + '&token=' + '{SECRET}'",
+        f'ADMIN_PASSWORD = "{half_a}" "{half_b}"',
+        f'api_key = "{half_a}" + "{half_b}"',
+        f'password = "it\\"s-{SECRET}"',
+        f'SECRET_KEY = """{SECRET}"""',
+        f"token = '''{SECRET}'''",
+    ]
+    for line in lines:
+        out = snippet(line, 1)
+        for value in (SECRET, half_a, half_b):
+            assert value not in out, line
+        assert "<redacted:" in out, line
+
+
+def test_redaction_stays_linear_on_long_runs():
+    import time
+
+    cases = [
+        "-" * 60000,
+        "token" * 12000,
+        "a.token" * 20000,
+        "password-" * 20000,
+        "api_key." * 20000,
+        "secret: a.b[c]|d, " * 20000,
+        "--token-" * 20000,
+        "A_TOKEN=" * 50000,
+        "TOKEN" * 50000,
+        "&token=" * 50000,
+        'password = "' + "a" * 60000,
+        "x://a:" * 50000,
+    ]
+    for text in cases:
+        started = time.perf_counter()
+        redact(text)
+        assert time.perf_counter() - started < 1.0, text[:20]
