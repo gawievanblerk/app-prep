@@ -14,6 +14,7 @@ from dpr.model import Detection, Finding, Report, ReportMeta, ReviewSection, Sca
 from dpr.questions.catalogue import questions_for, resolve
 from dpr.questions.prompt import ask_on_terminal
 from dpr.rank import dedupe, rank
+from dpr.report.register import build_register
 from dpr.reviews import REVIEWS, RUN_ORDER, available, number, resolve_reviews
 from dpr.rules import Context, Options, run_checks
 from dpr.walk import RepoIndex
@@ -151,12 +152,14 @@ def review(
         applicability=applicability,
     )
     not_covered = list(dict.fromkeys([*index.skipped, *ctx.not_covered]))
+    ranked = rank(dedupe(findings))
     return Report(
         meta=meta,
         detection=detection,
-        findings=rank(dedupe(findings)),
+        findings=ranked,
         sections=sections,
         questions=results,
         not_covered=not_covered,
         answered=list(ctx.facts.get("answered", [])),
+        register=build_register(ranked, detection.app_roots),
     )

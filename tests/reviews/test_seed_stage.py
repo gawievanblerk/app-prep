@@ -61,7 +61,11 @@ def test_env_password_from_a_secret_store_is_medium(tmp_path):
     )
     finding = by_location(tmp_path)["api/startup.sh:1"]
     assert (finding.severity.value, finding.tag.value) == ("medium", "INFERRED")
-    assert [str(loc) for loc in finding.locations] == ["api/startup.sh:1", "infra/main.tf:3"]
+    assert [str(loc) for loc in finding.locations] == [
+        "api/startup.sh:1",
+        "api/app/db/admin_seed.py:6",
+        "infra/main.tf:3",
+    ]
     assert (
         finding.proof_needed == "Check that the secret reference for SEED_ADMIN_PASSWORD resolves."
     )

@@ -1,0 +1,34 @@
+# Rules that describe one underlying issue are grouped into one register entry.
+# scope: app groups per app root; repo groups across the repository; linked keeps each finding of
+# the first rule as its own issue and attaches findings of the other rules that share a file with it.
+chains:
+  - title: Accounts can be signed in to with passwords written in the repository
+    scope: linked
+    rules: [BASE-LITERAL-PASSWORD-HASH, BASE-SEED-ON-START]
+  - title: Sign-in, signup and reset responses reveal which accounts exist
+    scope: app
+    rules: [AUTH-ENUM-SIGNUP-MESSAGE, AUTH-ENUM-RESET-MESSAGE, AUTH-ENUM-LOCKOUT-STATUS, AUTH-ENUM-TIMING]
+  - title: Sessions survive logout and refresh without an absolute limit
+    scope: app
+    rules: [AUTH-LOGOUT-NO-REVOKE, AUTH-REFRESH-NO-ABSOLUTE-CAP]
+  - title: One-time tokens are stored in plain text or never expire
+    scope: app
+    rules: [AUTH-TOKEN-PLAINTEXT, AUTH-VERIFY-NO-EXPIRY, AUTH-VERIFY-REUSABLE, AUTH-RESET-NO-EXPIRY]
+  - title: Rate limits do not hold in production
+    scope: app
+    rules: [ABUSE-INMEMORY-LIMITER, ABUSE-LIMITER-NOT-APPLIED, ABUSE-LIMITER-PROXY-IP]
+  - title: Paid endpoints without sign-in, limits or a kill switch
+    scope: app
+    rules: [ABUSE-PAID-UNAUTH, ABUSE-PAID-UNLIMITED, ABUSE-NO-KILL-SWITCH]
+  - title: Security headers and HTTPS enforcement are missing
+    scope: repo
+    rules: [BASE-HEADER-MISSING-HSTS, BASE-HEADER-MISSING-CSP, BASE-HEADER-MISSING-XCTO, BASE-HEADER-MISSING-FRAME, BASE-HEADER-MISSING-REFERRER, BASE-HEADER-MISSING-PERMISSIONS, BASE-CSP-WEAK, BASE-HTTPS-NOT-ENFORCED, BASE-NO-HTTPS-REDIRECT]
+  - title: Database reachable too widely or used with administrator rights
+    scope: repo
+    rules: [BASE-DB-NETWORK-OPEN, BASE-DB-ADMIN-LOGIN]
+  - title: Unpinned dependencies and installs
+    scope: repo
+    rules: [OWASP-A08-UNPINNED-DEPS, OWASP-A08-UNPINNED-INSTALL]
+  - title: Cookie flags leave sessions exposed
+    scope: app
+    rules: [BASE-COOKIE-HTTPONLY, BASE-COOKIE-SECURE, BASE-COOKIE-SAMESITE, BASE-SAMESITE-NONE-NO-CSRF]

@@ -88,11 +88,12 @@ def summary_lines(report: Report, written: list[Path], tip: str | None) -> list[
         f"high {counts['high']}, medium {counts['medium']}, low {counts['low']}), "
         f"{open_count} open questions"
     ]
-    if report.findings:
+    if report.register:
+        lines[0] += f", {len(report.register)} distinct issues"
         lines.append("Top fixes:")
         lines += [
-            f"  {i}. {f.title} ({f.locations[0] if f.locations else 'no file'})"
-            for i, f in enumerate(report.findings[:3], start=1)
+            f"  {i}. {issue.id} {issue.title} ({issue.first})"
+            for i, issue in enumerate(report.register[:3], start=1)
         ]
     lines += [f"Wrote {path}" for path in written]
     if tip:

@@ -8,6 +8,7 @@ from jinja2 import Environment, PackageLoader
 
 from dpr.model import Finding, Part, Report
 from dpr.rank import order_for_section
+from dpr.report.register import build_register
 from dpr.reviews import LABELS, REVIEWS, TITLES, number
 
 DISCLAIMER = (
@@ -123,8 +124,31 @@ def _detection_table(report: Report) -> str:
     return "| | |\n|---|---|\n" + "\n".join(f"| {a} | {_cell(b)} |" for a, b in rows)
 
 
+def issues_of(report: Report) -> list:
+    return report.register or build_register(report.findings, report.detection.app_roots)
+
+
+def _register(report: Report) -> str:
+    if not issues_of(report):
+        return ""
+    rows = [
+        (
+            issue.id,
+            issue.severity.value.capitalize(),
+            issue.tags,
+            issue.title,
+            ", ".join(str(n) for n in issue.reviews),
+            f"{issue.count} ({', '.join(issue.findings)})",
+        )
+        for issue in issues_of(report)
+    ]
+    columns = ("ID", "Severity", "Tag", "Title", "Reviews", "Findings")
+    return "### Findings register\n\n" + _table(columns, rows)
+
+
 def _view(report: Report) -> dict:
-    counts = {s: sum(f.severity.value == s for f in report.findings) for s in SEVERITIES}
+    issues = issues_of(report)
+    counts = {s: sum(i.severity.value == s for i in issues) for s in SEVERITIES}
     open_questions = [q for q in report.questions if q.open]
     summary = _table(
         ("Severity", "Count"),
@@ -133,12 +157,16 @@ def _view(report: Report) -> dict:
             ("Open questions (UNKNOWN)", str(len(open_questions))),
         ],
     )
-    if report.findings:
-        top = "Top three fixes by risk removed per minute spent:\n\n" + "\n".join(
-            f"{i}. {f.title} (`{f.locations[0] if f.locations else 'no file'}`, "
-            f"about {f.effort_minutes} min)"
-            for i, f in enumerate(report.findings[:3], start=1)
+    if issues:
+        summary += (
+            f"\n\nCounts are distinct issues. They group {len(report.findings)} findings; "
+            "the register below maps each issue to its findings."
         )
+        top = "Top three fixes by risk removed per minute spent:\n\n" + "\n".join(
+            f"{i}. {issue.title} (`{issue.first}`, about {issue.effort_minutes} min, {issue.id})"
+            for i, issue in enumerate(issues[:3], start=1)
+        )
+        top += "\n\n" + _register(report)
     else:
         top = "No findings."
     sections = []

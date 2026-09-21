@@ -235,3 +235,4 @@ class Report:
     questions: list[QuestionResult]
     not_covered: list[str]
     answered: list[Answer] = field(default_factory=list)
+    register: list = field(default_factory=list)  # list[dpr.report.register.Issue]
