@@ -85,6 +85,34 @@ def test_missing_headers_are_unverified_without_url(tmp_path):
     assert findings_for(root, "baseline", "BASE-HEADER-MISSING-FRAME")[0].severity.value == "low"
 
 
+def test_hsts_severity_ignores_a_cookie_in_a_different_app_root(tmp_path):
+    """api/app/main.py already sets its own HSTS header, so its root is not in the lacking
+    group; an insecure cookie planted there must not raise severity for site/ or the static
+    host config, which have no HSTS and are in different app roots."""
+    root = repo(tmp_path)
+    write(
+        root,
+        "api/app/auth.py",
+        "def login(response):\n"
+        "    response.set_cookie('session', 'x', httponly=True, secure=False, samesite='lax')\n",
+    )
+    [hsts] = findings_for(root, "baseline", "BASE-HEADER-MISSING-HSTS")
+    assert hsts.severity.value == "low"
+
+
+def test_hsts_severity_is_medium_for_a_cookie_sharing_a_lacking_surfaces_root(tmp_path):
+    """site/next.config.js lacks HSTS; an insecure cookie set under site/ (the same app root)
+    must raise the grouped HSTS finding to medium."""
+    root = repo(tmp_path)
+    write(
+        root,
+        "site/src/auth.ts",
+        "cookies().set('session', 'x', { httpOnly: true, secure: false, sameSite: 'lax' })\n",
+    )
+    [hsts] = findings_for(root, "baseline", "BASE-HEADER-MISSING-HSTS")
+    assert hsts.severity.value == "medium"
+
+
 def test_django_settings_surface(tmp_path):
     write(
         tmp_path,

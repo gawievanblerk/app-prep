@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from dpr.adapters.headers import HeaderRead, read_headers
 from dpr.model import Finding, Location, Tag
 from dpr.reviews.baseline_config import cookie_findings
-from dpr.reviews.headers_static import HEADERS, api_only, csp_values, surfaces
+from dpr.reviews.headers_static import HEADERS, Surface, api_only, app_root, csp_values, surfaces
 from dpr.rules import Context, make_finding, rule
 
 SEVERITY = {"HSTS": "low", "CSP": "medium"}
@@ -46,10 +46,21 @@ def _read(ctx: Context, label: str) -> HeaderRead | None:
     return None
 
 
-def _severity(ctx: Context, key: str) -> str:
-    """Header gaps rank below access control: at most medium, HSTS medium only with weak cookies."""
-    if key == "HSTS" and any(f.rule_id == "BASE-COOKIE-SECURE" for f in cookie_findings(ctx)):
-        return "medium"
+def _severity(ctx: Context, key: str, lacking: list[Surface] | None = None) -> str:
+    """Header gaps rank below access control: at most medium, HSTS medium only with weak cookies.
+
+    Evidence never crosses app roots: for a grouped, surface-based finding (`lacking` given), an
+    insecure cookie only raises the severity when it shares an app root with one of the lacking
+    surfaces. For a single live read (`lacking` is None) any insecure cookie counts.
+    """
+    if key != "HSTS":
+        return SEVERITY.get(key, "low")
+    roots = {s.root for s in lacking} if lacking is not None else None
+    for finding in cookie_findings(ctx):
+        if finding.rule_id != "BASE-COOKIE-SECURE":
+            continue
+        if roots is None or any(app_root(ctx, loc.file) in roots for loc in finding.locations):
+            return "medium"
     return SEVERITY.get(key, "low")
 
 
@@ -81,7 +92,7 @@ def _missing(ctx: Context, key: str) -> Iterator[Finding]:
             f"BASE-HEADER-MISSING-{key}",
             tag=Tag.UNVERIFIED,
             locations=[s.location for s in lacking][:10],
-            severity=_severity(ctx, key),
+            severity=_severity(ctx, key, lacking),
             header=header,
             where=where,
         )
