@@ -30,6 +30,9 @@ class Exploitability(StrEnum):
     LOW = "low"
 
 
+EXPLOIT_ORDER = ("high", "medium", "low")
+
+
 NO_JSON = {"json": False}
 
 

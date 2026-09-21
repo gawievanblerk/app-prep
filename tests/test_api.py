@@ -41,7 +41,7 @@ def test_full_run(tmp_path):
     assert dict(report.meta.applicability) == {
         "inventory": "not available in this version",
         "rls": "runs",
-        "auth": "not available in this version",
+        "auth": "not applicable, no sign-in, signup or reset routes and no auth provider found",
         "baseline": "runs",
         "owasp": "runs",
         "leaks": "runs",

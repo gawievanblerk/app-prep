@@ -21,7 +21,7 @@ TITLES = {
 LABELS = {
     "inventory": "INV",
     "rls": "RLS",
-    "auth": "CASE",
+    "auth": "AUTH",
     "baseline": "FIX",
     "owasp": "FINDING",
     "leaks": "LEAK",
