@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from dpr.data import load
+from dpr.discovery.approots import app_roots
 from dpr.discovery.packages import collect_env_vars, collect_packages, normalise
 from dpr.gitutil import git_info
 from dpr.model import Detection, Location, SdkUse
@@ -109,6 +110,8 @@ def detect(index: RepoIndex) -> Detection:
     schema = load_schema(index)
     env_vars = collect_env_vars(index)
     hosting = _hosting(stack["hosting"], index, packages)
+    routes = extract_routes(index)
+    ci = _ci(index, stack["ci_files"])
     return Detection(
         languages=index.language_counts(),
         frameworks=_match(stack["frameworks"], index, packages),
@@ -116,18 +119,19 @@ def detect(index: RepoIndex) -> Detection:
         orms=_match(stack["orms"], index, packages),
         auth_providers=_match(stack["auth_providers"], index, packages),
         hosting=hosting,
-        ci=_ci(index, stack["ci_files"]),
+        ci=ci,
         logging=_match(stack["logging"], index, packages),
         header_config=_header_config(index, stack["header_config"]),
         rate_limiters=_match(stack["rate_limiters"], index, packages),
         test_frameworks=_match(stack["test_frameworks"], index, packages),
         env_vars=env_vars,
         sdks=_sdks(index, packages, sites),
-        routes=extract_routes(index),
+        routes=routes,
         models=extract_models(index, schema),
         git=git_info(index.root),
         serverless=any(h in stack["serverless_hosting"] for h in hosting),
         public_supabase_key=any(e.public and "SUPABASE" in e.name for e in env_vars),
+        app_roots=app_roots(index, routes, ci),
         packages=packages,
         schema=schema,
     )

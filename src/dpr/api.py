@@ -8,6 +8,7 @@ import sys
 from collections.abc import Iterable
 from pathlib import Path
 
+from dpr.discovery.approots import lower_undeployed, undeployed
 from dpr.discovery.detect import detect
 from dpr.model import Detection, Finding, Report, ReportMeta, ReviewSection, ScanError
 from dpr.questions.catalogue import questions_for, resolve
@@ -125,6 +126,13 @@ def review(
                 if os.environ.get("DPR_STRICT") == "1":
                     raise
                 ctx.not_covered.append(f"review {slug} failed: {type(exc).__name__}")
+
+    findings = lower_undeployed(findings, detection.app_roots)
+    for root in undeployed(detection.app_roots):
+        ctx.not_covered.append(
+            f"App root {root.path} is not named by any deploy or CI configuration; its findings "
+            "are listed one severity step lower"
+        )
 
     for option, owner, note in SKIPPED_OPTIONS:
         if getattr(options, option) and owner not in sections:
