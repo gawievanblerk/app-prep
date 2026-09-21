@@ -41,6 +41,11 @@ auth_providers:
   django-auth: {text: 'django\.contrib\.auth'}
   fastapi-security: {text: 'fastapi\.security'}
   flask-login: {packages: [flask-login]}
+  custom-jwt:
+    all_packages:
+      - [python-jose, pyjwt, jsonwebtoken, jose, authlib, flask-jwt-extended, djangorestframework-simplejwt]
+      - [bcrypt, passlib, bcryptjs, argon2, argon2-cffi, "@node-rs/argon2", "@node-rs/bcrypt"]
+    unless: [supabase-auth, clerk, auth0, nextauth, firebase-auth, lucia, better-auth]
 hosting:
   vercel: {files: [vercel.json]}
   netlify: {files: [netlify.toml]}
@@ -48,10 +53,20 @@ hosting:
   render: {files: [render.yaml]}
   railway: {files: [railway.json, railway.toml]}
   app-engine: {files: [app.yaml]}
-  heroku: {files: [Procfile]}
-  docker: {files: [Dockerfile, docker-compose.yml, docker-compose.yaml, compose.yaml]}
+  azure-app-service: {iac: 'azurerm_(?:linux_|windows_)?web_app|azurerm_app_service'}
+  azure-static-web-apps: {files: [staticwebapp.config.json], iac: azurerm_static_web_app}
+  azure-functions: {iac: 'azurerm_(?:linux_|windows_)?function_app'}
+  azure-container-apps: {iac: azurerm_container_app}
+  aws-lambda: {iac: aws_lambda_function}
+  aws-ecs: {iac: aws_ecs_service}
+  aws-app-runner: {iac: aws_apprunner_service}
+  aws-elastic-beanstalk: {iac: aws_elastic_beanstalk_environment}
+  aws-amplify: {files: [amplify.yml], iac: aws_amplify_app}
+  google-cloud-run: {iac: 'google_cloud_run(?:_v2)?_service'}
+  heroku: {files: [Procfile], weak: true}
+  docker: {files: [Dockerfile, docker-compose.yml, docker-compose.yaml, compose.yaml], tooling: true}
   serverless-framework: {files: [serverless.yml]}
-  terraform: {files: ["*.tf"]}
+  terraform: {files: ["*.tf"], tooling: true}
 logging:
   winston: {packages: [winston]}
   pino: {packages: [pino]}
@@ -78,4 +93,5 @@ test_frameworks:
 header_config:
   files: ["next.config.*", "middleware.[jt]s", nginx.conf, vercel.json, netlify.toml, _headers, settings.py, staticwebapp.config.json, firebase.json]
   text: 'helmet|Content-Security-Policy|Strict-Transport-Security|X-Frame-Options|SECURE_HSTS|SECURE_CONTENT_TYPE_NOSNIFF'
-serverless_hosting: [vercel, netlify, serverless-framework]
+serverless_hosting: [vercel, netlify, serverless-framework, aws-lambda, azure-functions]
+ci_files: [azure-pipelines.yml, .gitlab-ci.yml, bitbucket-pipelines.yml, Jenkinsfile, .circleci/config.yml, cloudbuild.yaml, .travis.yml]

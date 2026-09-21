@@ -34,3 +34,13 @@
 - {name: google-maps, category: maps, recipient: true, paid: true, packages: ["@googlemaps/google-maps-services-js", "@react-google-maps/api", googlemaps]}
 - {name: puppeteer, category: browser, recipient: false, paid: true, packages: [puppeteer, puppeteer-core]}
 - {name: sharp, category: image, recipient: false, paid: true, packages: [sharp]}
+- {name: azure-communication-email, category: email, recipient: true, paid: true, packages: [azure-communication-email, "@azure/communication-email"], modules: [azure.communication.email]}
+- {name: azure-communication-sms, category: sms, recipient: true, paid: true, packages: [azure-communication-sms, "@azure/communication-sms"], modules: [azure.communication.sms]}
+- {name: azure-storage-blob, category: storage, recipient: true, paid: true, packages: [azure-storage-blob, "@azure/storage-blob"], modules: [azure.storage.blob]}
+- {name: azure-monitor, category: monitoring, recipient: true, paid: false, packages: [azure-monitor-opentelemetry, azure-monitor-opentelemetry-exporter, opencensus-ext-azure, applicationinsights, "@azure/monitor-opentelemetry"], modules: [azure.monitor.opentelemetry, opencensus.ext.azure]}
+- {name: opentelemetry-exporter, category: monitoring, recipient: true, paid: false, packages: [opentelemetry-exporter-otlp, opentelemetry-exporter-otlp-proto-http, opentelemetry-exporter-otlp-proto-grpc, "@opentelemetry/exporter-trace-otlp-http"], modules: [opentelemetry.exporter]}
+- {name: google-cloud-storage, category: storage, recipient: true, paid: true, packages: [google-cloud-storage, "@google-cloud/storage"], modules: [google.cloud.storage]}
+- {name: slack, category: messaging, recipient: true, paid: false, packages: [slack-sdk, "@slack/web-api"], modules: [slack_sdk]}
+- {name: chromadb, category: vector-store, recipient: false, paid: false, packages: [chromadb, chromadb-client]}
+- {name: weasyprint, category: pdf, recipient: false, paid: false, packages: [weasyprint]}
+- {name: google-fonts, category: fonts, recipient: true, paid: false, packages: [], html: ['fonts\.googleapis\.com', 'fonts\.gstatic\.com']}
