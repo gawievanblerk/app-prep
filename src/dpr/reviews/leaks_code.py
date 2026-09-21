@@ -1,4 +1,4 @@
-"""Review 6, leak hunt: git history, over-broad responses and personal data in logs."""
+"""Review 6, leak hunt: git history and over-broad responses."""
 
 from __future__ import annotations
 
@@ -27,21 +27,6 @@ SUPABASE_TABLE = re.compile(r"\.from\(\s*['\"`](\w+)['\"`]\s*\)")
 SELECT_STAR = re.compile(r"select\s+\*", re.IGNORECASE)
 JS_ROUTE_FRAMEWORKS = ("next-app", "next-pages", "next-action", "express", "fastify")
 PY_ROUTE_FRAMEWORKS = ("django", "drf", "fastapi", "flask")
-LOG_CALL = re.compile(
-    r"console\.(?:log|error|warn|info|debug)|(?:logger|log)\.(?:info|error|warn|debug|log|fatal)"
-)
-PY_LOG_CALL = re.compile(
-    r"print|logging\.(?:debug|info|warning|error|exception|critical)"
-    r"|(?:logger|log|LOGGER)\.(?:debug|info|warning|error|exception|critical)"
-)
-SENSITIVE_ROOTS = frozenset(
-    {"req", "request", "body", "user", "token", "payload", "headers", "session", "password"}
-)
-ERROR_NAMES = frozenset({"err", "error", "e", "exc"})
-OBJECT_LOGGED = "A request, user, token or database error object is written to the log."
-TRACEBACK_LOGGED = "A full traceback, with local values in the message, is printed to the log."
-JS_DB = re.compile(r"prisma\.|supabase\.|\bdb\.|\.query\(|\.execute\(|knex|sequelize|mongoose")
-PY_DB = re.compile(r"\.objects\.|session\.|cursor\.|\.execute\(|\.query\(")
 PUBLIC_ENV_DETAIL = (
     "Only public-prefixed, non-secret names are tracked; "
     "frameworks such as Next.js commit these on purpose."
@@ -311,109 +296,3 @@ def ssr_props(ctx: Context) -> Iterator[Finding]:
                                 model,
                                 rule_id="LEAK-SSR-PROPS",
                             )
-
-
-def _catch_has_db(ident) -> bool:
-    name = jsts.node_text(ident)
-    node = ident.parent
-    while node is not None:
-        if node.type == "catch_clause":
-            param = node.child_by_field_name("parameter")
-            if param is not None and jsts.node_text(param) == name:
-                body = node.parent.child_by_field_name("body") if node.parent else None
-                return body is not None and bool(JS_DB.search(jsts.node_text(body)))
-        node = node.parent
-    return False
-
-
-def _js_sensitive(arg) -> bool:
-    arg = jsts.unwrap(arg)
-    if arg is None:
-        return False
-    if arg.type == "shorthand_property_identifier":
-        return jsts.node_text(arg) in SENSITIVE_ROOTS
-    if arg.type in ("call_expression", "new_expression"):
-        return any(_js_sensitive(a) for a in jsts.arguments(arg))
-    if arg.type == "object":
-        return any(_js_sensitive(v) for v in jsts.object_pairs(arg).values())
-    if arg.type == "template_string":
-        return any(
-            _js_sensitive(s.named_children[0])
-            for s in arg.named_children
-            if s.type == "template_substitution" and s.named_children
-        )
-    root = jsts.member_root(arg)
-    if root in SENSITIVE_ROOTS:
-        return True
-    if root in ERROR_NAMES:
-        base = arg
-        while base.type in ("member_expression", "subscript_expression"):
-            base = jsts.unwrap(base.child_by_field_name("object"))
-        return _catch_has_db(base)
-    return False
-
-
-def _except_handlers(ctx: Context, rel: str, tree: ast.Module) -> list[tuple[str, int, int, bool]]:
-    """(error name, first line, last line, try body touches the database) per except handler."""
-    key = ("py-except", rel)
-    if key not in ctx.index.cache:
-        found = []
-        for block in ast.walk(tree):
-            if not isinstance(block, ast.Try):
-                continue
-            named = [h for h in block.handlers if h.name in ERROR_NAMES]
-            if not named:
-                continue
-            db = bool(PY_DB.search("\n".join(ast.unparse(s) for s in block.body)))
-            found += [(h.name, h.lineno, h.end_lineno or h.lineno, db) for h in named]
-        ctx.index.cache[key] = found
-    return ctx.index.cache[key]
-
-
-def _py_sensitive(node: ast.AST, handlers: list[tuple[str, int, int, bool]], line: int) -> bool:
-    if isinstance(node, ast.JoinedStr):
-        return any(
-            _py_sensitive(v.value, handlers, line)
-            for v in node.values
-            if isinstance(v, ast.FormattedValue)
-        )
-    if isinstance(node, ast.Call) and pyast.dotted(node.func) in ("json.dumps", "str", "repr"):
-        return any(_py_sensitive(a, handlers, line) for a in node.args)
-    root = pyast.name_root(node)
-    if root in SENSITIVE_ROOTS:
-        return True
-    if root in ERROR_NAMES:
-        for name, first, last, db in handlers:
-            if name == root and first <= line <= last:
-                return db
-    return False
-
-
-def _logged(ctx: Context, rel: str, line: int, what: str) -> Finding:
-    ctx.facts.setdefault("logged_pii", []).append(Location(rel, line))
-    return make_finding(
-        "LEAK-LOGGED-PII",
-        tag=Tag.INFERRED,
-        locations=[Location(rel, line)],
-        snippet=snippet(ctx.index.text(rel), line),
-        what=what,
-    )
-
-
-@rule("LEAK-LOGGED-PII", review="leaks", severity="medium", exploitability="low")
-def logged_pii(ctx: Context) -> Iterator[Finding]:
-    for entry in ctx.index.js_files:
-        for tree in jsts.parse_file(ctx.index, entry.rel):
-            for call in jsts.calls(tree, LOG_CALL):
-                if any(_js_sensitive(a) for a in jsts.arguments(call)):
-                    yield _logged(ctx, entry.rel, jsts.line(tree, call), OBJECT_LOGGED)
-    for entry in ctx.index.py_files:
-        tree = pyast.parse_file(ctx.index, entry.rel)
-        if tree is None:
-            continue
-        for call in pyast.calls(tree, PY_LOG_CALL):
-            handlers = _except_handlers(ctx, entry.rel, tree)
-            if any(_py_sensitive(a, handlers, call.lineno) for a in call.args):
-                yield _logged(ctx, entry.rel, call.lineno, OBJECT_LOGGED)
-        for call in pyast.calls(tree, r"traceback\.print_exc"):
-            yield _logged(ctx, entry.rel, call.lineno, TRACEBACK_LOGGED)
