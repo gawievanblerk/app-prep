@@ -34,6 +34,7 @@ findings:
   - {rule: BASE-SAMESITE-NONE-NO-CSRF, file: infra/main.tf, line: 15, tag: INFERRED}
   - {rule: BASE-SEED-ON-START, file: api/startup.sh, line: 3, tag: INFERRED}
   - {rule: BASE-SHORT-PASSWORD-MIN, file: api/app/schemas.py, line: 11, tag: CONFIRMED}
+  - {rule: INV-NO-DELETION-PATH, file: api/app/models.py, line: 17, tag: INFERRED}
   - {rule: INV-SDK-RECEIVES-PII, file: api/app/services/assistant.py, line: 9, tag: INFERRED}
   - {rule: LEAK-DEFAULT-CREDENTIAL, file: docker-compose.yml, line: 5, tag: CONFIRMED}
   - {rule: LEAK-PUBLIC-GATE-KEY, file: .github/workflows/deploy.yml, line: 3, tag: CONFIRMED}

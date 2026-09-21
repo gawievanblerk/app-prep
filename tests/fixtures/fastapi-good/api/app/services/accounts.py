@@ -104,3 +104,8 @@ class AccountService:
         user.email_change_token_hash = digest(token)
         background.add_task(send_email, data.new_email, "Confirm your new email", token)
         return {"message": GENERIC}
+
+    async def delete_account(self, user):
+        record = await self.db.get(User, user.id)
+        await self.db.delete(record)
+        return {"ok": True}

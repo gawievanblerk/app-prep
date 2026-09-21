@@ -71,3 +71,8 @@ async def update_me(data: ProfileUpdate, current_user: CurrentUser):
 @router.post("/me/email")
 async def change_email(data: EmailChange, current_user: CurrentUser, background: BackgroundTasks):
     return await AccountService().request_email_change(current_user, data, background)
+
+
+@router.delete("/me")
+async def delete_me(current_user: CurrentUser):
+    return await AccountService().delete_account(current_user)

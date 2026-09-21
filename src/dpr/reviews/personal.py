@@ -88,8 +88,9 @@ def classify(name: str, person: bool = True) -> Category | None:
 
 
 def is_person_model(model: DataModel) -> bool:
+    """The record describes a person: its name ends in a person word, or it has email or phone."""
     names = {model.name, model.table.split(".")[-1]}
-    stems = {w for n in names for w in words(n)}
+    stems = {words(n)[-1] for n in names if words(n)}
     person_words = set(load("pii_terms.yaml")["person_models"])
     fields = {f.name.lower() for f in model.fields}
     return bool(stems & person_words) or bool({"email", "phone", "email_address"} & fields)
