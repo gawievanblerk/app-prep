@@ -1,0 +1,120 @@
+from tests.reviews.auth_app import auth_app
+from tests.reviews.helpers import findings_for, write
+
+UPDATE_SERVICE = (
+    "class UserService:\n"
+    "    async def update_user(self, user_id, data, requesting_user):\n"
+    "        update = data.model_dump(exclude_unset=True)\n"
+    "        allowed_fields = {'first_name', 'last_name', 'email'}\n"
+    "        for field, value in update.items():\n"
+    "            if field in allowed_fields:\n"
+    "                setattr(requesting_user, field, value)\n"
+)
+USERS = (
+    "from typing import Annotated\nfrom fastapi import APIRouter, Depends\n"
+    "from app.services.user_service import UserService\n"
+    "router = APIRouter(prefix='/users')\n"
+    "CurrentUser = Annotated[dict, Depends(get_current_user)]\n\n"
+    "@router.put('/{user_id}')\n"
+    "async def update_user(user_id: str, data: UserUpdate, current_user: CurrentUser):\n"
+    "    return await UserService().update_user(user_id, data, current_user)\n"
+)
+
+
+def test_self_update_that_allows_email_is_confirmed(tmp_path):
+    auth_app(tmp_path, users=USERS)
+    write(tmp_path, "api/app/services/user_service.py", UPDATE_SERVICE)
+    [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED")
+    assert (finding.tag.value, str(finding.locations[0])) == (
+        "CONFIRMED",
+        "api/app/services/user_service.py:4",
+    )
+
+
+def test_email_change_with_verification_passes(tmp_path):
+    auth_app(tmp_path, users=USERS)
+    guarded = UPDATE_SERVICE.replace(
+        "        allowed_fields",
+        "        if 'email' in update:\n"
+        "            await self.start_email_verification(requesting_user, update.pop('email'))\n"
+        "        allowed_fields",
+    )
+    write(tmp_path, "api/app/services/user_service.py", guarded)
+    assert findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED") == []
+    without_email = UPDATE_SERVICE.replace(", 'email'}", "}")
+    write(tmp_path, "api/app/services/user_service.py", without_email)
+    assert findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED") == []
+
+
+def test_javascript_profile_update_writing_email(tmp_path):
+    write(
+        tmp_path,
+        "server/me.js",
+        "router.patch('/me', requireUser, async (req, res) => {\n"
+        "  await prisma.user.update({ where: { id: req.user.id }, data: { email: req.body.email } })\n"
+        "  res.json({ ok: true })\n})\n",
+    )
+    [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED")
+    assert str(finding.locations[0]) == "server/me.js:2"
+
+
+def model(root, email_line, extra=""):
+    write(
+        root,
+        "api/app/models.py",
+        f"class User(Base):\n    __tablename__ = 'users'\n    {email_line}\n{extra}",
+    )
+
+
+def test_email_uniqueness_on_the_user_model(tmp_path):
+    auth_app(tmp_path)
+    model(tmp_path, "email = Column(String)")
+    [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-NOT-UNIQUE")
+    assert (finding.tag.value, str(finding.locations[0])) == ("CONFIRMED", "api/app/models.py:3")
+    model(tmp_path, "email = Column(String, unique=True)")
+    assert findings_for(tmp_path, "auth", "AUTH-EMAIL-NOT-UNIQUE") == []
+    model(
+        tmp_path,
+        "email = Column(String)",
+        "    __table_args__ = (Index('ix_live_email', 'email', unique=True),)\n",
+    )
+    assert findings_for(tmp_path, "auth", "AUTH-EMAIL-NOT-UNIQUE") == []
+
+
+def web_app(root, client, screen):
+    auth_app(root)
+    write(root, "web/package.json", '{"dependencies": {"react": "18"}}')
+    write(root, "web/index.html", "<div id=root></div>\n")
+    write(root, "web/src/api.ts", client)
+    write(root, "web/src/Screen.tsx", screen)
+
+
+def test_signup_route_defined_in_the_client_but_never_called(tmp_path):
+    client = (
+        "export const authApi = {\n"
+        "  register: (data) => api.post('/auth/register', data),\n"
+        "  login: (data) => api.post('/auth/login', data),\n}\n"
+    )
+    web_app(tmp_path, client, "authApi.login({})\n")
+    [finding] = findings_for(tmp_path, "auth", "AUTH-SIGNUP-NO-UI")
+    assert finding.tag.value == "INFERRED"
+    assert "defines register() for this path at web/src/api.ts:2" in finding.detail
+    web_app(tmp_path, client, "authApi.register({})\n")
+    assert findings_for(tmp_path, "auth", "AUTH-SIGNUP-NO-UI") == []
+
+
+def test_signup_route_with_no_reference_and_without_a_frontend(tmp_path):
+    web_app(tmp_path, "export const x = 1\n", "export {}\n")
+    [finding] = findings_for(tmp_path, "auth", "AUTH-SIGNUP-NO-UI")
+    assert "No frontend source refers to this path." in finding.detail
+    api_only = tmp_path / "api_only"
+    auth_app(api_only)
+    assert findings_for(api_only, "auth", "AUTH-SIGNUP-NO-UI") == []
+
+
+def test_no_second_factor_per_app_and_mfa_signals(tmp_path):
+    auth_app(tmp_path)
+    [finding] = findings_for(tmp_path, "auth", "AUTH-NO-MFA")
+    assert (finding.tag.value, finding.title) == ("INFERRED", "No second factor for sign-in in api")
+    write(tmp_path, "api/requirements.txt", "fastapi\npython-jose\npasslib\npyotp\n")
+    assert findings_for(tmp_path, "auth", "AUTH-NO-MFA") == []

@@ -3,12 +3,14 @@ findings:
   - {rule: ABUSE-FORM-NO-CHALLENGE, file: src/routes/auth.ts, line: 11, tag: INFERRED}
   - {rule: ABUSE-NO-KILL-SWITCH, file: src/routes/auth.ts, line: 35, tag: INFERRED}
   - {rule: ABUSE-PAID-UNLIMITED, file: src/routes/auth.ts, line: 35, tag: INFERRED}
+  - {rule: AUTH-EMAIL-CHANGE-UNVERIFIED, file: src/routes/auth.ts, line: 60, tag: CONFIRMED}
   - {rule: AUTH-ENUM-RESET-MESSAGE, file: src/routes/auth.ts, line: 37, tag: CONFIRMED}
   - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: src/routes/auth.ts, line: 13, tag: CONFIRMED}
   - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 22, tag: INFERRED}
   - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 37, tag: INFERRED}
   - {rule: AUTH-LOGOUT-NO-REVOKE, file: src/routes/auth.ts, line: 30, tag: CONFIRMED}
   - {rule: AUTH-NO-LOCKOUT, file: src/routes/auth.ts, line: 20, tag: INFERRED}
+  - {rule: AUTH-NO-MFA, file: src/routes/auth.ts, line: 20, tag: INFERRED}
   - {rule: AUTH-RESET-NO-EXPIRY, file: src/routes/auth.ts, line: 44, tag: INFERRED}
   - {rule: AUTH-RESET-TRUSTS-EMAIL, file: src/routes/auth.ts, line: 48, tag: INFERRED}
   - {rule: AUTH-TOKEN-PLAINTEXT, file: src/routes/auth.ts, line: 45, tag: CONFIRMED}

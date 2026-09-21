@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import dpr.reviews.auth_account  # noqa: F401  (registers rules)
 import dpr.reviews.auth_enum  # noqa: F401  (registers rules)
 import dpr.reviews.auth_sessions  # noqa: F401  (registers rules)
 import dpr.reviews.auth_tokens  # noqa: F401  (registers rules)

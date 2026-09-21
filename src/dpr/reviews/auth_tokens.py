@@ -142,7 +142,7 @@ def _no_expiry(ctx: Context, kind: str, rule_id: str, case: int) -> Iterator[Fin
         yield make_finding(
             rule_id,
             tag=Tag.INFERRED,
-            locations=[flow.location, *(Location(c.rel, c.line) for c in flow.code[1:3])],
+            locations=[flow.location, *(loc for _, loc in plaintext_matches(flow)[:2])],
             snippet=snippet(ctx.index.text(flow.route.file), flow.route.line),
             route=f"{flow.route.method} {flow.route.path}",
         )

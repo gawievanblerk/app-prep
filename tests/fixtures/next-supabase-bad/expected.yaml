@@ -6,6 +6,7 @@ findings:
   - {rule: ABUSE-PAID-UNAUTH, file: app/api/generate/route.ts, line: 6, tag: CONFIRMED}
   - {rule: ABUSE-PAID-UNLIMITED, file: app/api/generate/route.ts, line: 6, tag: INFERRED}
   - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: app/api/signup/route.ts, line: 12, tag: CONFIRMED}
+  - {rule: AUTH-SIGNUP-NO-UI, file: app/api/signup/route.ts, line: 5, tag: INFERRED}
   - {rule: BASE-COOKIE-HTTPONLY, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
   - {rule: BASE-COOKIE-SAMESITE, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
   - {rule: BASE-COOKIE-SECURE, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}

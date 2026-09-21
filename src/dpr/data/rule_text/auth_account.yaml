@@ -1,0 +1,34 @@
+AUTH-EMAIL-CHANGE-UNVERIFIED:
+  title: Account email changes take effect without verification
+  effort_minutes: 60
+  detail: ${route} lets the signed-in user write a new email address directly (first location), with no confirmation sent to the new address, no notice to the old one and no password re-entry.
+  attack: With a hijacked session, change the account email to an attacker address, then use password reset to lock the owner out for good.
+  blast: Permanent takeover of any account whose session is stolen once, plus anything that trusts the email as identity.
+  fix: Remove email from directly editable fields. Store the new address as pending with a hashed, expiring token, email the new address to confirm, notify the old address with a way to revoke, and ask for the current password.
+  verify: Change the email through the API and confirm the stored email stays the same until the confirmation link is used.
+AUTH-EMAIL-NOT-UNIQUE:
+  title: Email is not unique on ${model}
+  effort_minutes: 15
+  detail: The email column of ${model} has no unique constraint, so two concurrent signups can create two accounts for one address.
+  attack: Race two signups for the same address to create a duplicate account with a different password.
+  blast: Undefined sign-in and reset behaviour for the duplicated address.
+  fix: Add a unique index on the normalised email (lowercase), and treat the integrity error as the existing-account path.
+  verify: Fire two signups for one address in parallel against a test database and confirm one row.
+AUTH-SIGNUP-NO-UI:
+  title: Public signup endpoint that no screen uses
+  effort_minutes: 10
+  detail: ${route} accepts public signups. ${what}
+  proof_needed: Confirm with the product owner whether self-service signup is a live feature.
+  attack: Create accounts directly through the API to get a foothold for account-level attacks and send email from the company's domain.
+  blast: Every feature open to a signed-in account, plus the email sender's reputation.
+  fix: Remove the route, or return 404 unless a public signup setting is on.
+  verify: POST to the signup route and expect 404 when signup is off.
+AUTH-NO-MFA:
+  title: No second factor for sign-in in ${app}
+  effort_minutes: 240
+  detail: The sign-in flows in ${app} check a password only; no TOTP, WebAuthn or other second factor was found in the sign-in code, the user model or the dependencies.
+  proof_needed: Check whether an identity provider or VPN in front of admin access requires a second factor.
+  attack: Use one phished or reused password to sign in as a staff or admin account.
+  blast: Every record the compromised account can read or change.
+  fix: Require TOTP or WebAuthn for staff and admin roles first, then offer it to every account.
+  verify: Sign in as an admin with only the password and confirm a second-factor challenge appears.

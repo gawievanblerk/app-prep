@@ -22,9 +22,7 @@ REVOKE_CALL = re.compile(
     r"|(?:^|\.)logout$|(?:^|\.)(?:delete|remove|pop|clear)$"
 )
 REVOKE_WRITE = re.compile(r"(?i)invalidated_?at|token_?version|revoked_?at|\bjti\b")
-RESPONSE_ONLY = re.compile(
-    r"(?:^|\.)(?:json|status|send|JSONResponse|Response|jsonify|redirect|NextResponse|end)$"
-)
+RESPONSE_ONLY = re.compile(r"(?:^|\.)(?:json|status|send|\w*Response|jsonify|redirect|end)$")
 REFRESH_ISSUED = re.compile(
     r"create_refresh_token|refresh_token\s*=|[\"']type[\"']\s*:\s*[\"']refresh|new_refresh"
     r"|refreshToken\s*=|signRefresh|create_tokens|issue_tokens|generate_tokens|RefreshToken\.for_user"

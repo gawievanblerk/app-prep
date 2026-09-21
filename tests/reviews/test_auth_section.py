@@ -28,7 +28,7 @@ def test_ten_cases_and_extras_are_always_written(tmp_path):
     for number in range(1, 11):
         assert f"#### CASE {number}: " in body
     assert "#### CASE 11: Public signup that no screen uses (UNVERIFIED)" in body
-    assert "#### CASE 12: Second factor for staff and admin accounts (UNVERIFIED)" in body
+    assert "#### CASE 12: Second factor for staff and admin accounts (FAILS)" in body
     assert "committed-passwords" not in body and "CASE 13" not in body
     assert (
         "This app: CONFIRMED. Logout only deletes cookies (`api/app/routes/auth.py:27`, "
