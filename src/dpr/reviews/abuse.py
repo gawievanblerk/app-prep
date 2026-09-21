@@ -111,18 +111,37 @@ def _cost_rows(ctx: Context) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ..
     return (("App", *header) if multi else header), tuple(rows)
 
 
+def _minutes(window: str) -> float:
+    amount, unit = window.split(" ", 1)
+    scale = {"min": 1, "h": 60, "day": 1440}
+    return float(amount) * scale.get(unit.rstrip("s"), 1)
+
+
+def _strictest(categories: list[str]) -> tuple[str, int, int, str]:
+    """Per-user and per-IP are the lowest across all categories; the note and window come from
+    whichever category gave the strictest per-user value (ties broken by the shorter window)."""
+    scored = [costs().get(c, costs()["form"]) for c in categories]
+    per_user = min(cost["per_user"] for cost in scored)
+    per_ip = min(cost["per_ip"] for cost in scored)
+    strictest = min(
+        (c for c in categories if costs().get(c, costs()["form"])["per_user"] == per_user),
+        key=lambda c: _minutes(costs().get(c, costs()["form"])["window"]),
+    )
+    return strictest, per_user, per_ip, costs().get(strictest, costs()["form"])["window"]
+
+
 def _limit_rows(ctx: Context) -> tuple[tuple[str, ...], ...]:
     limits = []
     for app, route, _calls, categories in _surface(ctx):
-        cost = costs().get(categories[0], costs()["form"])
+        category, per_user, per_ip, window = _strictest(categories)
         endpoint = f"{route.method} {route.path}"
         limits.append(
             (
                 endpoint if app == "." else f"{app}: {endpoint}",
-                _note(categories[0]),
-                str(cost["per_user"]),
-                str(cost["per_ip"]),
-                cost["window"],
+                _note(category),
+                str(per_user),
+                str(per_ip),
+                window,
                 "starting default, not measured traffic",
             )
         )

@@ -12,7 +12,7 @@ from dpr.model import Finding, Location, Route, SdkUse, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
 from dpr.reviews.inventory_callers import caller_value
-from dpr.reviews.paid import _names_from_import
+from dpr.reviews.paid import names_from_import
 from dpr.reviews.paths import is_test
 from dpr.reviews.personal import classify
 from dpr.rules import Context, make_finding, rule
@@ -318,7 +318,7 @@ def recipient_sites(ctx: Context, sdk: SdkUse) -> list[tuple[Location, list[str]
         names: set[str] = set()
         for loc in sdk.locations:
             if loc.file == rel:
-                names |= _names_from_import(lines[loc.line - 1], rel.endswith(".py"))
+                names |= names_from_import(lines[loc.line - 1], rel.endswith(".py"))
         sites = _py_sites(ctx, rel, names) if rel.endswith(".py") else _js_sites(ctx, rel, names)
         found += [(Location(rel, line), keys) for line, keys in sites]
     return found

@@ -12,7 +12,7 @@ from dpr.parsing import pyast
 from dpr.reviews.access import ADMIN, PUBLIC, access
 from dpr.reviews.auth_flows import Code, route_code
 from dpr.reviews.owasp_a01 import attacker
-from dpr.reviews.paid import _names_from_import, _tree_names, _uses
+from dpr.reviews.paid import names_from_import, tree_names, uses
 from dpr.reviews.paths import is_test
 from dpr.rules import Context
 
@@ -44,7 +44,7 @@ def cost_names(ctx: Context) -> dict[str, dict[str, SdkUse]]:
                 lines = ctx.index.text(loc.file).splitlines()
                 if loc.line > len(lines):
                     continue
-                for name in _names_from_import(lines[loc.line - 1], loc.file.endswith(".py")):
+                for name in names_from_import(lines[loc.line - 1], loc.file.endswith(".py")):
                     found.setdefault(loc.file, {})[name] = sdk
         ctx.facts["cost_names"] = found
     return ctx.facts["cost_names"]
@@ -58,7 +58,7 @@ def _self_clients(tree: ast.Module, node: ast.AST, names: dict[str, SdkUse]) -> 
             continue
         for sub in ast.walk(cls):
             if isinstance(sub, ast.Assign):
-                sdk = _uses(ast.unparse(sub.value), names)
+                sdk = uses(ast.unparse(sub.value), names)
                 for target in sub.targets if sdk else []:
                     if isinstance(target, ast.Attribute) and pyast.dotted(target.value) == "self":
                         found[f"self.{target.attr}"] = sdk
@@ -66,14 +66,14 @@ def _self_clients(tree: ast.Module, node: ast.AST, names: dict[str, SdkUse]) -> 
 
 
 def code_costs(ctx: Context, code: Code) -> list[tuple[str, str]]:
-    names = _tree_names(code.tree, cost_names(ctx).get(code.rel, {}))
+    names = tree_names(code.tree, cost_names(ctx).get(code.rel, {}))
     text = code.text()
     hits: list[tuple[str, str]] = []
     if code.python and isinstance(code.tree, ast.Module):
         for attr, sdk in _self_clients(code.tree, code.node, names).items():
             if re.search(rf"{re.escape(attr)}\b", text):
                 hits.append((sdk.name, sdk.category))
-    sdk = _uses(text, names)
+    sdk = uses(text, names)
     if sdk is not None:
         hits.append((sdk.name, sdk.category))
     if SPREADSHEET.search(text):

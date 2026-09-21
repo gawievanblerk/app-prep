@@ -67,6 +67,36 @@ def test_shallow_trace_does_not_reach_the_client(tmp_path):
     assert not any(cost_trace.code_costs(ctx, code) for code in codes)
 
 
+INVOICES_SERVICE = (
+    "import weasyprint\nfrom azure.communication.email import EmailClient\n\n\n"
+    "def render_invoice_pdf(html):\n    return weasyprint.HTML(string=html).write_pdf()\n\n\n"
+    "def send_invoice_email(pdf, address):\n"
+    "    client = EmailClient.from_connection_string('conn')\n"
+    "    return client.begin_send({'to': address, 'attachment': pdf})\n"
+)
+INVOICES_ROUTES = (
+    "from fastapi import APIRouter, Depends\n"
+    "from app.services.invoices import render_invoice_pdf, send_invoice_email\n\n"
+    "router = APIRouter()\n\n\n"
+    "@router.post('/invoices')\n"
+    "async def create_invoice(body: dict, user=Depends(get_current_user)):\n"
+    "    pdf = render_invoice_pdf(body['html'])\n"
+    "    return send_invoice_email(pdf, body['email'])\n"
+)
+
+
+def test_mixed_pdf_and_email_costs_recommend_the_strictest_limit(tmp_path):
+    from dpr.api import review
+
+    write(tmp_path, "requirements.txt", "fastapi\nweasyprint\nazure-communication-email\n")
+    write(tmp_path, "app/services/invoices.py", INVOICES_SERVICE)
+    write(tmp_path, "app/routes.py", INVOICES_ROUTES)
+    report = review(tmp_path, reviews=["abuse"])
+    parts = {p.title: p for p in report.sections["abuse"].parts}
+    limits = {row[0]: row for row in parts["Limits per endpoint"].rows}
+    assert limits["POST /invoices"][2:5] == ("3", "10", "1 h")
+
+
 def test_cost_surface_gains_an_app_column_with_two_apps(tmp_path):
     from dpr.api import review
 
