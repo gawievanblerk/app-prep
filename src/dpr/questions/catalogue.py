@@ -28,14 +28,37 @@ def load_questions() -> list[Question]:
             honest_out=tuple(q.get("honest_out", ["Not sure"])),
             answered_by=q.get("answered_by"),
             lawyer=bool(q.get("lawyer", False)),
+            when=q.get("when"),
         )
         for q in load("questions.yaml")["questions"]
     ]
 
 
-def questions_for(reviews: Iterable[str]) -> list[Question]:
+MANAGED_AUTH = {"supabase-auth", "clerk", "auth0", "nextauth", "firebase-auth", "better-auth"}
+
+
+def relevant(question: Question, detection: Detection) -> bool:
+    """Whether the detected stack makes the question worth asking."""
+    client = detection.public_supabase_key or bool(
+        {"supabase", "firebase"} & set(detection.databases)
+    )
+    conditions = {
+        "client_database": client,
+        "server_database": not client and bool(detection.models or detection.databases),
+        "managed_auth": bool(MANAGED_AUTH & set(detection.auth_providers)),
+        "paid_sdk": any(s.paid for s in detection.sdks),
+    }
+    return question.when is None or conditions.get(question.when, True)
+
+
+def questions_for(reviews: Iterable[str], detection: Detection | None = None) -> list[Question]:
+    """Questions of the selected reviews; with a detection, only those it makes relevant."""
     wanted = set(reviews)
-    return [q for q in load_questions() if wanted & set(q.reviews)]
+    return [
+        q
+        for q in load_questions()
+        if wanted & set(q.reviews) and (detection is None or relevant(q, detection))
+    ]
 
 
 def options(question: Question, detection: Detection) -> list[str]:

@@ -14,6 +14,7 @@ from dpr.model import Detection, Finding, Report, ReportMeta, ReviewSection, Sca
 from dpr.questions.catalogue import questions_for, resolve
 from dpr.questions.prompt import ask_on_terminal
 from dpr.rank import dedupe, rank
+from dpr.report.coverage import coverage_notes
 from dpr.report.register import build_register
 from dpr.reviews import REVIEWS, RUN_ORDER, available, number, resolve_reviews
 from dpr.rules import Context, Options, run_checks
@@ -89,7 +90,9 @@ def review(
         db_dump=db_dump,
     )
     ask = ask_on_terminal if interactive and sys.stdin.isatty() else None
-    results, warnings = resolve(questions_for(selected), detection, answers, interactive, ask)
+    results, warnings = resolve(
+        questions_for(selected, detection), detection, answers, interactive, ask
+    )
     ctx = Context(
         index=index,
         detection=detection,
@@ -134,6 +137,8 @@ def review(
             f"App root {root.path} is not named by any deploy or CI configuration; its findings "
             "are listed one severity step lower"
         )
+
+    ctx.not_covered.extend(coverage_notes(index.root, detection, options, set(sections)))
 
     for option, owner, note in SKIPPED_OPTIONS:
         if getattr(options, option) and owner not in sections:

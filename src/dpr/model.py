@@ -183,6 +183,7 @@ class Question:
     honest_out: tuple[str, ...] = ("Not sure",)
     answered_by: str | None = None
     lawyer: bool = False
+    when: str | None = None  # detection condition that makes the question relevant
 
 
 @dataclass(frozen=True)

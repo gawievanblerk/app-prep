@@ -61,7 +61,8 @@ def test_full_run(tmp_path):
     scores = [score(f) for f in report.findings]
     assert scores == sorted(scores, reverse=True)
     assert not any("not available in this version" in item for item in report.not_covered)
-    assert len(report.questions) == 22
+    assert len(report.questions) == 17
+    assert "provider_session_lifetimes" not in {q.question.id for q in report.questions}
     assert all(q.open for q in report.questions)
 
 

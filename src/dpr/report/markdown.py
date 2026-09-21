@@ -7,6 +7,7 @@ import re
 from jinja2 import Environment, PackageLoader
 
 from dpr.model import Finding, Part, Report
+from dpr.questions.lawyer import lawyer_questions
 from dpr.rank import order_for_section
 from dpr.report.register import build_register
 from dpr.reviews import LABELS, REVIEWS, TITLES, number
@@ -105,6 +106,15 @@ def _part_body(slug: str, part: Part, report: Report) -> str:
     return part.body
 
 
+def _app_roots(report: Report) -> str:
+    labels = {True: "deployed", False: "not deployed", None: "deployment unknown"}
+    return ", ".join(
+        f"{r.path} ({r.kind}, {labels[r.deployed]})"
+        for r in report.detection.app_roots
+        if r.path and r.kind != "library"
+    )
+
+
 def _detection_table(report: Report) -> str:
     d = report.detection
     schema = d.schema
@@ -115,6 +125,8 @@ def _detection_table(report: Report) -> str:
         ("Database / ORM", ", ".join([*d.databases, *d.orms]) or "none detected"),
         ("Auth provider", ", ".join(d.auth_providers) or "none detected"),
         ("Hosting", ", ".join(d.hosting) or "none detected"),
+        ("CI", ", ".join(d.ci) or "none detected"),
+        ("App roots", _app_roots(report) or "one app at the repository root"),
         ("API routes", str(len(d.routes))),
         ("Third-party SDKs", sdks),
         ("RLS or policy files present", "yes" if has_policies else "no"),
@@ -199,6 +211,9 @@ def _view(report: Report) -> dict:
             ]
         )
         or "None.",
+        "lawyer": "\n".join(
+            f"{i}. {text}" for i, text in enumerate(lawyer_questions(report), start=1)
+        ),
         "still_open": _table(
             ("Question", "Why the repository cannot answer it", "Who can answer"),
             [(q.question.text, q.question.why, q.question.who) for q in open_questions],

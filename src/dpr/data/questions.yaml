@@ -53,6 +53,7 @@ questions:
     who: The whole team
     lawyer: true
   - id: frontend_key_type
+    when: client_database
     reviews: [rls]
     text: Which database key does the deployed frontend ship?
     type: choice
@@ -60,6 +61,7 @@ questions:
     why: Deployed environment values are set in the hosting dashboard.
     who: Whoever manages the hosting environment variables
   - id: rls_via_dashboard
+    when: client_database
     reviews: [rls]
     text: Was row level security or any policy changed in the provider dashboard rather than in a migration?
     type: choice
@@ -67,6 +69,7 @@ questions:
     why: Dashboard changes leave no trace in the repository.
     who: Whoever administers the database project
   - id: tables_not_in_migrations
+    when: client_database
     reviews: [rls]
     text: Do tables exist in production that no migration file creates?
     type: choice
@@ -74,6 +77,7 @@ questions:
     why: Only the live database can list its tables.
     who: Whoever administers the database project
   - id: buckets_public
+    when: client_database
     reviews: [rls]
     text: Are any storage buckets public?
     type: choice
@@ -81,12 +85,14 @@ questions:
     why: Buckets are often created in a dashboard.
     who: Whoever administers the storage project
   - id: provider_email_templates
+    when: managed_auth
     reviews: [auth]
     text: Which auth emails does the provider send, such as verification, reset, magic link or invite?
     type: text
     why: Email templates are often configured in a provider dashboard.
     who: Whoever administers the auth provider
   - id: provider_session_lifetimes
+    when: managed_auth
     reviews: [auth]
     text: What session and token lifetimes are configured in the auth provider?
     type: text
@@ -100,6 +106,7 @@ questions:
     why: Edge configuration lives outside the repository.
     who: Whoever manages DNS and the CDN
   - id: provider_hash_params
+    when: managed_auth
     reviews: [baseline]
     text: If a managed provider stores passwords, which hashing settings does it use?
     type: text
@@ -133,12 +140,14 @@ questions:
     why: Seats and retention are configured in the vendor dashboards.
     who: Whoever administers the logging and error tracking accounts
   - id: traffic_peak
+    when: paid_sdk
     reviews: [abuse]
     text: What is the heaviest legitimate use of a paid feature by one user in one hour?
     type: text
     why: Real traffic is not in the repository.
     who: Whoever reads the product analytics
   - id: spend_caps
+    when: paid_sdk
     reviews: [abuse]
     text: Which spend caps or quotas are set in provider dashboards?
     type: text
@@ -150,3 +159,10 @@ questions:
     type: text
     why: Team habits are not in code.
     who: The team lead
+  - id: db_runtime_role
+    reviews: [rls]
+    when: server_database
+    text: Which database login does the running app use, and can that login change the schema?
+    type: text
+    why: Connection strings and grants are set in the hosting and database consoles.
+    who: Whoever administers the database
