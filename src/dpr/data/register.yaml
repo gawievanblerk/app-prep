@@ -11,7 +11,7 @@ chains:
   - title: Sessions outlive logout or have no absolute limit
     scope: app
     rules: [AUTH-LOGOUT-NO-REVOKE, AUTH-REFRESH-NO-ABSOLUTE-CAP]
-  - title: One-time tokens are stored in plain text or never expire
+  - title: One-time tokens are stored in plain text, never expire or can be reused
     scope: app
     rules: [AUTH-TOKEN-PLAINTEXT, AUTH-VERIFY-NO-EXPIRY, AUTH-VERIFY-REUSABLE, AUTH-RESET-NO-EXPIRY]
   - title: Rate limits do not hold in production
@@ -20,7 +20,7 @@ chains:
   - title: Paid endpoints can run up the bill
     scope: app
     rules: [ABUSE-PAID-UNAUTH, ABUSE-PAID-UNLIMITED, ABUSE-NO-KILL-SWITCH]
-  - title: Security headers or HTTPS enforcement are missing
+  - title: Security headers or HTTPS enforcement are missing or weak
     scope: repo
     rules: [BASE-HEADER-MISSING-HSTS, BASE-HEADER-MISSING-CSP, BASE-HEADER-MISSING-XCTO, BASE-HEADER-MISSING-FRAME, BASE-HEADER-MISSING-REFERRER, BASE-HEADER-MISSING-PERMISSIONS, BASE-CSP-WEAK, BASE-HTTPS-NOT-ENFORCED, BASE-NO-HTTPS-REDIRECT]
   - title: Database reachable too widely or used with administrator rights

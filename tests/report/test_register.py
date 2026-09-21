@@ -60,7 +60,25 @@ def test_repo_scope_and_ranking_by_best_score():
         ("F-01", "high", (5,)),
         ("F-02", "medium", (4,)),
     ]
-    assert issues[1].title == "Security headers or HTTPS enforcement are missing"
+    assert issues[1].title == "Security headers or HTTPS enforcement are missing or weak"
+
+
+def test_headers_chain_title_holds_for_a_weak_csp_alone():
+    issues = build_register(
+        [finding("BASE-CSP-WEAK", "api/main.py", review="baseline")],
+        ROOTS,
+    )
+    [issue] = issues
+    assert issue.title == "Security headers or HTTPS enforcement are missing or weak"
+
+
+def test_tokens_chain_title_holds_for_a_reusable_token_alone():
+    issues = build_register(
+        [finding("AUTH-VERIFY-REUSABLE", "api/auth.py", review="auth")],
+        ROOTS,
+    )
+    [issue] = issues
+    assert issue.title == "One-time tokens are stored in plain text, never expire or can be reused"
 
 
 def test_chain_title_holds_for_a_subset_of_its_rules():
