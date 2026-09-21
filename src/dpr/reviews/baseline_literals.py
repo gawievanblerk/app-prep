@@ -23,18 +23,15 @@ Site = tuple[str, int, pyvalues.Literal]
 
 
 def _groups(sites: dict[str, list[tuple[int, pyvalues.Literal]]]) -> list[list[Site]]:
-    """Files joined when they hash the same text, found by digest, in first-seen order."""
-    groups: list[tuple[set[str], list[Site]]] = []
+    """Hashing sites joined by the digest of their own literal, in first-seen order.
+
+    A file that hashes several distinct literals contributes a site to each literal's own
+    group; only sites that hash the same text are ever merged."""
+    groups: dict[str, list[Site]] = {}
     for rel, items in sorted(sites.items()):
-        digests = {_digest(lit.value) for _, lit in items}
-        rows = [(rel, line, lit) for line, lit in items]
-        joined = [g for g in groups if g[0] & digests]
-        for group in joined:
-            groups.remove(group)
-            digests |= group[0]
-            rows = [*group[1], *rows]
-        groups.append((digests, rows))
-    return [rows for _, rows in groups]
+        for line, lit in items:
+            groups.setdefault(_digest(lit.value), []).append((rel, line, lit))
+    return list(groups.values())
 
 
 def _referenced(ctx: Context, rel: str) -> bool:

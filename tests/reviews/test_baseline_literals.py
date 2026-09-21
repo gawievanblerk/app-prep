@@ -1,9 +1,14 @@
+import hashlib
+
 from dpr.api import review
 from dpr.report.json_out import render_json
+from dpr.report.markdown import render_markdown
 from tests.reviews.helpers import findings_for, write
 
 ADMIN = "Adm1n" + "-Merge-" + "7713"
 OTHER = "Oth3r" + "-Merge-" + "7713"
+FIRST = "Fst3d" + "-Bug1-" + "5521"
+SECOND = "Sc0nd" + "-Bug1-" + "5521"
 
 
 def hashing(root, rel, literal, fallback=False):
@@ -74,3 +79,43 @@ def test_merged_output_never_contains_the_text(tmp_path):
     hashing(tmp_path, "api/scripts/seed_data.py", ADMIN)
     report = review(tmp_path, reviews=["baseline"])
     assert ADMIN not in render_json(report)
+
+
+def test_distinct_literals_in_one_file_are_separate_findings(tmp_path):
+    write(
+        tmp_path,
+        "api/app/services/bootstrap.py",
+        "import os\nfrom app.core.security import get_password_hash\n"
+        "def seed(db):\n"
+        f"    db.add(User(password_hash=get_password_hash('{FIRST}')))\n"
+        f"    db.add(User(password_hash=get_password_hash('{SECOND}')))\n",
+    )
+    hashing(tmp_path, "api/scripts/other_seed.py", FIRST)
+    results = findings_for(tmp_path, "baseline", "BASE-LITERAL-PASSWORD-HASH")
+    assert len(results) == 2
+    shared = next(f for f in results if len(f.locations) == 2)
+    alone = next(f for f in results if len(f.locations) == 1)
+    assert [str(loc) for loc in shared.locations] == [
+        "api/app/services/bootstrap.py:4",
+        "api/scripts/other_seed.py:4",
+    ]
+    assert "The same text is hashed in 2 files." in shared.detail
+    assert [str(loc) for loc in alone.locations] == ["api/app/services/bootstrap.py:5"]
+    assert "hashed in" not in alone.detail
+
+
+def test_neither_literal_nor_digest_reaches_output(tmp_path):
+    write(
+        tmp_path,
+        "api/app/services/bootstrap.py",
+        "import os\nfrom app.core.security import get_password_hash\n"
+        "def seed(db):\n"
+        f"    db.add(User(password_hash=get_password_hash('{FIRST}')))\n"
+        f"    db.add(User(password_hash=get_password_hash('{SECOND}')))\n",
+    )
+    hashing(tmp_path, "api/scripts/other_seed.py", FIRST)
+    report = review(tmp_path, reviews=["baseline"])
+    outputs = render_markdown(report) + render_json(report)
+    assert FIRST not in outputs and SECOND not in outputs
+    assert hashlib.sha256(FIRST.encode("utf-8")).hexdigest() not in outputs
+    assert hashlib.sha256(SECOND.encode("utf-8")).hexdigest() not in outputs
