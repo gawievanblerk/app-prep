@@ -6,7 +6,7 @@ import ast
 import re
 from collections.abc import Iterator
 
-from dpr.discovery.approots import root_of
+from dpr.discovery.approots import root_of, same_root
 from dpr.model import Finding, Location, Route, Tag
 from dpr.reviews.access import PUBLIC, access
 from dpr.reviews.auth_flows import _js_code, _py_code
@@ -47,11 +47,11 @@ def no_read_audit(ctx: Context) -> Iterator[Finding]:
         home = root_of(ctx.detection.app_roots, route.file)
         by_root.setdefault(home.path if home else "", []).append(route)
     for root, routes in sorted(by_root.items()):
-        prefix = f"{root}/" if root else ""
         models = [
             m.name
             for m in ctx.detection.models
-            if m.location.file.startswith(prefix) and AUDIT_MODEL.search(m.name)
+            if same_root(ctx.detection.app_roots, m.location.file, routes[0].file)
+            and AUDIT_MODEL.search(m.name)
         ]
         what = (
             (

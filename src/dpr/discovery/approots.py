@@ -58,6 +58,18 @@ def root_of(roots: list[AppRoot], rel: str) -> AppRoot | None:
     return best
 
 
+def same_root(roots: list[AppRoot], a: str, b: str) -> bool:
+    """Whether two repository-relative paths sit in the same app root, comparing `root_of`
+    results by path. A path with no app root (root_of returns None) only matches another path
+    with no app root, never every path, so a repository-root app root (path "") never crosses
+    into a sibling root through a string-prefix test."""
+    root_a = root_of(roots, a)
+    root_b = root_of(roots, b)
+    return (root_a.path if root_a is not None else None) == (
+        root_b.path if root_b is not None else None
+    )
+
+
 def _folders(index: RepoIndex) -> list[str]:
     found = set()
     for entry in index.named(*MANIFESTS):

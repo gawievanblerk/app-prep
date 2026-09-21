@@ -120,6 +120,24 @@ def test_sink_in_another_app_root_does_not_count(tmp_path):
     assert findings_for(tmp_path, "baseline", "BASE-DEBUG-ON") == []
 
 
+def test_sink_in_a_sibling_root_does_not_count_for_a_repository_root_app(tmp_path):
+    """A repository-root app ("" app root) must not pick up a sink from a sibling root through
+    a string-prefix test that matches every path, which would wrongly upgrade a docs-only,
+    low-severity finding into a high-severity one."""
+    write(tmp_path, "requirements.txt", "fastapi\n")
+    write(tmp_path, "app/config.py", SETTINGS)
+    write(
+        tmp_path,
+        "app/main.py",
+        "from fastapi import FastAPI\napp = FastAPI(docs_url='/docs' if settings.debug else None)\n",
+    )
+    write(tmp_path, "worker/requirements.txt", "flask\n")
+    write(tmp_path, "worker/app.py", "app = Flask(__name__)\napp.run(debug=config.debug)\n")
+    found = findings_for(tmp_path, "baseline", "BASE-DEBUG-ON")
+    assert locs(found) == [("app/config.py:5", "low")]
+    assert "API docs" in found[0].detail
+
+
 def ctx_for(root):
     index = RepoIndex(root)
     return Context(index=index, detection=detect(index))

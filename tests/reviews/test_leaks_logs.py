@@ -119,6 +119,21 @@ def test_destination_is_named_when_the_app_exports_logs(tmp_path):
     assert "exported" not in result["worker/job.py:2"].detail
 
 
+def test_destination_in_a_sibling_root_is_not_named_for_a_repository_root_app(tmp_path):
+    """A repository-root app ("" app root) must not pick up an exporter SDK set up in a sibling
+    root through a string-prefix test that matches every path."""
+    write(tmp_path, "requirements.txt", "fastapi\n")
+    write(tmp_path, "app/mail.py", "def send(to_email):\n    logger.info('to %s', to_email)\n")
+    write(tmp_path, "worker/requirements.txt", "celery\nazure-monitor-opentelemetry\n")
+    write(
+        tmp_path,
+        "worker/job.py",
+        "from azure.monitor.opentelemetry import configure_azure_monitor\nconfigure_azure_monitor()\n",
+    )
+    result = found(tmp_path)
+    assert "exported" not in result["app/mail.py:2"].detail
+
+
 def test_javascript_selected_fields_are_not_reported(tmp_path):
     write(
         tmp_path,

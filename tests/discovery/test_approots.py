@@ -1,5 +1,5 @@
 from dpr.api import review
-from dpr.discovery.approots import lower_undeployed, root_of
+from dpr.discovery.approots import lower_undeployed, root_of, same_root
 from dpr.discovery.detect import detect
 from dpr.model import AppRoot, Finding, Location
 from dpr.walk import RepoIndex
@@ -66,6 +66,14 @@ def test_root_of_picks_the_deepest_root():
     assert root_of(roots, "apps/api/src/a.ts").path == "apps/api"
     assert root_of(roots, "apps/api-py/a.py").path == ""
     assert root_of([AppRoot("apps/api", "server", False)], "docs/x.md") is None
+
+
+def test_same_root_compares_root_of_by_path_not_by_string_prefix():
+    roots = [AppRoot("", "server", None), AppRoot("admin", "server", False)]
+    assert same_root(roots, "app/a.py", "app/b.py") is True
+    assert same_root(roots, "app/a.py", "admin/app/b.py") is False
+    only_admin = [AppRoot("admin", "server", False)]
+    assert same_root(only_admin, "docs/a.md", "docs/b.md") is True
 
 
 def finding(severity, *files):

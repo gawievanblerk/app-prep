@@ -6,7 +6,7 @@ import ast
 import re
 from collections.abc import Iterator
 
-from dpr.discovery.approots import root_of
+from dpr.discovery.approots import same_root
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import pyast
 from dpr.redact import snippet
@@ -31,9 +31,11 @@ def _debug(ctx: Context, rel: str, line: int, what: str, severity: str | None = 
 
 
 def _same_root_files(ctx: Context, rel: str) -> list[str]:
-    home = root_of(ctx.detection.app_roots, rel)
-    prefix = f"{home.path}/" if home is not None and home.path else ""
-    return [f.rel for f in ctx.index.py_files if f.rel.startswith(prefix) and not is_test(f.rel)]
+    return [
+        f.rel
+        for f in ctx.index.py_files
+        if same_root(ctx.detection.app_roots, f.rel, rel) and not is_test(f.rel)
+    ]
 
 
 def _uses(ctx: Context, rel: str) -> tuple[list[int], list[int]]:

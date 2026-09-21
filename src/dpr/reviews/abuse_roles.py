@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 
-from dpr.discovery.approots import root_of
+from dpr.discovery.approots import same_root
 from dpr.model import Finding, Location, Route, Tag
 from dpr.parsing import pyast
 from dpr.redact import snippet
@@ -21,11 +21,10 @@ JS_ROLE_CHECK = re.compile(r"\b(?:requireRole|authorize|hasRole|checkRole|requir
 
 def role_checks(ctx: Context, route: Route) -> list[str]:
     """Role-restricted dependencies or checks used anywhere in the route's app root."""
-    home = root_of(ctx.detection.app_roots, route.file)
-    prefix = f"{home.path}/" if home is not None and home.path else ""
+    roots = ctx.detection.app_roots
     names: list[str] = []
     for entry in ctx.index.py_files:
-        if not entry.rel.startswith(prefix) or is_test(entry.rel):
+        if not same_root(roots, entry.rel, route.file) or is_test(entry.rel):
             continue
         if "Depends" not in ctx.index.text(entry.rel):
             continue
@@ -35,7 +34,7 @@ def role_checks(ctx: Context, route: Route) -> list[str]:
             if ROLE_NAME.search(target):
                 names.append(target)
     for entry in ctx.index.js_files:
-        if entry.rel.startswith(prefix) and not is_test(entry.rel):
+        if same_root(roots, entry.rel, route.file) and not is_test(entry.rel):
             names += JS_ROLE_CHECK.findall(ctx.index.text(entry.rel))
     return list(dict.fromkeys(names))
 

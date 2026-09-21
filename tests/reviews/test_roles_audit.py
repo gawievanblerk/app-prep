@@ -41,6 +41,19 @@ def test_role_checks_in_another_app_root_do_not_count(tmp_path):
     assert findings_for(tmp_path, "abuse", "ABUSE-PAID-ANY-ROLE") == []
 
 
+def test_role_checks_in_a_sibling_root_do_not_count_for_a_repository_root_app(tmp_path):
+    """A paid route whose own app root is the repository root ("") must not pick up role
+    dependencies from a sibling root through a string-prefix test that matches every path."""
+    write(tmp_path, "requirements.txt", "fastapi\nanthropic\n")
+    write(tmp_path, "app/deps.py", DEPS)
+    write(tmp_path, "app/routes/chat.py", CHAT)
+    write(tmp_path, "admin/requirements.txt", "fastapi\n")
+    write(tmp_path, "admin/app/deps.py", ROLE_DEPS)
+    findings = findings_for(tmp_path, "abuse", "ABUSE-PAID-ANY-ROLE")
+    assert findings == []
+    assert not any("get_admin_user" in f.detail for f in findings)
+
+
 def test_paid_route_behind_a_role_is_not_reported(tmp_path):
     paid_app(tmp_path, ROLE_DEPS + "StaffUser = Annotated[dict, Depends(get_staff_user)]\n")
     route = CHAT.replace("CurrentUser", "StaffUser")

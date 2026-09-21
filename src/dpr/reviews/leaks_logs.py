@@ -7,7 +7,7 @@ import re
 from collections.abc import Iterator
 from pathlib import PurePosixPath
 
-from dpr.discovery.approots import root_of
+from dpr.discovery.approots import same_root
 from dpr.facts import fact
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
@@ -296,14 +296,13 @@ def _javascript(ctx: Context, rel: str) -> Iterator[Hit]:
 
 def destinations(ctx: Context, rel: str) -> list[str]:
     """Monitoring and error tracking SDKs set up in the same app root as the file."""
-    home = root_of(ctx.detection.app_roots, rel)
-    prefix = f"{home.path}/" if home is not None and home.path else ""
+    roots = ctx.detection.app_roots
     return sorted(
         {
             sdk.name
             for sdk in ctx.detection.sdks
             if sdk.category in EXPORTERS
-            and any(loc.file.startswith(prefix) for loc in sdk.locations)
+            and any(same_root(roots, loc.file, rel) for loc in sdk.locations)
         }
     )
 
