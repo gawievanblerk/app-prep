@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 import dpr.reviews.leaks_creds  # noqa: F401  (registers rules)
 import dpr.reviews.leaks_logs  # noqa: F401  (registers rules)
+from dpr.facts import fact
 from dpr.model import Finding, Location, Part, ReviewSection, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import find_keys, is_secret_name, public_prefix, snippet
@@ -122,10 +124,17 @@ def _sentry_detail(sends_pii: bool, scrubs: bool) -> str:
     return "The error tracker is initialised without a beforeSend hook, so events are not scrubbed."
 
 
-def _js_sentry(ctx: Context) -> Iterator[Finding]:
+@dataclass(frozen=True)
+class SentryInit:
+    location: Location
+    line: int
+    sends_pii: bool
+    scrubs: bool
+
+
+def _js_sentry(ctx: Context) -> Iterator[SentryInit]:
     for entry in ctx.index.js_files:
-        text = ctx.index.text(entry.rel)
-        if "sentry" not in text.lower():
+        if "sentry" not in ctx.index.text(entry.rel).lower():
             continue
         for tree in jsts.parse_file(ctx.index, entry.rel):
             for call in jsts.calls(tree, r"(?:\w+\.)?init"):
@@ -133,52 +142,44 @@ def _js_sentry(ctx: Context) -> Iterator[Finding]:
                 pairs = jsts.object_pairs(args[0]) if args else {}
                 if "dsn" not in pairs:
                     continue
-                init_line = jsts.line(tree, call)
-                ctx.facts.setdefault("sentry", []).append(Location(entry.rel, init_line))
                 pii = pairs.get("sendDefaultPii")
                 sends_pii = pii is not None and jsts.node_text(pii) == "true"
-                scrubs = "beforeSend" in pairs
-                if not sends_pii and scrubs:
-                    continue
                 line = jsts.line(tree, pii if sends_pii else call)
-                yield make_finding(
-                    "LEAK-SENTRY-PII",
-                    tag=Tag.CONFIRMED,
-                    locations=[Location(entry.rel, line)],
-                    snippet=snippet(text, line),
-                    what=_sentry_detail(sends_pii, scrubs),
-                )
+                location = Location(entry.rel, jsts.line(tree, call))
+                yield SentryInit(location, line, sends_pii, "beforeSend" in pairs)
 
 
-def _py_sentry(ctx: Context) -> Iterator[Finding]:
+def _py_sentry(ctx: Context) -> Iterator[SentryInit]:
     for entry in ctx.index.py_files:
-        text = ctx.index.text(entry.rel)
-        if "sentry_sdk" not in text:
+        if "sentry_sdk" not in ctx.index.text(entry.rel):
             continue
         tree = pyast.parse_file(ctx.index, entry.rel)
-        if tree is None:
-            continue
-        for call in pyast.calls(tree, r"sentry_sdk\.init"):
-            ctx.facts.setdefault("sentry", []).append(Location(entry.rel, call.lineno))
+        for call in pyast.calls(tree, r"sentry_sdk\.init") if tree else []:
             pii = pyast.kwarg(call, "send_default_pii")
             sends_pii = pyast.constant(pii) is True
-            scrubs = pyast.kwarg(call, "before_send") is not None
-            if not sends_pii and scrubs:
-                continue
             line = pii.lineno if sends_pii else call.lineno
-            yield make_finding(
-                "LEAK-SENTRY-PII",
-                tag=Tag.CONFIRMED,
-                locations=[Location(entry.rel, line)],
-                snippet=snippet(text, line),
-                what=_sentry_detail(sends_pii, scrubs),
-            )
+            scrubs = pyast.kwarg(call, "before_send") is not None
+            yield SentryInit(Location(entry.rel, call.lineno), line, sends_pii, scrubs)
+
+
+def sentry_inits(ctx: Context) -> list[SentryInit]:
+    """Error tracker init calls. Shared with the inventory review."""
+    return fact(ctx, "sentry_inits", lambda c: [*_js_sentry(c), *_py_sentry(c)])
 
 
 @rule("LEAK-SENTRY-PII", review="leaks", severity="medium", exploitability="low")
 def sentry_pii(ctx: Context) -> Iterator[Finding]:
-    yield from _js_sentry(ctx)
-    yield from _py_sentry(ctx)
+    for init in sentry_inits(ctx):
+        if not init.sends_pii and init.scrubs:
+            continue
+        text = ctx.index.text(init.location.file)
+        yield make_finding(
+            "LEAK-SENTRY-PII",
+            tag=Tag.CONFIRMED,
+            locations=[Location(init.location.file, init.line)],
+            snippet=snippet(text, init.line),
+            what=_sentry_detail(init.sends_pii, init.scrubs),
+        )
 
 
 def run(ctx: Context) -> ReviewSection:

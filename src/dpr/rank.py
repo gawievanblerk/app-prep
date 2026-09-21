@@ -24,11 +24,11 @@ def _first(f: Finding) -> tuple[str, int]:
 
 def dedupe(findings: list[Finding]) -> list[Finding]:
     own: list[Finding] = []
-    seen: set[tuple[str, str, int]] = set()
+    seen: set[tuple[str, str, int, str]] = set()
     for item in findings:
         if item.source != "dpr":
             continue
-        key = (item.rule_id, *_first(item))
+        key = (item.rule_id, *_first(item), "" if item.locations else item.title)
         if key in seen:
             continue
         seen.add(key)

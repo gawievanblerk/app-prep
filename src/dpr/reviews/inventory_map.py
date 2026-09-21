@@ -10,7 +10,8 @@ from dpr.model import DataModel, Location
 from dpr.reviews.auth_flows import _js_code, _py_code
 from dpr.reviews.inventory_retention import iac_retention, readers, retention_text
 from dpr.reviews.inventory_sources import Collection, collection_points, sdk_receipts
-from dpr.reviews.leaks_logs import destinations, words
+from dpr.reviews.leaks import sentry_inits
+from dpr.reviews.leaks_logs import destinations, logged_locations, words
 from dpr.reviews.paths import is_test
 from dpr.reviews.personal import PersonalField, personal_fields
 from dpr.rules import Context
@@ -145,7 +146,7 @@ def runtime_rows(ctx: Context) -> list[tuple[str, ...]]:
                 "INFERRED",
             )
         )
-    logged = ctx.facts.get("logged_pii", [])
+    logged = logged_locations(ctx)
     if logged:
         exported = sorted({d for loc in logged for d in destinations(ctx, loc.file)})
         rows.append(
@@ -158,6 +159,25 @@ def runtime_rows(ctx: Context) -> list[tuple[str, ...]]:
                 _log_retention(ctx),
                 "anyone with log access, UNKNOWN",
                 "INFERRED",
+            )
+        )
+    inits = sentry_inits(ctx)
+    if inits:
+        pii = (
+            "sends default personal data"
+            if any(i.sends_pii for i in inits)
+            else "default scrubbing"
+        )
+        rows.append(
+            (
+                "error events with request and user context",
+                "Technical identifiers, request data",
+                "errors raised in the app: " + ", ".join(f"`{i.location}`" for i in inits[:3]),
+                "the error tracker",
+                f"sentry ({pii})",
+                "UNKNOWN",
+                "anyone with error tracker access, UNKNOWN",
+                "CONFIRMED",
             )
         )
     storage = _browser_storage(ctx)

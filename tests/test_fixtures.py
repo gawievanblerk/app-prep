@@ -11,10 +11,12 @@ GOOD = {
 }
 
 
+def first(finding):
+    return (finding.locations[0].file, finding.locations[0].line) if finding.locations else ("", 0)
+
+
 def found(report):
-    return {
-        (f.rule_id, f.locations[0].file, f.locations[0].line, f.tag.value) for f in report.findings
-    }
+    return {(f.rule_id, *first(f), f.tag.value) for f in report.findings}
 
 
 @pytest.mark.parametrize("name", BAD)

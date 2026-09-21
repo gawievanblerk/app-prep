@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from pathlib import PurePosixPath
 
 from dpr.discovery.approots import root_of
+from dpr.facts import fact
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
@@ -309,7 +310,6 @@ def destinations(ctx: Context, rel: str) -> list[str]:
 
 def _logged(ctx: Context, rel: str, hits: list[Hit], console: bool) -> Finding:
     lines = sorted({line for line, _, _ in hits})
-    ctx.facts.setdefault("logged_pii", []).extend(Location(rel, n) for n in lines)
     what = " ".join(dict.fromkeys(w for _, w, _ in sorted(hits)))
     if len(lines) > 1:
         what = f"{len(lines)} log calls in this file. " + what
@@ -337,11 +337,27 @@ def _per_file(ctx: Context, rel: str, hits: list[Hit]) -> Iterator[Finding]:
             yield _logged(ctx, rel, group, console)
 
 
-@rule("LEAK-LOGGED-PII", review="leaks", severity="medium", exploitability="low")
-def logged_pii(ctx: Context) -> Iterator[Finding]:
+def _all_hits(ctx: Context) -> dict[str, list[Hit]]:
+    found: dict[str, list[Hit]] = {}
     for entry in ctx.index.js_files:
         if not is_test(entry.rel):
-            yield from _per_file(ctx, entry.rel, list(_javascript(ctx, entry.rel)))
+            found[entry.rel] = list(_javascript(ctx, entry.rel))
     for entry in ctx.index.py_files:
         if not is_test(entry.rel) and PurePosixPath(entry.rel).name != "conftest.py":
-            yield from _per_file(ctx, entry.rel, list(_python(ctx, entry.rel)))
+            found[entry.rel] = list(_python(ctx, entry.rel))
+    return {rel: hits for rel, hits in found.items() if hits}
+
+
+def logged_hits(ctx: Context) -> dict[str, list[Hit]]:
+    """Log calls that write personal data, per file. Shared with the inventory review."""
+    return fact(ctx, "logged_pii_hits", _all_hits)
+
+
+def logged_locations(ctx: Context) -> list[Location]:
+    return [Location(rel, line) for rel, hits in logged_hits(ctx).items() for line, _, _ in hits]
+
+
+@rule("LEAK-LOGGED-PII", review="leaks", severity="medium", exploitability="low")
+def logged_pii(ctx: Context) -> Iterator[Finding]:
+    for rel, hits in logged_hits(ctx).items():
+        yield from _per_file(ctx, rel, hits)
