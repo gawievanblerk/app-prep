@@ -1,6 +1,7 @@
 # Every finding the scan must report, and nothing else.
 findings:
   - {rule: ABUSE-ERROR-LEAK, file: api/app/main.py, line: 30, tag: CONFIRMED}
+  - {rule: ABUSE-FORM-NO-CHALLENGE, file: api/app/routes/account.py, line: 10, tag: INFERRED}
   - {rule: ABUSE-FORM-NO-CHALLENGE, file: api/app/routes/auth.py, line: 13, tag: INFERRED}
   - {rule: ABUSE-INMEMORY-LIMITER, file: api/app/core/rate_limit.py, line: 12, tag: INFERRED}
   - {rule: ABUSE-LIMITER-NOT-APPLIED, file: api/app/core/rate_limit.py, line: 15, tag: CONFIRMED}
@@ -8,6 +9,10 @@ findings:
   - {rule: ABUSE-NO-KILL-SWITCH, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
   - {rule: ABUSE-PAID-UNLIMITED, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
   - {rule: ABUSE-UPLOAD-UNBOUNDED, file: api/app/routes/files.py, line: 17, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-LOCKOUT-STATUS, file: api/app/routes/account.py, line: 19, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 29, tag: INFERRED}
+  - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 51, tag: INFERRED}
   - {rule: BASE-DB-ADMIN-LOGIN, file: infra/main.tf, line: 9, tag: INFERRED}
   - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 1, tag: CONFIRMED}
   - {rule: BASE-DEBUG-ON, file: api/app/config.py, line: 5, tag: INFERRED}
@@ -30,3 +35,4 @@ findings:
   - {rule: OWASP-A08-UNPINNED-DEPS, file: api/requirements.txt, line: 1, tag: CONFIRMED}
   - {rule: OWASP-A08-UNPINNED-INSTALL, file: .github/workflows/deploy.yml, line: 8, tag: CONFIRMED}
   - {rule: OWASP-A08-UNPINNED-INSTALL, file: api/startup.sh, line: 2, tag: CONFIRMED}
+  - {rule: OWASP-A09-NO-AUTH-FAIL-LOG, file: api/app/routes/account.py, line: 15, tag: INFERRED}

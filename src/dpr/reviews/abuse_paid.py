@@ -83,6 +83,8 @@ def _paid_detail(paid: PaidRoute) -> dict[str, object]:
 def paid_unauth(ctx: Context) -> Iterator[Finding]:
     for paid in paid_routes(ctx):
         route = paid.route
+        if route.is_public_form and paid.sdk.category in ("email", "sms"):
+            continue
         level = access(ctx, route)
         if level.level == PUBLIC and not is_test(route.file):
             proofs = [unread_guard(level)]

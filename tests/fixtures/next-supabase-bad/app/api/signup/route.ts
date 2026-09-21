@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     cookies().set("session", String(user.id), { path: "/" })
   } catch (err) {
     console.error("signup failed", body)
-    return NextResponse.json({ error: "failed" }, { status: 500 })
+    return NextResponse.json({ error: "Email already registered" }, { status: 409 })
   }
   return NextResponse.json({ ok: true })
 }

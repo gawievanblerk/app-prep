@@ -284,12 +284,15 @@ def py_checked_after(fn: ast.AST, lookup: Lookup, subjects: tuple[str, ...]) -> 
     return result
 
 
+ONE_TIME_KEYS = re.compile(r"(?i)token|code|otp|nonce|signature|secret")
+
+
 def js_keys(handler) -> set[str]:
     text = jsts.node_text(handler)
     keys = {next(g for g in m.groups() if g) for m in JS_KEY.finditer(text)}
     for match in re.finditer(r"\{\s*([\w\s,:]+)\}\s*=\s*(?:await\s+)?(?:\w+\.)?params\b", text):
         keys.update(n.strip().split(":")[-1].strip() for n in match.group(1).split(","))
-    return {k for k in keys if k}
+    return {k for k in keys if k and not ONE_TIME_KEYS.search(k)}
 
 
 def js_lookups(route: Route, subjects: tuple[str, ...]) -> list[Lookup]:

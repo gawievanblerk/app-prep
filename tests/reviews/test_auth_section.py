@@ -4,6 +4,7 @@ from dpr.discovery.detect import detect
 from dpr.model import Finding, Location, Tag
 from dpr.report.markdown import render_markdown
 from dpr.reviews import auth
+from dpr.reviews.auth_flows import record_pass
 from dpr.walk import RepoIndex
 from tests.reviews.auth_app import auth_app
 from tests.reviews.helpers import write
@@ -82,7 +83,7 @@ def finding(rule_id, exploitability, line):
 
 def test_failing_cases_come_first_by_exploitability_and_passes_are_named(tmp_path):
     ctx = context(auth_app(tmp_path))
-    auth.record_pass(
+    record_pass(
         ctx, 7, Tag.CONFIRMED, "The reset request carries only the token", Location("a.py", 3)
     )
     findings = [

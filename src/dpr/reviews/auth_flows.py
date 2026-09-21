@@ -6,7 +6,7 @@ import ast
 import re
 from dataclasses import dataclass, field
 
-from dpr.model import DataModel, Location, Route
+from dpr.model import DataModel, Location, Route, Tag
 from dpr.parsing import jsts, pyast
 from dpr.reviews.access import ADMIN, PUBLIC, access
 from dpr.reviews.lookups import _helper
@@ -74,6 +74,11 @@ class Flow:
     @property
     def location(self) -> Location:
         return Location(self.route.file, self.route.line)
+
+
+def record_pass(ctx: Context, case: int | str, tag: Tag, text: str, location: Location) -> None:
+    """Rules call this with evidence that a case holds, so the section can say PASSES."""
+    ctx.facts.setdefault("auth_passes", {}).setdefault(case, []).append((tag, text, location))
 
 
 def managed_provider(ctx: Context) -> str | None:

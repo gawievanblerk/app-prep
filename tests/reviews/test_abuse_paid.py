@@ -196,7 +196,7 @@ def test_helpers_are_followed_only_through_the_callers_imports(tmp_path):
         "app/notify.py",
         "from fastapi import APIRouter\nfrom app import mailer\nfrom app.mailer import send\n"
         "router = APIRouter()\n"
-        "@router.post('/invite')\nasync def invite(email: str):\n    send(email, 'hi')\n"
+        "@router.post('/announce')\nasync def announce(email: str):\n    send(email, 'hi')\n"
         "@router.post('/remind')\nasync def remind(email: str):\n    mailer.send(email, 'hi')\n",
     )
     found = findings_for(tmp_path, "abuse", "ABUSE-PAID-UNAUTH")

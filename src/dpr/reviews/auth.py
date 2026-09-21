@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import dpr.reviews.auth_enum  # noqa: F401  (registers rules)
 from dpr.data import load
-from dpr.model import EXPLOIT_ORDER, Finding, Location, Part, ReviewSection, Tag
+from dpr.model import EXPLOIT_ORDER, Finding, Part, ReviewSection, Tag
 from dpr.reviews.auth_flows import flows, flows_of, lifetimes, managed_provider
 from dpr.rules import Context
 
@@ -23,11 +24,6 @@ class Outcome:
     tag: str
     text: str
     order: int
-
-
-def record_pass(ctx: Context, case: int | str, tag: Tag, text: str, location: Location) -> None:
-    """Rules call this with evidence that a case holds, so the section can say PASSES."""
-    ctx.facts.setdefault("auth_passes", {}).setdefault(case, []).append((tag, text, location))
 
 
 def _flow_lines(ctx: Context) -> str:
