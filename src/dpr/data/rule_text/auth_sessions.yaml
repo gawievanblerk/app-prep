@@ -1,0 +1,27 @@
+AUTH-LOGOUT-NO-REVOKE:
+  title: Logout only deletes cookies
+  effort_minutes: 45
+  detail: ${route} removes the session cookies from the browser but revokes nothing on the server, so a token copied before logout keeps working until it expires.
+  proof_needed: Call the API with a token issued before logout and check whether it is accepted.
+  attack: Copy a token from a shared computer, a proxy log or an XSS payload; the owner logging out does not stop it.
+  blast: The account for the remaining lifetime of every token issued to it.
+  fix: On logout, record a revocation (a tokens-invalidated-at time, a token version or a denylisted token id) and check it on every request and refresh.
+  verify: Log out, then call an authenticated endpoint and the refresh endpoint with the old tokens; both must return 401.
+AUTH-REFRESH-NO-ABSOLUTE-CAP:
+  title: Refresh renews sessions with no absolute limit
+  effort_minutes: 45
+  detail: ${route} issues a new refresh token with a fresh expiry and carries no original sign-in time, so an active or stolen session can be renewed forever.
+  proof_needed: Check whether anything outside this flow ends sessions a fixed time after sign-in.
+  attack: Keep calling refresh with a stolen refresh token before it expires; each call extends it.
+  blast: The account, for as long as the attacker keeps refreshing.
+  fix: Put the original sign-in time (auth_time) in every token, reject refresh once it is older than the absolute limit, and store refresh token ids so the previous one is revoked on rotation.
+  verify: Set auth_time eight days back in a test token and confirm refresh returns 401.
+AUTH-NO-LOCKOUT:
+  title: Sign-in has no rate limit and no lockout
+  effort_minutes: 30
+  detail: ${route} has no rate limit on the route and no failed-attempt counter or lockout in the sign-in code or the user model.
+  proof_needed: Check whether a WAF, edge rule or provider throttles this endpoint.
+  attack: Guess passwords or replay leaked credential lists against any account as fast as the server answers.
+  blast: Every account with a weak or reused password.
+  fix: Limit sign-in per IP and per account (for example 5 per minute per IP, 10 per 15 minutes per account) with a shared store, and add backoff after repeated failures without revealing the lock in the response.
+  verify: Send eleven wrong passwords in a minute and confirm the later requests are refused.

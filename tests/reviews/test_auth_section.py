@@ -31,9 +31,8 @@ def test_ten_cases_and_extras_are_always_written(tmp_path):
     assert "#### CASE 12: Second factor for staff and admin accounts (UNVERIFIED)" in body
     assert "committed-passwords" not in body and "CASE 13" not in body
     assert (
-        "This app: UNVERIFIED. The flow is at `api/app/routes/auth.py:9`, "
-        "`api/app/routes/auth.py:27`, `api/app/routes/auth.py:33`. Only a live test can decide "
-        "this case:"
+        "This app: CONFIRMED. Logout only deletes cookies (`api/app/routes/auth.py:27`, "
+        "AUTH-LOGOUT-NO-REVOKE)."
     ) in body
     assert list(parts) == [
         "How to read the cases",
@@ -56,13 +55,13 @@ def test_case_with_flow_but_no_decision_is_unverified_not_unknown(tmp_path):
         tmp_path,
         "api/app/routes/auth.py",
         'from fastapi import APIRouter\n\nrouter = APIRouter(prefix="/auth")\n\n\n'
-        '@router.post("/login")\n'
-        "async def login(data: LoginRequest):\n"
+        '@router.post("/register")\n'
+        "async def register(data: RegisterRequest):\n"
         '    return {"ok": True}\n',
     )
     _, parts = cases_text(tmp_path)
     body = parts["Cases"].body
-    assert "#### CASE 1: Wrong password five times in a row (UNVERIFIED)" in body
+    assert "#### CASE 8: Concurrent and out-of-order operations (UNVERIFIED)" in body
     assert "This app: UNVERIFIED. The flow is at `api/app/routes/auth.py:" in body
     assert "Only a live test can decide this case:" in body
 

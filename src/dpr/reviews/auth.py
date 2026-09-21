@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import dpr.reviews.auth_enum  # noqa: F401  (registers rules)
+import dpr.reviews.auth_sessions  # noqa: F401  (registers rules)
 import dpr.reviews.auth_tokens  # noqa: F401  (registers rules)
 from dpr.data import load
 from dpr.discovery.approots import root_of

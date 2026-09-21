@@ -44,6 +44,10 @@ LIFETIME_NAME = re.compile(
     r"|SESSION_COOKIE_AGE"
 )
 JS_EXPIRES = re.compile(r"""\b(expiresIn|maxAge)\s*:\s*(['"][^'"]+['"]|\d[\d_*\s]*)""")
+GENERIC_RECEIVER = re.compile(
+    r"(?i)^(?:self|db|session|conn|connection|cursor|dict|data|payload|result|request|response"
+    r"|cache|redis|client|settings|os|json|\w*_?(?:db|session|dict|list|map))$"
+)
 GENERIC_CALLS = frozenset(
     {"get", "items", "keys", "values", "append", "extend", "add", "commit", "execute", "refresh",
      "close", "copy", "update", "pop", "setdefault", "scalars", "scalar_one_or_none", "all",
@@ -128,7 +132,9 @@ def _py_code(ctx: Context, route: Route) -> list[Code]:
         if depth >= 2:
             continue
         for call in [n for n in ast.walk(fn) if isinstance(n, ast.Call)]:
-            if (pyast.dotted(call.func) or "").split(".")[-1] in GENERIC_CALLS:
+            parts = (pyast.dotted(call.func) or "").split(".")
+            receiver = parts[-2] if len(parts) > 1 else ""
+            if parts[-1] in GENERIC_CALLS and (not receiver or GENERIC_RECEIVER.search(receiver)):
                 continue
             helper = _helper(ctx, rel, call, fn)
             if helper is None or is_test(helper[0]):

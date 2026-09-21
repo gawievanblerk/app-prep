@@ -144,9 +144,11 @@ def has_dummy_hash(code: Code) -> bool:
 
 def call_names(code: Code) -> list[tuple[str, int]]:
     if code.python:
+        body = getattr(code.node, "body", [code.node])
         return [
             (pyast.dotted(n.func) or "", n.lineno)
-            for n in ast.walk(code.node)
+            for stmt in body
+            for n in ast.walk(stmt)
             if isinstance(n, ast.Call)
         ]
     return [

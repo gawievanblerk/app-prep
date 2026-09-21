@@ -13,6 +13,8 @@ findings:
   - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
   - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 29, tag: INFERRED}
   - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 51, tag: INFERRED}
+  - {rule: AUTH-LOGOUT-NO-REVOKE, file: api/app/routes/account.py, line: 28, tag: CONFIRMED}
+  - {rule: AUTH-REFRESH-NO-ABSOLUTE-CAP, file: api/app/routes/account.py, line: 34, tag: INFERRED}
   - {rule: AUTH-RESET-NO-EXPIRY, file: api/app/routes/account.py, line: 45, tag: INFERRED}
   - {rule: AUTH-TOKEN-PLAINTEXT, file: api/app/services/accounts.py, line: 57, tag: CONFIRMED}
   - {rule: AUTH-TOKEN-PLAINTEXT, file: api/app/services/accounts.py, line: 65, tag: CONFIRMED}
