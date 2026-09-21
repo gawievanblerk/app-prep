@@ -7,6 +7,7 @@ import re
 
 import dpr.reviews.owasp_a01  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_assign  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_audit  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_inject  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_integrity  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_misc  # noqa: F401  (registers rules)

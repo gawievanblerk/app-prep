@@ -2,6 +2,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 
 from app.config import settings
@@ -9,6 +10,7 @@ from app.core.deps import CurrentUser
 from app.db.session import db
 from app.models import Attachment
 from app.schemas import AttachmentOut
+from app.services.audit import record_audit
 
 router = APIRouter(prefix="/files")
 MAX_BYTES = 10 * 1024 * 1024
@@ -41,3 +43,9 @@ async def import_rows(current_user: CurrentUser, file: UploadFile = File(...)):
 
     workbook = openpyxl.load_workbook(file.file, read_only=True)
     return {"sheets": workbook.sheetnames}
+
+
+@router.get("/export")
+async def export_files(current_user: CurrentUser):
+    await record_audit(current_user.id, "files.export")
+    return FileResponse(settings.export_file, media_type="text/csv", filename="files.csv")

@@ -100,6 +100,50 @@ def _settings_debug(ctx: Context, rel: str, tree: ast.Module) -> Iterator[Findin
                 yield _debug(ctx, rel, stmt.lineno, what, severity="low")
 
 
+def _switched_off(node: ast.AST | None) -> bool:
+    """A docs keyword that is None outright or only in some configurations."""
+    if node is None:
+        return False
+    return isinstance(node, ast.IfExp) or (isinstance(node, ast.Constant) and node.value is None)
+
+
+def _always_served(node: ast.AST | None) -> bool:
+    """openapi_url left at its default, or a fixed string with no condition."""
+    if node is None:
+        return True
+    if isinstance(node, ast.Constant):
+        return isinstance(node.value, str)
+    return isinstance(node, ast.JoinedStr | ast.BinOp) and not any(
+        isinstance(sub, ast.IfExp) for sub in ast.walk(node)
+    )
+
+
+@rule(
+    "BASE-OPENAPI-ALWAYS-ON", review="baseline", severity="low", exploitability="low", owasp="A05"
+)
+def openapi_always_on(ctx: Context) -> Iterator[Finding]:
+    for entry in ctx.index.py_files:
+        text = ctx.index.text(entry.rel)
+        if "FastAPI(" not in text or is_test(entry.rel):
+            continue
+        tree = pyast.parse_file(ctx.index, entry.rel)
+        for call in pyast.calls(tree, r"(?:\w+\.)?FastAPI") if tree else []:
+            docs = [pyast.kwarg(call, k) for k in ("docs_url", "redoc_url")]
+            schema = pyast.kwarg(call, "openapi_url")
+            if not any(_switched_off(d) for d in docs) or not _always_served(schema):
+                continue
+            line = schema.lineno if schema is not None else call.lineno
+            yield make_finding(
+                "BASE-OPENAPI-ALWAYS-ON",
+                tag=Tag.CONFIRMED,
+                locations=[Location(entry.rel, line)],
+                snippet=snippet(text, line),
+                where="openapi_url is a fixed path"
+                if schema is not None
+                else "openapi_url is left at its default",
+            )
+
+
 @rule("BASE-DEBUG-ON", review="baseline", severity="high", exploitability="medium", owasp="A05")
 def debug_on(ctx: Context) -> Iterator[Finding]:
     for entry in ctx.index.py_files:

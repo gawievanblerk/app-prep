@@ -7,6 +7,7 @@ import re
 import dpr.reviews.abuse_cors  # noqa: F401  (registers rules)
 import dpr.reviews.abuse_limits  # noqa: F401  (registers rules)
 import dpr.reviews.abuse_paid  # noqa: F401  (registers rules)
+import dpr.reviews.abuse_roles  # noqa: F401  (registers rules)
 from dpr.model import Finding, Part, ReviewSection
 from dpr.reviews.abuse_paid import is_limited
 from dpr.reviews.access import PUBLIC, access

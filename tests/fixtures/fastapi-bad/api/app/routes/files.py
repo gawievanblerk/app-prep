@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 
 from app.config import settings
@@ -34,3 +35,8 @@ async def import_rows(current_user: CurrentUser, file: UploadFile = File(...)):
 
     workbook = openpyxl.load_workbook(file.file, read_only=True)
     return {"sheets": workbook.sheetnames}
+
+
+@router.get("/export")
+async def export_files(current_user: CurrentUser):
+    return FileResponse(settings.export_file, media_type="text/csv", filename="files.csv")

@@ -12,20 +12,8 @@ from dpr.rules import Options
 DOCUMENTS = re.compile(
     r"(?i)\.(?:pdf|xlsx|xlsm|xls|docx|doc|pptx|png|jpe?g|sqlite3?|db|bak|bacpac|dump)$"
 )
-PAID_ROLE = (
-    "Paid routes are not compared with the roles the product intends, so a paid route open to "
-    "every signed-in role is not reported"
-)
 BULK = (
     "Request lists that fan out into many renders, sends or imports are not checked for size caps"
-)
-READ_AUDIT = (
-    "Whether reads, exports and downloads of personal data are written to an audit trail is not "
-    "checked"
-)
-OPENAPI = (
-    "Whether the API schema route (openapi.json) stays public when interactive docs are turned "
-    "off is not checked"
 )
 BREACHED = "Screening new passwords against breached-password lists is not checked"
 EMAILS = "Email addresses in tests and documentation are not checked for real people"
@@ -48,12 +36,8 @@ def coverage_notes(root, detection: Detection, options: Options, sections: set[s
             f"{len(documents)} committed documents, images, spreadsheets or database files (for "
             f"example {examples}) were not read, so personal data inside them is not inventoried"
         )
-    if "abuse" in sections and any(s.paid for s in detection.sdks):
-        notes.append(PAID_ROLE)
     if detection.routes:
-        notes += [BULK, READ_AUDIT, EMAILS]
-    if "fastapi" in detection.frameworks:
-        notes.append(OPENAPI)
+        notes += [BULK, EMAILS]
     if "auth" in sections:
         notes.append(BREACHED)
     return notes
