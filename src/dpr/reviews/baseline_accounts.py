@@ -178,41 +178,6 @@ def _masked(text: str, line: int, literals: list[pyvalues.Literal]) -> str:
     return value
 
 
-@rule(
-    "BASE-LITERAL-PASSWORD-HASH",
-    review="baseline",
-    severity="critical",
-    exploitability="high",
-    owasp="A07",
-)
-def literal_password_hash(ctx: Context) -> Iterator[Finding]:
-    for rel, sites in sorted(literal_password_sites(ctx).items()):
-        literals = [lit for _, lit in sites]
-        direct = [line for line, lit in sites if not lit.env_fallback]
-        copies = _copies(ctx, rel, literals)
-        lines = sorted({line for line, _ in sites})
-        text = ctx.index.text(rel)
-        shared = ""
-        if rel.endswith(".py"):
-            tree = pyast.parse_file(ctx.index, rel)
-            if any(pyast.function_at(tree, line) is None for line in lines):
-                shared = " The hash is computed once at module level and reused for every account."
-        where = f" The same text also appears in {len(copies)} other place(s)." if copies else ""
-        yield make_finding(
-            "BASE-LITERAL-PASSWORD-HASH",
-            tag=Tag.CONFIRMED if direct else Tag.INFERRED,
-            locations=[*(Location(rel, n) for n in lines), *copies][:10],
-            severity="critical" if direct else "high",
-            snippet=_masked(text, lines[0], literals),
-            proof_needed=None
-            if direct
-            else "Check that the environment variable is set in every deployed environment.",
-            file=rel,
-            count=len(lines),
-            extra=shared + where,
-        )
-
-
 def _seed_target(ctx: Context, start: str, line: str) -> list[str]:
     module = re.search(r"-m\s+([\w.]*seed\w*)", line)
     script = re.search(r"([\w./-]*seed\w*\.(?:py|js|ts|mjs))", line)

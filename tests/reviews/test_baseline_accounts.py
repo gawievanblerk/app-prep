@@ -55,18 +55,18 @@ def test_literal_password_hash(tmp_path):
     }
     assert set(found) == {
         "api/app/db/demo_seed.py",
-        "api/app/db/seed.py",
         "api/scripts/migrate.py",
         "api/scripts/users.py",
         "web/lib/users.js",
     }
-    seed = found["api/app/db/seed.py"]
+    seed = found["api/scripts/users.py"]
     assert (seed.tag.value, seed.severity.value) == ("CONFIRMED", "critical")
     assert [str(loc) for loc in seed.locations] == [
+        "api/scripts/users.py:4",
         "api/app/db/seed.py:4",
         "README.md:3",
-        "api/scripts/users.py:1",
     ]
+    assert "The same text is hashed in 2 files." in seed.detail
     assert "module level" in found["api/scripts/migrate.py"].detail
     fallback = found["api/app/db/demo_seed.py"]
     assert (fallback.tag.value, fallback.severity.value) == ("INFERRED", "high")
