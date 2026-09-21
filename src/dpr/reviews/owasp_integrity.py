@@ -177,11 +177,25 @@ def unpinned_deps(ctx: Context) -> Iterator[Finding]:
             )
 
 
+SHELL_STOP = re.compile(r"^(?:&&|\|\||;|\||\d*>.*|<.*|#.*)$")
+
+
+def command_args(text: str) -> list[str]:
+    """Arguments up to the first shell operator, redirect or comment."""
+    args = []
+    for token in text.split():
+        if SHELL_STOP.match(token):
+            break
+        args.append(token.rstrip(";"))
+    return args
+
+
 def _install_problems(line: str, runtime: bool) -> str | None:
     pip = PIP_INSTALL.search(line)
     if pip:
-        args = [a for a in pip.group(1).split() if not a.startswith("-")]
-        if "-r" in pip.group(1).split() or "-e" in pip.group(1).split():
+        tokens = command_args(pip.group(1))
+        args = [a for a in tokens if not a.startswith("-")]
+        if "-r" in tokens or "-e" in tokens:
             return None
         packages = [a for a in args if a not in (".", "pip") and "==" not in a]
         if packages:
@@ -192,10 +206,11 @@ def _install_problems(line: str, runtime: bool) -> str | None:
         return f"npx runs {npx.group(1)} without a pinned version."
     npm = NPM_INSTALL.search(line)
     if npm and not runtime:
-        extra = [a for a in npm.group(1).split() if not a.startswith("-")]
+        tokens = command_args(npm.group(1))
+        extra = [a for a in tokens if not a.startswith("-")]
         if not extra:
             return "npm install in CI can rewrite the lock file; npm ci installs what is locked."
-        if "-g" in npm.group(1).split() and not any("@" in a[1:] for a in extra):
+        if "-g" in tokens and not any("@" in a[1:] for a in extra):
             return f"npm installs {extra[0]} globally without a pinned version."
     return None
 

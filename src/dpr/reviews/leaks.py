@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
+from pathlib import PurePosixPath
 
 import dpr.reviews.leaks_creds  # noqa: F401  (registers rules)
 import dpr.reviews.leaks_logs  # noqa: F401  (registers rules)
@@ -19,6 +20,10 @@ ROTATE = (
     "removing it from the next build does not undo that."
 )
 NEXT_SOURCEMAPS = re.compile(r"productionBrowserSourceMaps\s*:\s*true")
+LOAD_ORDER = {
+    "vite": [".js", ".mjs", ".ts", ".cjs", ".mts", ".cts"],
+    "next": [".js", ".mjs", ".ts", ".cjs", ".mts", ".cts"],
+}
 VITE_SOURCEMAPS = re.compile(r"\bsourcemap\s*:\s*(?:true|['\"](?:inline|hidden)['\"])")
 
 
@@ -76,18 +81,36 @@ def sourcemaps(ctx: Context) -> Iterator[Finding]:
             locations=[Location(f.rel, 1) for f in maps[:5]],
             what=f"{len(maps)} source map file(s) are in the build output.",
         )
+    groups: dict[tuple[str, str], list[Location]] = {}
     for entry in ctx.index.named("next.config.*", "vite.config.*"):
+        if entry.name.endswith(".d.ts"):
+            continue
         text = ctx.index.text(entry.rel)
-        pattern = NEXT_SOURCEMAPS if entry.name.startswith("next.") else VITE_SOURCEMAPS
+        tool = "next" if entry.name.startswith("next.") else "vite"
+        pattern = NEXT_SOURCEMAPS if tool == "next" else VITE_SOURCEMAPS
+        folder = str(PurePosixPath(entry.rel).parent)
         for match in pattern.finditer(text):
-            line = line_of(text, match.start())
-            yield make_finding(
-                "LEAK-SOURCEMAP",
-                tag=Tag.CONFIRMED,
-                locations=[Location(entry.rel, line)],
-                snippet=snippet(text, line),
-                what=f"{entry.name} turns on source maps for the production build.",
+            groups.setdefault((folder, tool), []).append(
+                Location(entry.rel, line_of(text, match.start()))
             )
+    for (_folder, tool), found in sorted(groups.items()):
+        order = LOAD_ORDER[tool]
+        found.sort(key=lambda loc: (order.index(PurePosixPath(loc.file).suffix), loc.line))
+        loaded = PurePosixPath(found[0].file).name
+        twins = sorted({PurePosixPath(loc.file).name for loc in found[1:]} - {loaded})
+        extra = (
+            f" The same setting is in {', '.join(twins)}, which {tool} does not load when "
+            f"{loaded} exists."
+            if twins
+            else ""
+        )
+        yield make_finding(
+            "LEAK-SOURCEMAP",
+            tag=Tag.CONFIRMED,
+            locations=found,
+            snippet=snippet(ctx.index.text(found[0].file), found[0].line),
+            what=f"{loaded} turns on source maps for the production build.{extra}",
+        )
 
 
 def _sentry_detail(sends_pii: bool, scrubs: bool) -> str:

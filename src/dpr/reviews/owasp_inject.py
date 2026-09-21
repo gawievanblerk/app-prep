@@ -294,11 +294,40 @@ def _constant_loop_names(fn: ast.AST) -> set[str]:
     return names
 
 
+NUMERIC = re.compile(r"^(?:int|float|bool|Decimal|date|datetime|UUID)(?:\s*\|\s*None)?$")
+
+
+def _markup_safe(node: ast.AST, escaped: set[str]) -> bool:
+    """Constants, escaped values, and strings built only from them, including joined loops."""
+    if _safe_value(node) or (isinstance(node, ast.Name) and node.id in escaped):
+        return True
+    if isinstance(node, ast.JoinedStr):
+        values = [v.value for v in node.values if isinstance(v, ast.FormattedValue)]
+        return all(_markup_safe(v, escaped) for v in values)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _markup_safe(node.left, escaped) and _markup_safe(node.right, escaped)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        if node.func.attr == "join" and len(node.args) == 1:
+            arg = node.args[0]
+            if isinstance(arg, ast.GeneratorExp | ast.ListComp):
+                return _markup_safe(arg.elt, escaped)
+            return _markup_safe(arg, escaped)
+    return False
+
+
 def _escaped_names(fn: ast.AST) -> set[str]:
     names = {a.arg for a in fn.args.args if MARKUP_NAME.match(a.arg)} | _constant_loop_names(fn)
-    for node in ast.walk(fn):
-        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
-            if _safe_value(node.value) or MARKUP_NAME.match(node.targets[0].id):
+    names |= {
+        a.arg
+        for a in [*fn.args.args, *fn.args.kwonlyargs]
+        if a.annotation is not None and NUMERIC.match(ast.unparse(a.annotation))
+    }
+    assigns = [
+        n for n in ast.walk(fn) if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)
+    ]
+    for _ in range(2):
+        for node in assigns:
+            if _markup_safe(node.value, names) or MARKUP_NAME.match(node.targets[0].id):
                 names.add(node.targets[0].id)
     return names
 
@@ -313,13 +342,9 @@ def _unescaped(fn: ast.AST) -> list[ast.JoinedStr]:
         if not HTML_TAG.search(literal):
             continue
         for value in node.values:
-            if not isinstance(value, ast.FormattedValue):
-                continue
-            expr = value.value
-            if _safe_value(expr) or (isinstance(expr, ast.Name) and expr.id in escaped):
-                continue
-            found.append(node)
-            break
+            if isinstance(value, ast.FormattedValue) and not _markup_safe(value.value, escaped):
+                found.append(node)
+                break
     return found
 
 
