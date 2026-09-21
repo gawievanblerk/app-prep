@@ -21,6 +21,7 @@ from dpr.reviews.rls_common import (
     state_for,
     table_location,
 )
+from dpr.reviews.rls_server import reduced_section
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
 
@@ -29,11 +30,6 @@ CONFIRM_IN_DATABASE = (
     "Run these queries in the database SQL editor and compare the result with the table "
     "above. Save the output to a file and pass it with `--db-dump` to make it the source "
     "of truth.\n\n"
-)
-SERVER_ONLY = (
-    "No public database key or Supabase client was found. The database appears to be "
-    "reachable only from the server, so row level security matters less here. "
-    "No RLS findings are reported."
 )
 
 
@@ -205,7 +201,7 @@ def run(ctx: Context) -> ReviewSection | None:
         )
         return None
     if not client_facing(ctx):
-        return ReviewSection("rls", [Part("text", "Relevance", body=SERVER_ONLY)])
+        return reduced_section(ctx)
     tables = public_tables(ctx)
     parts = [
         Part(

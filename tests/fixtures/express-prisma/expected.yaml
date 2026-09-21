@@ -1,0 +1,6 @@
+# Every finding the scan must report, and nothing else.
+findings:
+  - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 4, tag: CONFIRMED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: src/index.ts, line: 4, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: src/index.ts, line: 4, tag: UNVERIFIED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: src/routes/orders.ts, line: 8, tag: CONFIRMED}

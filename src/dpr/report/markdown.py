@@ -79,9 +79,23 @@ def _block(label: str, position: int, f: Finding) -> str:
     return "\n".join(lines)
 
 
+def _refs(part: Part, report: Report) -> str:
+    items = [f for f in report.findings if f.rule_id in part.columns]
+    if not items:
+        return part.body
+    lines = [
+        f"- {f.title} ({f.severity.value}, {f.tag.value}, reported in review "
+        f"{number(f.review)}): " + ", ".join(f"`{loc}`" for loc in f.locations[:5])
+        for f in items
+    ]
+    return "\n".join(lines)
+
+
 def _part_body(slug: str, part: Part, report: Report) -> str:
     if part.kind == "table":
         return _table(part.columns, part.rows)
+    if part.kind == "refs":
+        return _refs(part, report)
     if part.kind == "findings":
         items = order_for_section(slug, report.findings)
         if not items:

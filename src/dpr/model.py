@@ -192,7 +192,7 @@ class QuestionResult:
 
 @dataclass(frozen=True)
 class Part:
-    kind: str  # "table" | "text" | "findings"
+    kind: str  # "table" | "text" | "findings" | "refs" (columns hold rule ids)
     title: str
     columns: tuple[str, ...] = ()
     rows: tuple[tuple[str, ...], ...] = ()

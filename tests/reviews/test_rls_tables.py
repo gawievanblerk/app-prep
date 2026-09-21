@@ -69,7 +69,14 @@ def test_server_only_data_layer_reports_nothing(tmp_path):
     index = RepoIndex(root)
     ctx = rules.Context(index=index, detection=detect(index))
     section = reviews.available()["rls"].run(ctx)
-    assert [p.title for p in section.parts] == ["Relevance"]
+    assert [p.title for p in section.parts] == [
+        "Relevance",
+        "Table protection status",
+        "Policy defects",
+        "Database exposure and privilege",
+        "Missing policies (runnable SQL)",
+        "How to confirm from outside the app",
+    ]
 
 
 def test_not_applicable(tmp_path):
