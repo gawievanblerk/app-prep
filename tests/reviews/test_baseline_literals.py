@@ -164,3 +164,29 @@ def test_repository_level_deploy_file_still_marks_a_seed_script_referenced(tmp_p
     )
     [finding] = found(tmp_path).values()
     assert finding.severity.value == "critical"
+
+
+def test_start_file_in_a_different_app_root_does_not_mark_a_seed_script_referenced(tmp_path):
+    _api_server(tmp_path)
+    hashing(tmp_path, "api/scripts/seed_data.py", ADMIN)
+    _worker_server(tmp_path)
+    write(
+        tmp_path,
+        "worker/Dockerfile",
+        'FROM python:3.12\nCMD ["python", "scripts/seed_data.py"]\n',
+    )
+    [finding] = found(tmp_path).values()
+    assert (finding.tag.value, finding.severity.value) == ("CONFIRMED", "low")
+
+
+def test_repository_level_start_file_still_marks_a_seed_script_referenced(tmp_path):
+    _api_server(tmp_path)
+    hashing(tmp_path, "api/scripts/seed_data.py", ADMIN)
+    _worker_server(tmp_path)
+    write(
+        tmp_path,
+        "Dockerfile",
+        'FROM python:3.12\nCMD ["python", "scripts/seed_data.py"]\n',
+    )
+    [finding] = found(tmp_path).values()
+    assert finding.severity.value == "critical"

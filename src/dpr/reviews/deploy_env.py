@@ -31,12 +31,12 @@ class Setting:
     secret: bool
 
 
-def _applies(ctx: Context, deploy_rel: str, rel: str | None) -> bool:
-    """A deploy file applies to `rel`'s app root when it is shared or belongs to that root.
+def applies(ctx: Context, deploy_rel: str, rel: str | None) -> bool:
+    """A start or deploy file applies to `rel`'s app root when it is shared or belongs to it.
 
-    Shared: the deploy file's own root is None, the repository root (path ""), or a "library"
-    kind. Repository-level infra configures every app and always applies. Any other deploy file
-    (inside a different app root) applies only when it shares that root with `rel`."""
+    Shared: the file's own root is None, the repository root (path ""), or a "library" kind.
+    Repository-level infra configures every app and always applies. Any other start or deploy
+    file (inside a different app root) applies only when it shares that root with `rel`."""
     if rel is None:
         return True
     deploy_root = root_of(ctx.detection.app_roots, deploy_rel)
@@ -49,12 +49,12 @@ def _applies(ctx: Context, deploy_rel: str, rel: str | None) -> bool:
 def deploy_files(ctx: Context, ci: bool = True, rel: str | None = None) -> list[str]:
     """Files that configure a deployed environment. Local compose files are not included.
 
-    With `rel`, only files that apply to that finding's app root are returned (see `_applies`)."""
+    With `rel`, only files that apply to that finding's app root are returned (see `applies`)."""
     names = [f.rel for f in ctx.index.named(*DEPLOY_FILES, "Dockerfile")]
     names += [f.rel for f in ctx.index.with_suffix(".tf")]
     names += list(ctx.detection.ci) if ci else []
     names = list(dict.fromkeys(names))
-    return [n for n in names if _applies(ctx, n, rel)]
+    return [n for n in names if applies(ctx, n, rel)]
 
 
 def _assignment(name: str) -> re.Pattern[str]:

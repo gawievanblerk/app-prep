@@ -15,7 +15,7 @@ from dpr.reviews.baseline_accounts import (
     _masked,
     literal_password_sites,
 )
-from dpr.reviews.deploy_env import deploy_files
+from dpr.reviews.deploy_env import applies, deploy_files
 from dpr.rules import Context, make_finding, rule
 
 DEV_SCRIPT = re.compile(r"(?i)seed|demo|sample|fixture|fake|dummy|example|mock")
@@ -39,7 +39,8 @@ def _referenced(ctx: Context, rel: str) -> bool:
     path = PurePosixPath(rel)
     parts = path.with_suffix("").parts
     names = {path.name, *(".".join(parts[i:]) for i in range(len(parts) - 1))}
-    commands = [f.rel for f in ctx.index.named(*START_FILES)] + deploy_files(ctx, rel=rel)
+    starts = [f.rel for f in ctx.index.named(*START_FILES) if applies(ctx, f.rel, rel)]
+    commands = starts + deploy_files(ctx, rel=rel)
     for other in dict.fromkeys(commands):
         text = ctx.index.text(other)
         if any(re.search(rf"(?<![\w.]){re.escape(n)}\b", text) for n in names):
