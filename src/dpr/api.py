@@ -158,4 +158,5 @@ def review(
         sections=sections,
         questions=results,
         not_covered=not_covered,
+        answered=list(ctx.facts.get("answered", [])),
     )

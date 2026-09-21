@@ -22,6 +22,7 @@ def test_render_json_shape(tmp_path):
         "sections",
         "questions",
         "not_covered",
+        "answered",
     }
     assert "schema" not in data["detection"] and "packages" not in data["detection"]
     [route] = data["detection"]["routes"]

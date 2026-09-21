@@ -219,6 +219,13 @@ class ReportMeta:
     applicability: tuple[tuple[str, str], ...]
 
 
+@dataclass(frozen=True)
+class Answer:
+    question: str
+    answer: str
+    evidence: str
+
+
 @dataclass
 class Report:
     meta: ReportMeta
@@ -227,3 +234,4 @@ class Report:
     sections: dict[str, ReviewSection]
     questions: list[QuestionResult]
     not_covered: list[str]
+    answered: list[Answer] = field(default_factory=list)

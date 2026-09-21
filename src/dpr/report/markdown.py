@@ -162,8 +162,13 @@ def _view(report: Report) -> dict:
         ),
         "sections": sections,
         "answered": "\n".join(
-            f"- {q.question.text} {q.answer} ({SOURCE_LABELS.get(q.source, q.source)})"
-            for q in answered
+            [
+                *(
+                    f"- {q.question.text} {q.answer} ({SOURCE_LABELS.get(q.source, q.source)})"
+                    for q in answered
+                ),
+                *(f"- {a.question} {a.answer} Evidence: {a.evidence}." for a in report.answered),
+            ]
         )
         or "None.",
         "still_open": _table(
