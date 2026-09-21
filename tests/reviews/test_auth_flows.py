@@ -69,3 +69,48 @@ def test_managed_provider_user_models_and_lifetimes(tmp_path):
     ]
     write(tmp_path, "web/lib/auth.ts", "const { data } = await supabase.auth.getUser()\n")
     assert managed_provider(context(tmp_path)) == "Supabase Auth"
+
+
+def test_self_path_requires_no_param_segment_before_the_self_word(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    write(
+        tmp_path,
+        "api/app/routes/misc.py",
+        "from typing import Annotated\n\n"
+        "from fastapi import APIRouter, Depends\n\n"
+        "router = APIRouter()\n"
+        "CurrentUser = Annotated[dict, Depends(get_current_user)]\n\n\n"
+        '@router.patch("/insureds/{insured_id}/profile")\n'
+        "async def update_profile(insured_id: str, data: dict, current_user: CurrentUser):\n"
+        '    return {"ok": True}\n\n\n'
+        '@router.put("/users/{user_id}")\n'
+        "async def update_user(user_id: str, data: dict, current_user: CurrentUser):\n"
+        '    return {"ok": True}\n\n\n'
+        '@router.patch("/me")\n'
+        "async def update_me(data: dict, current_user: CurrentUser):\n"
+        '    return {"ok": True}\n\n\n'
+        '@router.patch("/account/email")\n'
+        "async def update_email(data: dict, current_user: CurrentUser):\n"
+        '    return {"ok": True}\n',
+    )
+    ctx = context(tmp_path)
+    kinds = {(f.route.method, f.route.path): f.kind for f in flows(ctx)}
+    assert ("PATCH", "/insureds/{insured_id}/profile") not in kinds
+    assert kinds[("PUT", "/users/{user_id}")] == "update_self"
+    assert kinds[("PATCH", "/me")] == "update_self"
+    assert kinds[("PATCH", "/account/email")] == "update_self"
+
+
+def test_lifetimes_scoped_by_app_root(tmp_path):
+    auth_app(tmp_path)
+    write(tmp_path, "web/package.json", '{"name": "web"}')
+    write(tmp_path, "web/lib/token.ts", "jwt.sign(payload, secret, { expiresIn: '14d' })\n")
+    ctx = context(tmp_path)
+    api_only = [(n, v) for n, v, _ in lifetimes(ctx, "api")]
+    web_only = [(n, v) for n, v, _ in lifetimes(ctx, "web")]
+    assert api_only == [
+        ("jwt_access_token_expire_minutes", "30"),
+        ("jwt_refresh_token_expire_days", "7"),
+    ]
+    assert web_only == [("expiresIn", "'14d'")]
+    assert len(lifetimes(ctx)) == 3

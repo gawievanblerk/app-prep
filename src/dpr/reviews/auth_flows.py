@@ -6,6 +6,7 @@ import ast
 import re
 from dataclasses import dataclass, field
 
+from dpr.discovery.approots import root_of
 from dpr.model import DataModel, Location, Route, Tag
 from dpr.parsing import jsts, pyast
 from dpr.reviews.access import ADMIN, PUBLIC, access
@@ -25,7 +26,8 @@ KINDS = (
     ("login", re.compile(r"log-?in|sign-?in|/token$|authenticate")),
 )
 WRITE_METHODS = ("POST", "PUT", "PATCH", "ANY", "ACTION")
-SELF_PATH = re.compile(r"/(?:users?|me|profile|account|settings)(?:/|$)")
+SELF_SEGMENT = re.compile(r"^(?:users?|me|profile|account|settings)$")
+PARAM_SEGMENT = re.compile(r"^\{[^{}]*\}$|^:[^/]+$|^<[^<>]*>$|^\*[^/]*$")
 USER_MODEL = re.compile(
     r"(?i)^(?:auth_?)?(?:user|users|account|accounts|member|members|customer|customers|profile|profiles)$"
 )
@@ -86,6 +88,20 @@ def managed_provider(ctx: Context) -> str | None:
     return ", ".join(names) or None
 
 
+def _is_self_path(path: str) -> bool:
+    """A self word (users, me, profile, account, settings) counts only when no path parameter
+    segment (`{id}`, `:id`, `<id>`, a catch-all) comes before it in the route path."""
+    seen_param = False
+    for segment in path.split("/"):
+        if not segment:
+            continue
+        if PARAM_SEGMENT.fullmatch(segment):
+            seen_param = True
+        elif not seen_param and SELF_SEGMENT.fullmatch(segment):
+            return True
+    return False
+
+
 def _kind(ctx: Context, route: Route) -> str | None:
     name = getattr(route.handler, "name", "")
     name = name if isinstance(name, str) else ""
@@ -98,7 +114,7 @@ def _kind(ctx: Context, route: Route) -> str | None:
             if kind in ("register", "login", "forgot", "reset") and level != PUBLIC:
                 return None
             return kind
-    if route.method in ("PUT", "PATCH") and SELF_PATH.search(route.path) and level != ADMIN:
+    if route.method in ("PUT", "PATCH") and _is_self_path(route.path) and level != ADMIN:
         return "update_self" if level != PUBLIC else None
     return None
 
@@ -186,8 +202,12 @@ def user_models(ctx: Context) -> list[DataModel]:
     ]
 
 
-def lifetimes(ctx: Context) -> list[tuple[str, str, Location]]:
-    """Session and token lifetimes written as constants: (name, value, location)."""
+def lifetimes(ctx: Context, root: str | None = None) -> list[tuple[str, str, Location]]:
+    """Session and token lifetimes written as constants: (name, value, location).
+
+    With `root` (an `AppRoot.path`), only settings inside that app root are returned. Code that
+    pairs a lifetime with a flow must pass that flow's root so evidence never crosses app roots.
+    """
     found = []
     for entry in ctx.index.py_files:
         text = ctx.index.text(entry.rel)
@@ -219,4 +239,11 @@ def lifetimes(ctx: Context) -> list[tuple[str, str, Location]]:
                     Location(entry.rel, line_of(text, match.start())),
                 )
             )
-    return found
+    if root is None:
+        return found
+    return [
+        item
+        for item in found
+        if (home := root_of(ctx.detection.app_roots, item[2].file)) is not None
+        and home.path == root
+    ]

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import dpr.reviews.auth_enum  # noqa: F401  (registers rules)
 from dpr.data import load
+from dpr.discovery.approots import root_of
 from dpr.model import EXPLOIT_ORDER, Finding, Part, ReviewSection, Tag
 from dpr.reviews.auth_flows import flows, flows_of, lifetimes, managed_provider
 from dpr.rules import Context
@@ -13,7 +14,8 @@ from dpr.rules import Context
 INTRO = (
     "Each case states what a secure app does, what this repository shows, the risk and a test "
     "to write. Failing cases come first, ordered by exploitability. A case is UNVERIFIED when a "
-    "managed provider handles it, and UNKNOWN when the flow it needs was not found in code."
+    "managed provider handles it or when a flow exists but nothing here decided it, and UNKNOWN "
+    "when the flow it needs was not found in code."
 )
 TAG_ORDER = (Tag.CONFIRMED, Tag.INFERRED, Tag.UNVERIFIED)
 
@@ -35,7 +37,9 @@ def _flow_lines(ctx: Context) -> str:
         route = flow.route
         lines.append(f"- {flow.kind}: {route.method} {route.path} (`{flow.location}`)")
     for name, value, location in lifetimes(ctx)[:8]:
-        lines.append(f"- Lifetime setting {name} = {value} (`{location}`)")
+        home = root_of(ctx.detection.app_roots, location.file)
+        root_label = home.path if home and home.path else "repository root"
+        lines.append(f"- Lifetime setting ({root_label}) {name} = {value} (`{location}`)")
     return "\n".join(lines) or "No sign-in, signup, reset or session code was found."
 
 
@@ -61,8 +65,8 @@ def _outcome(ctx: Context, key: int | str, case: dict, findings: list[Finding]) 
         return Outcome("UNVERIFIED", "UNVERIFIED", text, 9)
     if found_flows:
         where = ", ".join(f"`{f.location}`" for f in found_flows[:3])
-        text = f"The flow is at {where}, but this case could not be decided from the code."
-        return Outcome("UNKNOWN", "UNKNOWN", text, 9)
+        text = f"The flow is at {where}. Only a live test can decide this case: {case['test']}"
+        return Outcome("UNVERIFIED", "UNVERIFIED", text, 9)
     kinds = ", ".join(case["kinds"]) or "matching"
     return Outcome("UNKNOWN", "UNKNOWN", f"No {kinds} route was found.", 9)
 

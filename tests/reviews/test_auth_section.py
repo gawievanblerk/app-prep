@@ -27,10 +27,14 @@ def test_ten_cases_and_extras_are_always_written(tmp_path):
     body = parts["Cases"].body
     for number in range(1, 11):
         assert f"#### CASE {number}: " in body
-    assert "#### CASE 11: Public signup that no screen uses (UNKNOWN)" in body
-    assert "#### CASE 12: Second factor for staff and admin accounts (UNKNOWN)" in body
+    assert "#### CASE 11: Public signup that no screen uses (UNVERIFIED)" in body
+    assert "#### CASE 12: Second factor for staff and admin accounts (UNVERIFIED)" in body
     assert "committed-passwords" not in body and "CASE 13" not in body
-    assert "This app: UNKNOWN. The flow is at `api/app/routes/auth.py:9`" in body
+    assert (
+        "This app: UNVERIFIED. The flow is at `api/app/routes/auth.py:9`, "
+        "`api/app/routes/auth.py:27`, `api/app/routes/auth.py:33`. Only a live test can decide "
+        "this case:"
+    ) in body
     assert list(parts) == [
         "How to read the cases",
         "Flows read",
@@ -39,8 +43,54 @@ def test_ten_cases_and_extras_are_always_written(tmp_path):
         "Executable tests",
     ]
     assert "- login: POST /auth/login (`api/app/routes/auth.py:9`)" in parts["Flows read"].body
+    assert (
+        "- Lifetime setting (api) jwt_access_token_expire_minutes = 30" in parts["Flows read"].body
+    )
     text = render_markdown(report)
     assert "## 3. Failure path test plan" in text
+
+
+def test_case_with_flow_but_no_decision_is_unverified_not_unknown(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    write(
+        tmp_path,
+        "api/app/routes/auth.py",
+        'from fastapi import APIRouter\n\nrouter = APIRouter(prefix="/auth")\n\n\n'
+        '@router.post("/login")\n'
+        "async def login(data: LoginRequest):\n"
+        '    return {"ok": True}\n',
+    )
+    _, parts = cases_text(tmp_path)
+    body = parts["Cases"].body
+    assert "#### CASE 1: Wrong password five times in a row (UNVERIFIED)" in body
+    assert "This app: UNVERIFIED. The flow is at `api/app/routes/auth.py:" in body
+    assert "Only a live test can decide this case:" in body
+
+
+def test_case_with_no_matching_flow_is_unknown(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    write(
+        tmp_path,
+        "api/app/routes/auth.py",
+        'from fastapi import APIRouter\n\nrouter = APIRouter(prefix="/auth")\n\n\n'
+        '@router.post("/register")\n'
+        "async def register(data: RegisterRequest):\n"
+        '    return {"ok": True}\n',
+    )
+    _, parts = cases_text(tmp_path)
+    body = parts["Cases"].body
+    assert "#### CASE 1: Wrong password five times in a row (UNKNOWN)" in body
+    assert "This app: UNKNOWN. No login route was found." in body
+
+
+def test_flows_read_groups_lifetimes_by_app_root(tmp_path):
+    auth_app(tmp_path)
+    write(tmp_path, "web/package.json", '{"name": "web"}')
+    write(tmp_path, "web/lib/token.ts", "jwt.sign(payload, secret, { expiresIn: '14d' })\n")
+    _, parts = cases_text(tmp_path)
+    body = parts["Flows read"].body
+    assert "- Lifetime setting (api) jwt_access_token_expire_minutes = 30" in body
+    assert "- Lifetime setting (web) expiresIn = '14d'" in body
 
 
 def test_managed_provider_cases_are_unverified(tmp_path):
