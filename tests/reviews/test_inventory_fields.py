@@ -94,3 +94,30 @@ def test_children_signals_from_fields_and_age_minimums(tmp_path):
 def test_no_children_signal_for_adult_products(tmp_path):
     write(tmp_path, "app/schemas.py", "class Signup(BaseModel):\n    age: int = Field(ge=18)\n")
     assert findings_for(tmp_path, "inventory", "INV-CHILDREN-SIGNAL") == []
+
+
+def test_camel_case_model_name_is_split_before_lowercasing(tmp_path):
+    write(
+        tmp_path,
+        "prisma/schema.prisma",
+        "model PortalUser {\n  id Int @id\n  emailAddress String\n  fullName String?\n}\n",
+    )
+    ctx = context(tmp_path)
+    found = sorted(p.field.name for p in personal_fields(ctx))
+    assert found == ["emailAddress", "fullName"]
+
+
+def test_id_and_count_suffixed_fields_are_not_classified():
+    assert classify("address_line_count") is None
+    assert classify("loginCount") is None
+
+
+def test_ambiguous_terms_need_a_personal_neighbour_or_last_place():
+    assert classify("minor_version") is None
+    assert classify("race_condition_flag") is None
+    assert classify("genetic_algorithm_seed") is None
+    assert classify("guardian_angel_flag") is None
+    assert classify("guardian_name").key == "children"
+    assert classify("is_minor").key == "children"
+    assert classify("race").key == "special"
+    assert classify("ethnicity").key == "special"

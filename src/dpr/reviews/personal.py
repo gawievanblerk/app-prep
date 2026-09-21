@@ -12,7 +12,7 @@ from dpr.reviews.leaks_logs import words
 from dpr.rules import Context
 
 JSON_TYPES = re.compile(r"(?i)^(?:json|jsonb|Json|JSON|JSONB|JSONField|MutableDict|dict)")
-KEY_SUFFIX = re.compile(r"(?:_id|_ids|Id|Ids|_by|_uuid)$")
+KEY_SUFFIX = re.compile(r"(?:_id|_ids|Id|Ids|_by|_uuid|_count|Count|_counts|Counts)$")
 
 
 @dataclass(frozen=True)
@@ -36,9 +36,36 @@ def _categories() -> list[tuple[Category, list[tuple[str, ...]]]]:
     ]
 
 
+@cache
+def _ambiguous_terms() -> set[str]:
+    return set(load("pii_terms.yaml").get("ambiguous_terms", []))
+
+
+@cache
+def _single_word_terms() -> set[str]:
+    """Every term across every category that is itself a single word."""
+    return {term[0] for _category, terms in _categories() for term in terms if len(term) == 1}
+
+
 def _contains(tokens: list[str], term: tuple[str, ...]) -> bool:
     size = len(term)
     return any(tuple(tokens[i : i + size]) == term for i in range(len(tokens) - size + 1))
+
+
+def _contains_at(tokens: list[str], term: tuple[str, ...]) -> list[int]:
+    size = len(term)
+    return [i for i in range(len(tokens) - size + 1) if tuple(tokens[i : i + size]) == term]
+
+
+def _ambiguous_match(tokens: list[str], term: tuple[str, ...]) -> bool:
+    """An ambiguous term counts only as the field's last word, or when every word after it is
+    itself a personal word (so guardian_name and is_minor count, minor_version does not)."""
+    personal = _single_word_terms()
+    for i in _contains_at(tokens, term):
+        rest = tokens[i + len(term) :]
+        if not rest or all(word in personal for word in rest):
+            return True
+    return False
 
 
 def classify(name: str, person: bool = True) -> Category | None:
@@ -46,9 +73,14 @@ def classify(name: str, person: bool = True) -> Category | None:
     if KEY_SUFFIX.search(name):
         return None
     tokens = words(name)
+    ambiguous = _ambiguous_terms()
     for category, terms in _categories():
         for term in terms:
             if term == ("name",) and not person:
+                continue
+            if len(term) == 1 and term[0] in ambiguous:
+                if _ambiguous_match(tokens, term):
+                    return category
                 continue
             if _contains(tokens, term):
                 return category
@@ -56,7 +88,7 @@ def classify(name: str, person: bool = True) -> Category | None:
 
 
 def is_person_model(model: DataModel) -> bool:
-    names = {model.name.lower(), model.table.split(".")[-1].lower()}
+    names = {model.name, model.table.split(".")[-1]}
     stems = {w for n in names for w in words(n)}
     person_words = set(load("pii_terms.yaml")["person_models"])
     fields = {f.name.lower() for f in model.fields}
