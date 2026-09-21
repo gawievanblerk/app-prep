@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import ast
 import re
 
 from dpr.discovery.approots import root_of
 from dpr.model import DataModel, Location
-from dpr.reviews.auth_flows import _js_code, _py_code
+from dpr.reviews.auth_flows import route_code
 from dpr.reviews.inventory_retention import iac_retention, readers, retention_text
 from dpr.reviews.inventory_sources import Collection, collection_points, sdk_receipts
 from dpr.reviews.leaks import sentry_inits
@@ -79,7 +78,7 @@ def _collected(ctx: Context, items: list[PersonalField]) -> str:
 
 def _reached_sdks(ctx: Context, point: Collection) -> list[str]:
     route = point.route
-    code = _py_code(ctx, route) if isinstance(route.handler, ast.AST) else _js_code(ctx, route)
+    code = route_code(ctx, route)
     files = {c.rel for c in code}
     return [
         sdk.name

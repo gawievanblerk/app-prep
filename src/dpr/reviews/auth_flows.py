@@ -123,13 +123,13 @@ def _kind(ctx: Context, route: Route) -> str | None:
     return None
 
 
-def _py_code(ctx: Context, route: Route) -> list[Code]:
+def _py_code(ctx: Context, route: Route, depth: int = 2) -> list[Code]:
     found = [Code(route.file, route.handler, route.tree, route.line)]
     queue = [(route.file, route.handler, 0)]
     seen = {(route.file, route.line)}
     while queue:
-        rel, fn, depth = queue.pop(0)
-        if depth >= 2:
+        rel, fn, level = queue.pop(0)
+        if level >= depth:
             continue
         for call in [n for n in ast.walk(fn) if isinstance(n, ast.Call)]:
             parts = (pyast.dotted(call.func) or "").split(".")
@@ -145,11 +145,11 @@ def _py_code(ctx: Context, route: Route) -> list[Code]:
             seen.add(key)
             tree = pyast.parse_file(ctx.index, helper[0])
             found.append(Code(helper[0], helper[1], tree, helper[1].lineno))
-            queue.append((helper[0], helper[1], depth + 1))
+            queue.append((helper[0], helper[1], level + 1))
     return found
 
 
-def _js_code(ctx: Context, route: Route) -> list[Code]:
+def _js_code(ctx: Context, route: Route, depth: int = 2) -> list[Code]:
     handler = route.handler
     if handler is None or getattr(handler, "type", "") not in jsts.FUNCTION_TYPES:
         return []
@@ -157,8 +157,8 @@ def _js_code(ctx: Context, route: Route) -> list[Code]:
     queue = [(route.tree, handler, 0)]
     seen = {(route.file, handler.start_byte)}
     while queue:
-        tree, fn, depth = queue.pop(0)
-        if depth >= 2:
+        tree, fn, level = queue.pop(0)
+        if level >= depth:
             continue
         for call in jsts.walk(fn, {"call_expression"}):
             target = _js_target(ctx, tree, call)
@@ -174,8 +174,15 @@ def _js_code(ctx: Context, route: Route) -> list[Code]:
             found.append(
                 Code(target_tree.rel, target_fn, target_tree, jsts.line(target_tree, target_fn))
             )
-            queue.append((target_tree, target_fn, depth + 1))
+            queue.append((target_tree, target_fn, level + 1))
     return found
+
+
+def route_code(ctx: Context, route: Route, depth: int = 2) -> list[Code]:
+    """The handler plus the helpers it calls, followed `depth` calls deep."""
+    if isinstance(route.handler, ast.AST):
+        return _py_code(ctx, route, depth)
+    return _js_code(ctx, route, depth)
 
 
 def flows(ctx: Context) -> list[Flow]:
@@ -187,9 +194,7 @@ def flows(ctx: Context) -> list[Flow]:
             kind = _kind(ctx, route)
             if kind is None:
                 continue
-            code = (
-                _py_code(ctx, route) if isinstance(route.handler, ast.AST) else _js_code(ctx, route)
-            )
+            code = route_code(ctx, route)
             if code:
                 found.append(Flow(kind, route, tuple(code)))
         ctx.facts["auth_flows"] = found

@@ -39,7 +39,13 @@ def test_abuse_section_parts(tmp_path):
         "Alerts and kill switches",
     ]
     assert parts["Cost surface"].rows == (
-        ("POST /api/chat", "anthropic", "tokens per call, priced per model", "yes", "none found"),
+        (
+            "POST /api/chat",
+            "anthropic",
+            "tokens per call, priced per model",
+            "any signed-in user",
+            "none found",
+        ),
         (
             "POST /api/auth/register",
             "public form",

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import ast
 import re
 from collections.abc import Iterator
 
 from dpr.discovery.approots import root_of, same_root
 from dpr.model import Finding, Location, Route, Tag
 from dpr.reviews.access import PUBLIC, access
-from dpr.reviews.auth_flows import _js_code, _py_code
+from dpr.reviews.auth_flows import route_code
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 
@@ -29,7 +28,7 @@ def export_routes(ctx: Context) -> list[tuple[Route, str]]:
     for route in ctx.detection.routes:
         if is_test(route.file) or route.handler is None or access(ctx, route).level == PUBLIC:
             continue
-        code = _py_code(ctx, route) if isinstance(route.handler, ast.AST) else _js_code(ctx, route)
+        code = route_code(ctx, route)
         text = "\n".join(c.text() for c in code)
         if EXPORT_RESPONSE.search(text) or (
             EXPORT_PATH.search(route.path) and route.method == "GET"
