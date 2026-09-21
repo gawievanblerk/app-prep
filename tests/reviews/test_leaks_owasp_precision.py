@@ -21,6 +21,19 @@ def test_vite_config_twins_collapse_to_the_file_vite_loads(tmp_path):
     assert "does not load" not in found["admin/vite.config.ts"].detail
 
 
+def test_config_backups_and_declaration_files_do_not_crash_or_count(tmp_path):
+    write(tmp_path, "web/vite.config.js", VITE_JS)
+    write(tmp_path, "web/vite.config.ts.bak", VITE_TS)
+    write(
+        tmp_path,
+        "web/vite.config.d.mts",
+        "declare const _default: { build: { sourcemap: true } }\nexport default _default\n",
+    )
+    found = findings_for(tmp_path, "leaks", "LEAK-SOURCEMAP")
+    assert len(found) == 1
+    assert found[0].locations[0].file == "web/vite.config.js"
+
+
 def test_values_escaped_in_joined_loops_and_numbers_are_safe(tmp_path):
     write(
         tmp_path,

@@ -83,10 +83,12 @@ def sourcemaps(ctx: Context) -> Iterator[Finding]:
         )
     groups: dict[tuple[str, str], list[Location]] = {}
     for entry in ctx.index.named("next.config.*", "vite.config.*"):
-        if entry.name.endswith(".d.ts"):
+        if entry.name.endswith((".d.ts", ".d.mts", ".d.cts")):
+            continue
+        tool = "next" if entry.name.startswith("next.") else "vite"
+        if PurePosixPath(entry.rel).suffix not in LOAD_ORDER[tool]:
             continue
         text = ctx.index.text(entry.rel)
-        tool = "next" if entry.name.startswith("next.") else "vite"
         pattern = NEXT_SOURCEMAPS if tool == "next" else VITE_SOURCEMAPS
         folder = str(PurePosixPath(entry.rel).parent)
         for match in pattern.finditer(text):
