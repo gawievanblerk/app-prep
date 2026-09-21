@@ -7,6 +7,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+from dpr.discovery.approots import root_of
 from dpr.model import Finding, Location, Route, SdkUse, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
@@ -25,6 +26,11 @@ JS_BODY_READ = re.compile(r"\b(?:req\.body|body|data|input)\??\.(\w+)")
 JS_DESTRUCTURE = re.compile(
     r"\{\s*([\w\s,:]+)\}\s*=\s*(?:await\s+)?(?:req\.body|await\s+req\.json\(\)|body)\b"
 )
+ZOD_SCHEMA = re.compile(r"(?:export\s+)?const\s+(\w+)\s*=\s*z\.object\(\s*\{([^{}]*)\}")
+ZOD_FIELD = re.compile(r"(\w+)\s*:")
+ZOD_PARSE = re.compile(r"\b(\w+)\.(?:parse|safeParse|parseAsync)\(\s*([^)]*?)\s*\)")
+REQUEST_BODY_EXPR = r"(?:await\s+)?req(?:uest)?\.(?:body|json\(\))"
+REQUEST_BODY = re.compile(REQUEST_BODY_EXPR)
 RUNTIME = (
     (
         re.compile(
@@ -147,6 +153,35 @@ def _js_fields(route: Route) -> tuple[list[str], str]:
     return fields, "request body"
 
 
+def _js_request_body(text: str, arg: str) -> bool:
+    """The parse argument is a request body directly, or a variable assigned from one."""
+    arg = arg.strip()
+    if re.fullmatch(REQUEST_BODY_EXPR, arg):
+        return True
+    if re.fullmatch(r"[A-Za-z_]\w*", arg):
+        return bool(
+            re.search(rf"(?:const|let|var)\s+{re.escape(arg)}\s*=\s*{REQUEST_BODY_EXPR}", text)
+        )
+    return False
+
+
+def _zod_collections(ctx: Context, rel: str) -> Iterator[Collection]:
+    """Zod schemas (`z.object({...})`, with or without a trailing `.strict()` and similar chains)
+    parsed from a request body in the same file. Top-level keys only."""
+    text = ctx.index.text(rel)
+    if "z.object(" not in text:
+        return
+    schemas = {m.group(1): ZOD_FIELD.findall(m.group(2)) for m in ZOD_SCHEMA.finditer(text)}
+    for match in ZOD_PARSE.finditer(text):
+        name, arg = match.group(1), match.group(2)
+        fields = schemas.get(name)
+        if not fields or not _js_request_body(text, arg):
+            continue
+        personal = tuple(dict.fromkeys(f for f in fields if classify(f)))
+        if personal:
+            yield Collection(None, personal, Location(rel, line_of(text, match.start())), name)
+
+
 def collection_points(ctx: Context) -> list[Collection]:
     if "collection_points" not in ctx.facts:
         found = []
@@ -171,6 +206,10 @@ def collection_points(ctx: Context) -> list[Collection]:
                 if match:
                     location = Location(entry.rel, line_of(text, match.start()))
                     found.append(Collection(None, (label,), location, "captured at runtime"))
+        for entry in ctx.index.js_files:
+            if is_test(entry.rel):
+                continue
+            found.extend(_zod_collections(ctx, entry.rel))
         ctx.facts["collection_points"] = found
     return ctx.facts["collection_points"]
 
@@ -194,13 +233,39 @@ def _py_clients(tree: ast.Module, names: set[str]) -> set[str]:
     return clients
 
 
-def _py_dict_keys(node: ast.AST, fn: ast.AST | None) -> list[str]:
+def _py_caller_value(tree: ast.Module, fn: ast.AST, param_name: str) -> ast.expr | None:
+    """The argument a same-file call to `fn` (by name, or a self./cls. attribute call) binds to
+    `param_name`. First matching call only, one level: the caller is not itself traced further."""
+    is_method = bool(fn.args.args) and fn.args.args[0].arg in ("self", "cls")
+    params = [a.arg for a in (fn.args.args[1:] if is_method else fn.args.args)]
+    if getattr(fn, "name", None) is None or param_name not in params:
+        return None
+    index = params.index(param_name)
+    for call in [n for n in ast.walk(tree) if isinstance(n, ast.Call)]:
+        callee = pyast.dotted(call.func) or ""
+        name = callee.rsplit(".", 1)[-1]
+        owner = callee.rsplit(".", 1)[0] if "." in callee else ""
+        if name != fn.name or owner not in ("", "self", "cls"):
+            continue
+        for keyword in call.keywords:
+            if keyword.arg == param_name:
+                return keyword.value
+        if index < len(call.args):
+            return call.args[index]
+    return None
+
+
+def _py_dict_keys(node: ast.AST, fn: ast.AST | None, tree: ast.Module | None = None) -> list[str]:
     if isinstance(node, ast.Name) and fn is not None:
         for sub in ast.walk(fn):
             if isinstance(sub, ast.Assign) and any(
                 isinstance(t, ast.Name) and t.id == node.id for t in sub.targets
             ):
                 return _py_dict_keys(sub.value, None)
+        if tree is not None:
+            value = _py_caller_value(tree, fn, node.id)
+            if value is not None:
+                return _py_dict_keys(value, pyast.function_at(tree, value.lineno))
         return [node.id] if node.id in WHOLE_OBJECTS else []
     keys = []
     for sub in ast.walk(node):
@@ -224,7 +289,7 @@ def _py_sites(ctx: Context, rel: str, names: set[str]) -> Iterator[tuple[int, li
         fn = pyast.function_at(tree, call.lineno)
         keys = [k.arg for k in call.keywords if k.arg]
         for arg in [*call.args, *(k.value for k in call.keywords)]:
-            keys += _py_dict_keys(arg, fn)
+            keys += _py_dict_keys(arg, fn, tree)
         if keys:
             yield call.lineno, keys
 
@@ -301,30 +366,40 @@ def _kinds(keys: list[str]) -> tuple[list[str], list[str], list[str]]:
 
 
 def sdk_receipts(ctx: Context) -> list[tuple[SdkUse, list[Location], Tag, str]]:
+    """One receipt per SDK per app root: evidence from one root's call sites never merges into
+    another root's tag, keys or locations."""
     if "sdk_receipts" not in ctx.facts:
         found = []
+        multi_root = len(ctx.detection.app_roots) > 1
         for sdk in ctx.detection.sdks:
             if not sdk.recipient or sdk.category in SKIP_RECIPIENT_CATEGORIES:
                 continue
-            identifying, content, whole, locations = [], [], [], []
+            by_root: dict[str, list[tuple[Location, list[str], list[str], list[str]]]] = {}
             for location, keys in recipient_sites(ctx, sdk):
                 i, c, w = _kinds(keys)
-                if i or c or w:
-                    identifying += i
-                    content += c
-                    whole += w
-                    locations.append(location)
-            if not locations:
-                continue
-            parts = []
-            if identifying:
-                parts.append("identifying fields (" + ", ".join(dict.fromkeys(identifying)) + ")")
-            if content:
-                parts.append("free text or prompts (" + ", ".join(dict.fromkeys(content)) + ")")
-            if whole:
-                parts.append("whole records (" + ", ".join(dict.fromkeys(whole)) + ")")
-            tag = Tag.CONFIRMED if identifying else Tag.INFERRED
-            found.append((sdk, locations, tag, " and ".join(parts)))
+                if not (i or c or w):
+                    continue
+                home = root_of(ctx.detection.app_roots, location.file)
+                by_root.setdefault(home.path if home else "", []).append((location, i, c, w))
+            for root_path, sites in sorted(by_root.items()):
+                locations = [site[0] for site in sites]
+                identifying = [k for site in sites for k in site[1]]
+                content = [k for site in sites for k in site[2]]
+                whole = [k for site in sites for k in site[3]]
+                parts = []
+                if identifying:
+                    parts.append(
+                        "identifying fields (" + ", ".join(dict.fromkeys(identifying)) + ")"
+                    )
+                if content:
+                    parts.append("free text or prompts (" + ", ".join(dict.fromkeys(content)) + ")")
+                if whole:
+                    parts.append("whole records (" + ", ".join(dict.fromkeys(whole)) + ")")
+                what = " and ".join(parts)
+                if multi_root:
+                    what += f" in {root_path or 'the repository root'}"
+                tag = Tag.CONFIRMED if identifying else Tag.INFERRED
+                found.append((sdk, locations, tag, what))
         ctx.facts["sdk_receipts"] = found
     return ctx.facts["sdk_receipts"]
 

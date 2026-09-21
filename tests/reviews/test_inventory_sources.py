@@ -119,3 +119,77 @@ def test_sdk_imported_but_called_without_personal_keys_is_not_reported(tmp_path)
         "configure_azure_monitor(connection_string=CONN)\n",
     )
     assert findings_for(tmp_path, "inventory", "INV-SDK-RECEIVES-PII") == []
+
+
+def test_sdk_recipient_findings_are_scoped_per_app_root(tmp_path):
+    write(tmp_path, "app-a/requirements.txt", "openai\n")
+    write(
+        tmp_path,
+        "app-a/app.py",
+        "import openai\n\nclient = openai.OpenAI()\n\n\n"
+        "def ask(prompt):\n"
+        "    return client.chat.completions.create(\n"
+        "        model='m', messages=[{'role': 'user', 'content': prompt}]\n    )\n",
+    )
+    write(tmp_path, "app-b/requirements.txt", "openai\n")
+    write(
+        tmp_path,
+        "app-b/app.py",
+        "import openai\n\nclient = openai.OpenAI()\n\n\n"
+        "def notify(to_email):\n    return client.emails.send(to=to_email)\n",
+    )
+    findings = findings_for(tmp_path, "inventory", "INV-SDK-RECEIVES-PII")
+    by_tag = {f.tag.value: f for f in findings}
+    assert set(by_tag) == {"INFERRED", "CONFIRMED"}
+    assert [str(loc) for loc in by_tag["INFERRED"].locations] == ["app-a/app.py:7"]
+    assert [str(loc) for loc in by_tag["CONFIRMED"].locations] == ["app-b/app.py:7"]
+
+
+EMAIL_SERVICE_INDIRECT = (
+    "import logging\n\nclass EmailService:\n"
+    "    def __init__(self, conn):\n"
+    "        from azure.communication.email import EmailClient\n"
+    "        self.client = EmailClient.from_connection_string(conn)\n\n"
+    "    def _send(self, message):\n"
+    "        return self.client.begin_send(message)\n\n"
+    "    def send(self, to_email, to_name, html):\n"
+    "        message = {\n"
+    "            'senderAddress': 'noreply@example.invalid',\n"
+    "            'recipients': {'to': [{'address': to_email, 'displayName': to_name}]},\n"
+    "            'content': {'html': html},\n"
+    "        }\n"
+    "        return self._send(message)\n"
+)
+
+
+def test_dict_built_in_one_method_and_sent_from_another_is_confirmed(tmp_path):
+    write(tmp_path, "requirements.txt", "azure-communication-email\n")
+    write(tmp_path, "app/email.py", EMAIL_SERVICE_INDIRECT)
+    [finding] = findings_for(tmp_path, "inventory", "INV-SDK-RECEIVES-PII")
+    assert (finding.tag.value, str(finding.locations[0])) == ("CONFIRMED", "app/email.py:9")
+    assert "identifying fields (recipients, to, address, displayName)" in finding.detail
+
+
+def test_zod_schema_parsed_from_request_body_is_collected(tmp_path):
+    write(
+        tmp_path,
+        "app/api/signup/route.ts",
+        "import { z } from 'zod'\n\n"
+        "const SignupSchema = z.object({\n  email: z.string().email(),\n  fullName: z.string(),\n})\n\n"
+        "export async function POST(req: Request) {\n"
+        "  const body = await req.json()\n"
+        "  const data = SignupSchema.parse(body)\n"
+        "  return Response.json({ ok: true })\n"
+        "}\n",
+    )
+    write(
+        tmp_path,
+        "lib/internal.ts",
+        "import { z } from 'zod'\n\nconst ConfigSchema = z.object({\n  region: z.string(),\n})\n"
+        "export const config = ConfigSchema.parse(process.env)\n",
+    )
+    points = collection_points(context(tmp_path))
+    zod = [c for c in points if c.source == "SignupSchema"]
+    assert len(zod) == 1
+    assert zod[0].fields == ("email", "fullName")
+    assert not any(c.source == "ConfigSchema" for c in points)
