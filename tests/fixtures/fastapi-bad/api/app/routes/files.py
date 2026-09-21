@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.config import settings
@@ -40,3 +41,14 @@ async def import_rows(current_user: CurrentUser, file: UploadFile = File(...)):
 @router.get("/export")
 async def export_files(current_user: CurrentUser):
     return FileResponse(settings.export_file, media_type="text/csv", filename="files.csv")
+
+
+class BulkPdfRequest(BaseModel):
+    file_ids: list[str] = Field(..., min_length=1, max_length=500)
+
+
+@router.post("/bulk-pdf")
+async def bulk_pdf(payload: BulkPdfRequest, current_user: CurrentUser):
+    for file_id in payload.file_ids:
+        await render_pdf(file_id)
+    return {"rendered": len(payload.file_ids)}

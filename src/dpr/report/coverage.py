@@ -12,11 +12,7 @@ from dpr.rules import Options
 DOCUMENTS = re.compile(
     r"(?i)\.(?:pdf|xlsx|xlsm|xls|docx|doc|pptx|png|jpe?g|sqlite3?|db|bak|bacpac|dump)$"
 )
-BULK = (
-    "Request lists that fan out into many renders, sends or imports are not checked for size caps"
-)
 BREACHED = "Screening new passwords against breached-password lists is not checked"
-EMAILS = "Email addresses in tests and documentation are not checked for real people"
 
 
 def coverage_notes(root, detection: Detection, options: Options, sections: set[str]) -> list[str]:
@@ -36,8 +32,6 @@ def coverage_notes(root, detection: Detection, options: Options, sections: set[s
             f"{len(documents)} committed documents, images, spreadsheets or database files (for "
             f"example {examples}) were not read, so personal data inside them is not inventoried"
         )
-    if detection.routes:
-        notes += [BULK, EMAILS]
     if "auth" in sections:
         notes.append(BREACHED)
     return notes

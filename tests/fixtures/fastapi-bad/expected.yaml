@@ -1,5 +1,6 @@
 # Every finding the scan must report, and nothing else.
 findings:
+  - {rule: ABUSE-BULK-UNBOUNDED, file: api/app/routes/files.py, line: 47, tag: CONFIRMED}
   - {rule: ABUSE-ERROR-LEAK, file: api/app/main.py, line: 30, tag: CONFIRMED}
   - {rule: ABUSE-FORM-NO-CHALLENGE, file: api/app/routes/account.py, line: 10, tag: INFERRED}
   - {rule: ABUSE-FORM-NO-CHALLENGE, file: api/app/routes/auth.py, line: 13, tag: INFERRED}
@@ -9,7 +10,7 @@ findings:
   - {rule: ABUSE-NO-KILL-SWITCH, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
   - {rule: ABUSE-PAID-ANY-ROLE, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
   - {rule: ABUSE-PAID-UNLIMITED, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
-  - {rule: ABUSE-UPLOAD-UNBOUNDED, file: api/app/routes/files.py, line: 18, tag: CONFIRMED}
+  - {rule: ABUSE-UPLOAD-UNBOUNDED, file: api/app/routes/files.py, line: 19, tag: CONFIRMED}
   - {rule: AUTH-EMAIL-CHANGE-UNVERIFIED, file: api/app/services/accounts.py, line: 73, tag: CONFIRMED}
   - {rule: AUTH-ENUM-LOCKOUT-STATUS, file: api/app/routes/account.py, line: 19, tag: CONFIRMED}
   - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
@@ -42,12 +43,12 @@ findings:
   - {rule: LEAK-PUBLIC-GATE-KEY, file: .github/workflows/deploy.yml, line: 3, tag: CONFIRMED}
   - {rule: LEAK-SOURCEMAP, file: web/vite.config.ts, line: 5, tag: CONFIRMED}
   - {rule: OWASP-A01-EMAIL-OWNERSHIP, file: api/app/services/portal.py, line: 7, tag: INFERRED}
-  - {rule: OWASP-A01-PATH-TRAVERSAL, file: api/app/routes/files.py, line: 17, tag: CONFIRMED}
-  - {rule: OWASP-A01-UNSCOPED-QUERY, file: api/app/routes/files.py, line: 28, tag: CONFIRMED}
+  - {rule: OWASP-A01-PATH-TRAVERSAL, file: api/app/routes/files.py, line: 18, tag: CONFIRMED}
+  - {rule: OWASP-A01-UNSCOPED-QUERY, file: api/app/routes/files.py, line: 29, tag: CONFIRMED}
   - {rule: OWASP-A03-HTML-EMAIL, file: api/app/services/email_service.py, line: 2, tag: INFERRED}
-  - {rule: OWASP-A05-XML-PARSER, file: api/app/routes/files.py, line: 36, tag: INFERRED}
+  - {rule: OWASP-A05-XML-PARSER, file: api/app/routes/files.py, line: 37, tag: INFERRED}
   - {rule: OWASP-A08-UNPINNED-DEPS, file: api/requirements.txt, line: 1, tag: CONFIRMED}
   - {rule: OWASP-A08-UNPINNED-INSTALL, file: .github/workflows/deploy.yml, line: 8, tag: CONFIRMED}
   - {rule: OWASP-A08-UNPINNED-INSTALL, file: api/startup.sh, line: 2, tag: CONFIRMED}
   - {rule: OWASP-A09-NO-AUTH-FAIL-LOG, file: api/app/routes/account.py, line: 15, tag: INFERRED}
-  - {rule: OWASP-A09-NO-READ-AUDIT, file: api/app/routes/files.py, line: 41, tag: INFERRED}
+  - {rule: OWASP-A09-NO-READ-AUDIT, file: api/app/routes/files.py, line: 42, tag: INFERRED}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+import dpr.reviews.abuse_bulk  # noqa: F401  (registers rules)
 import dpr.reviews.abuse_cors  # noqa: F401  (registers rules)
 import dpr.reviews.abuse_limits  # noqa: F401  (registers rules)
 import dpr.reviews.abuse_paid  # noqa: F401  (registers rules)

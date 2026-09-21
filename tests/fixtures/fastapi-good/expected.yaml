@@ -1,5 +1,6 @@
 # Rule ids that must not appear anywhere in this fixture's report.
 must_not_report:
+  - ABUSE-BULK-UNBOUNDED
   - ABUSE-CORS-REFLECT
   - ABUSE-CORS-WILDCARD
   - ABUSE-ERROR-LEAK
@@ -55,6 +56,7 @@ must_not_report:
   - INV-SPECIAL-CATEGORY
   - INV-UNUSED-FIELD
   - LEAK-BROAD-RESPONSE
+  - LEAK-COMMITTED-DATA-FILE
   - LEAK-DEFAULT-CREDENTIAL
   - LEAK-ENV-IN-HISTORY
   - LEAK-ENV-TRACKED

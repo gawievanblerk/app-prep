@@ -75,7 +75,7 @@ def test_lawyer_questions_and_coverage_notes(tmp_path):
         "1 committed documents, images, spreadsheets or database files (for example docs/customers.pdf)"
         in not_covered
     )
-    assert "- Request lists that fan out into many renders" in not_covered
+    assert "Request lists that fan out" not in not_covered
     assert "Paid routes are not compared" not in not_covered
     assert "openapi.json" not in not_covered
     detection = text[text.index("## Detection") : text.index("## 1. Data inventory")]
