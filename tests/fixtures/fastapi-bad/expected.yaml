@@ -13,6 +13,11 @@ findings:
   - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
   - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 29, tag: INFERRED}
   - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 51, tag: INFERRED}
+  - {rule: AUTH-RESET-NO-EXPIRY, file: api/app/routes/account.py, line: 45, tag: INFERRED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: api/app/services/accounts.py, line: 57, tag: CONFIRMED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: api/app/services/accounts.py, line: 65, tag: CONFIRMED}
+  - {rule: AUTH-VERIFY-NO-EXPIRY, file: api/app/routes/account.py, line: 50, tag: INFERRED}
+  - {rule: AUTH-VERIFY-REUSABLE, file: api/app/routes/account.py, line: 50, tag: INFERRED}
   - {rule: BASE-DB-ADMIN-LOGIN, file: infra/main.tf, line: 9, tag: INFERRED}
   - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 1, tag: CONFIRMED}
   - {rule: BASE-DEBUG-ON, file: api/app/config.py, line: 5, tag: INFERRED}

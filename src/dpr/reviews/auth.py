@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import dpr.reviews.auth_enum  # noqa: F401  (registers rules)
+import dpr.reviews.auth_tokens  # noqa: F401  (registers rules)
 from dpr.data import load
 from dpr.discovery.approots import root_of
 from dpr.model import EXPLOIT_ORDER, Finding, Part, ReviewSection, Tag
@@ -43,8 +44,14 @@ def _flow_lines(ctx: Context) -> str:
     return "\n".join(lines) or "No sign-in, signup, reset or session code was found."
 
 
+def _decides(rule: str, finding: Finding) -> bool:
+    """A case rule is a rule id, optionally with a word the finding title must contain."""
+    rule_id, _, word = rule.partition("|")
+    return finding.rule_id == rule_id and word.lower() in finding.title.lower()
+
+
 def _outcome(ctx: Context, key: int | str, case: dict, findings: list[Finding]) -> Outcome:
-    mine = [f for f in findings if f.rule_id in case["rules"]]
+    mine = [f for f in findings if any(_decides(r, f) for r in case["rules"])]
     passes = ctx.facts.get("auth_passes", {}).get(key, [])
     found_flows = flows_of(ctx, *case["kinds"]) if case["kinds"] else []
     if mine:
@@ -88,7 +95,7 @@ def _block(label: str, case: dict, outcome: Outcome) -> str:
 
 
 def _extra_relevant(ctx: Context, case: dict, findings: list[Finding]) -> bool:
-    if any(f.rule_id in case["rules"] for f in findings):
+    if any(_decides(r, f) for r in case["rules"] for f in findings):
         return True
     if case["key"] in ctx.facts.get("auth_passes", {}):
         return True

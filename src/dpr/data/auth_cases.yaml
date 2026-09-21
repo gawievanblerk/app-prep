@@ -17,7 +17,7 @@ cases:
   - number: 3
     title: Verification link clicked twice
     kinds: [verify]
-    rules: [AUTH-VERIFY-REUSABLE, AUTH-VERIFY-NO-EXPIRY, AUTH-TOKEN-PLAINTEXT]
+    rules: [AUTH-VERIFY-REUSABLE, AUTH-VERIFY-NO-EXPIRY, "AUTH-TOKEN-PLAINTEXT|verification"]
     expected: The first click verifies and consumes the token, the second lands on an already-verified state, the token expires, and the stored value is a hash.
     risk: A link left in an old mailbox or read by a mail-scanning proxy stays usable.
     test: Verify an account, replay the same link, and replay a link older than the intended lifetime; both replays must be refused without an error page.
@@ -38,7 +38,7 @@ cases:
   - number: 6
     title: Reset link opened after it expired
     kinds: [reset]
-    rules: [AUTH-RESET-NO-EXPIRY, AUTH-TOKEN-PLAINTEXT]
+    rules: [AUTH-RESET-NO-EXPIRY, "AUTH-TOKEN-PLAINTEXT|reset"]
     expected: Expiry is enforced on the server, the token is single use, a new request invalidates the previous token, and the stored token is a hash.
     risk: Old reset links in mailboxes, logs or browser history reset the password at any time.
     test: Request a reset, age the token past its lifetime in the database, and submit it; expect a clear expiry message and no password change.

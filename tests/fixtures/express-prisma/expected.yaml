@@ -7,6 +7,12 @@ findings:
   - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: src/routes/auth.ts, line: 13, tag: CONFIRMED}
   - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 22, tag: INFERRED}
   - {rule: AUTH-ENUM-TIMING, file: src/routes/auth.ts, line: 37, tag: INFERRED}
+  - {rule: AUTH-RESET-NO-EXPIRY, file: src/routes/auth.ts, line: 44, tag: INFERRED}
+  - {rule: AUTH-RESET-TRUSTS-EMAIL, file: src/routes/auth.ts, line: 48, tag: INFERRED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: src/routes/auth.ts, line: 45, tag: CONFIRMED}
+  - {rule: AUTH-TOKEN-PLAINTEXT, file: src/routes/auth.ts, line: 53, tag: CONFIRMED}
+  - {rule: AUTH-VERIFY-NO-EXPIRY, file: src/routes/auth.ts, line: 52, tag: INFERRED}
+  - {rule: AUTH-VERIFY-REUSABLE, file: src/routes/auth.ts, line: 52, tag: INFERRED}
   - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 4, tag: CONFIRMED}
   - {rule: BASE-HEADER-MISSING-HSTS, file: src/index.ts, line: 5, tag: UNVERIFIED}
   - {rule: BASE-HEADER-MISSING-XCTO, file: src/index.ts, line: 5, tag: UNVERIFIED}

@@ -1,0 +1,44 @@
+AUTH-TOKEN-PLAINTEXT:
+  title: ${kind} tokens are stored and compared in plain text
+  effort_minutes: 45
+  detail: ${route} finds the account by comparing the token from the request with the stored column ${column} (first location), so the database holds usable tokens.
+  attack: Read a database backup, a replica or a query log and use any unexpired token to take over the account.
+  blast: Every account with a pending ${kind} token.
+  fix: Store only a SHA-256 hash of the token, compare hashes, and clear the column after use.
+  verify: Request a token, read the column, and confirm it does not equal the value in the emailed link.
+AUTH-VERIFY-NO-EXPIRY:
+  title: Email verification links never expire
+  effort_minutes: 20
+  detail: The verification flow behind ${route} accepts a token without comparing any issue time or expiry.
+  proof_needed: Check that nothing outside this flow, such as a scheduled cleanup, expires old verification tokens.
+  attack: Use an old verification link found in a mailbox, forwarded message or mail-scanning log to activate the account at any time.
+  blast: Accounts activated long after the owner abandoned them, including signups made with someone else's address.
+  fix: Store when the token was sent and reject tokens older than a short window (for example 72 hours), then offer to resend.
+  verify: Set the sent time to eight days ago in a test and confirm verification is refused.
+AUTH-RESET-NO-EXPIRY:
+  title: Password reset links never expire
+  effort_minutes: 20
+  detail: The reset flow behind ${route} accepts a token without comparing any issue time or expiry.
+  proof_needed: Check that nothing outside this flow, such as a scheduled cleanup, expires old reset tokens.
+  attack: Use an old reset link from a mailbox, browser history or log to set a new password.
+  blast: Any account with an unused reset link anywhere.
+  fix: Store when the token was issued, reject tokens older than about one hour, and clear the token after one use or when a new one is issued.
+  verify: Age a reset token past the window in a test and confirm the reset is refused.
+AUTH-RESET-TRUSTS-EMAIL:
+  title: Password reset updates the account named by an email field
+  effort_minutes: 20
+  detail: The reset flow behind ${route} validates a token but looks up or updates the account by the email in the request (first location), so a token for one account can set the password of another.
+  proof_needed: Send a valid token for account A with the email of account B against a local stack and check which password changes.
+  attack: Request a reset for your own account, then submit your token with the victim's email address.
+  blast: Every account whose email address is known.
+  fix: Load the account from the token alone and ignore any email or user id in the reset request.
+  verify: Submit a valid token for account A together with account B's email and confirm only A can change.
+AUTH-VERIFY-REUSABLE:
+  title: Email verification tokens stay valid after use
+  effort_minutes: 15
+  detail: The verification flow behind ${route} never clears, deletes or marks the token as used.
+  proof_needed: Verify an account, replay the same link, and check whether it is accepted again.
+  attack: Replay a verification link from a mailbox or proxy log at any time.
+  blast: Accounts whose verification state can be replayed.
+  fix: Clear the token or record a used-at time in the same update that marks the email verified.
+  verify: Replay a used verification link and confirm it is refused.
