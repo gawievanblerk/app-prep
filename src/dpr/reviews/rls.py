@@ -7,6 +7,7 @@ from collections.abc import Iterator
 
 from dpr.model import Finding, Location, Part, ReviewSection, Tag
 from dpr.parsing import jsts
+from dpr.parsing.pymigrations import migration_folders
 from dpr.parsing.sqlschema import TableDef
 from dpr.reviews import rls_policies  # noqa: F401  (registers the rls_policies rules)
 from dpr.reviews.rls_common import (
@@ -196,9 +197,11 @@ def _status_row(ctx: Context, table: TableDef) -> tuple[str, ...]:
 
 def run(ctx: Context) -> ReviewSection | None:
     state = state_for(ctx)
-    if not state.tables and not client_facing(ctx):
+    server_layer = bool(ctx.detection.models or migration_folders(ctx.index))
+    if not state.tables and not client_facing(ctx) and not server_layer:
         ctx.not_covered.append(
-            "Review 2 (rls): not applicable, no SQL tables, Supabase client or database dump found"
+            "Review 2 (rls): not applicable, no SQL tables, ORM models, migrations, Supabase "
+            "client or database dump found"
         )
         return None
     if not client_facing(ctx):

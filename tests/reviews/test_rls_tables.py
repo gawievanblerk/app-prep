@@ -78,7 +78,8 @@ def test_not_applicable(tmp_path):
     ctx = rules.Context(index=index, detection=detect(index))
     assert reviews.available()["rls"].run(ctx) is None
     assert ctx.not_covered == [
-        "Review 2 (rls): not applicable, no SQL tables, Supabase client or database dump found"
+        "Review 2 (rls): not applicable, no SQL tables, ORM models, migrations, Supabase "
+        "client or database dump found"
     ]
 
 

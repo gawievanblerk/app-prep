@@ -80,9 +80,9 @@ def test_not_applicable_reason(tmp_path):
     write(tmp_path, "a.py", "x = 1\n")
     report = review(tmp_path, reviews=[2])
     assert report.sections == {}
-    assert (
-        dict(report.meta.applicability)["rls"]
-        == "not applicable, no SQL tables, Supabase client or database dump found"
+    assert dict(report.meta.applicability)["rls"] == (
+        "not applicable, no SQL tables, ORM models, migrations, Supabase client or database "
+        "dump found"
     )
 
 

@@ -18,6 +18,7 @@ from dpr.parsing.sql import (
     split_sql,
     split_top_level,
 )
+from dpr.parsing.sqlgrants import Grant, parse_grant
 from dpr.walk import RepoIndex
 
 MIGRATION_GLOBS = ("*migrations/*.sql", "*db/*.sql", "schema.sql", "*/schema.sql")
@@ -183,6 +184,7 @@ class SchemaState:
     functions: dict[str, Function] = field(default_factory=dict)
     buckets: dict[str, Bucket] = field(default_factory=dict)
     sources: list[str] = field(default_factory=list)
+    grants: list[Grant] = field(default_factory=list)
 
     def policies_for(self, table_key: str) -> list[Policy]:
         found = [p for (t, _), p in self.policies.items() if t == table_key]
@@ -207,6 +209,7 @@ class SchemaState:
             self._create_function,
             self._insert_bucket,
             self._drop_object,
+            self._grant,
         ):
             if handler(s, loc):
                 return
@@ -390,6 +393,12 @@ class SchemaState:
         else:
             self.functions.pop(key, None)
         return True
+
+    def _grant(self, s: str, loc: Location) -> bool:
+        grant = parse_grant(s, loc)
+        if grant is not None:
+            self.grants.append(grant)
+        return grant is not None
 
 
 def _invoker(options: str) -> bool:
