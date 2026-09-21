@@ -44,36 +44,63 @@ def _js_package(spec: str) -> str:
     return "/".join(parts[:2]) if spec.startswith("@") else parts[0]
 
 
-def _manifest_packages(index: RepoIndex) -> set[str]:
+def _package_json_names(data: dict) -> set[str]:
     names: set[str] = set()
+    for key in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
+        names.update(data.get(key) or {})
+    return names
+
+
+def _pyproject_names(data: dict) -> set[str]:
+    project = data.get("project", {})
+    specs = list(project.get("dependencies", []))
+    for group in project.get("optional-dependencies", {}).values():
+        specs += group
+    for group in data.get("dependency-groups", {}).values():
+        specs += [item for item in group if isinstance(item, str)]
+    specs += list(data.get("tool", {}).get("poetry", {}).get("dependencies", {}))
+    return {_requirement_name(spec) for spec in specs}
+
+
+def _requirements_names(text: str) -> set[str]:
+    names: set[str] = set()
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if line and not line.startswith("-"):
+            names.add(_requirement_name(line))
+    return names
+
+
+def manifest_packages_by_file(index: RepoIndex) -> dict[str, set[str]]:
+    """Package names declared in each manifest file, keyed by the manifest's own path.
+
+    Covers the same manifests as `_manifest_packages` (package.json, pyproject.toml,
+    requirements*.txt) but keeps each manifest's names separate, so a caller can scope a
+    package to the app root the manifest sits in."""
+    found: dict[str, set[str]] = {}
     for entry in index.named("package.json"):
         try:
             data = json.loads(index.text(entry.rel))
         except ValueError:
             continue
-        if not isinstance(data, dict):
-            continue
-        for key in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
-            names.update(data.get(key) or {})
+        if isinstance(data, dict):
+            found[entry.rel] = {normalise(n) for n in _package_json_names(data) if n}
     for entry in index.named("pyproject.toml"):
         try:
             data = tomllib.loads(index.text(entry.rel))
         except tomllib.TOMLDecodeError:
             continue
-        project = data.get("project", {})
-        specs = list(project.get("dependencies", []))
-        for group in project.get("optional-dependencies", {}).values():
-            specs += group
-        for group in data.get("dependency-groups", {}).values():
-            specs += [item for item in group if isinstance(item, str)]
-        specs += list(data.get("tool", {}).get("poetry", {}).get("dependencies", {}))
-        names.update(_requirement_name(spec) for spec in specs)
+        found[entry.rel] = {normalise(n) for n in _pyproject_names(data) if n}
     for entry in index.named("requirements*.txt"):
-        for raw in index.text(entry.rel).splitlines():
-            line = raw.split("#", 1)[0].strip()
-            if line and not line.startswith("-"):
-                names.add(_requirement_name(line))
-    return {normalise(n) for n in names if n}
+        found[entry.rel] = {normalise(n) for n in _requirements_names(index.text(entry.rel)) if n}
+    return found
+
+
+def _manifest_packages(index: RepoIndex) -> set[str]:
+    names: set[str] = set()
+    for packages in manifest_packages_by_file(index).values():
+        names.update(packages)
+    return names
 
 
 def collect_packages(index: RepoIndex) -> tuple[set[str], dict[str, list[Location]]]:

@@ -7,10 +7,12 @@ import re
 from collections.abc import Iterator
 
 from dpr.discovery.approots import root_of
+from dpr.discovery.packages import manifest_packages_by_file
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
 from dpr.reviews.auth_flows import Code, Flow, flows_of, managed_provider, record_pass, user_models
+from dpr.reviews.deploy_env import applies
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 
@@ -221,9 +223,27 @@ def signup_no_ui(ctx: Context) -> Iterator[Finding]:
         )
 
 
+def _mfa_package_declared(ctx: Context, rel: str) -> bool:
+    """True when a manifest that applies to `rel`'s app root declares an MFA package.
+
+    A manifest applies when it sits inside the same app root as `rel`, or is shared (its own
+    root is unset, the repository root, or a library root); see `deploy_env.applies`."""
+    key = ("manifest-packages-by-file", "")
+    if key not in ctx.index.cache:
+        ctx.index.cache[key] = manifest_packages_by_file(ctx.index)
+    by_file = ctx.index.cache[key]
+    return any(
+        MFA_PACKAGES & packages
+        for manifest_rel, packages in by_file.items()
+        if applies(ctx, manifest_rel, rel)
+    )
+
+
 @rule("AUTH-NO-MFA", review="auth", severity="low", exploitability="low", owasp="A07")
 def no_mfa(ctx: Context) -> Iterator[Finding]:
-    if managed_provider(ctx) or MFA_PACKAGES & ctx.detection.packages:
+    # managed_provider reads repository-wide signals (dpr.discovery.detect); scoping it to one
+    # app root would need per-root provider detection, which is a larger change than this fix.
+    if managed_provider(ctx):
         return
     by_root: dict[str, list[Flow]] = {}
     for flow in flows_of(ctx, "login"):
@@ -231,6 +251,15 @@ def no_mfa(ctx: Context) -> Iterator[Finding]:
         by_root.setdefault(home.path if home else "", []).append(flow)
     model_fields = [f.name for m in user_models(ctx) for f in m.fields]
     for root, login_flows in sorted(by_root.items()):
+        if _mfa_package_declared(ctx, login_flows[0].route.file):
+            record_pass(
+                ctx,
+                "mfa",
+                Tag.INFERRED,
+                "A manifest for this app declares an MFA package",
+                login_flows[0].location,
+            )
+            continue
         names = [n for flow in login_flows for code in flow.code for n in _identifiers(code)]
         if any(MFA_WORDS.search(n) for n in [*names, *model_fields]):
             record_pass(

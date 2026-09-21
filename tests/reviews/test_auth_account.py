@@ -118,3 +118,34 @@ def test_no_second_factor_per_app_and_mfa_signals(tmp_path):
     assert (finding.tag.value, finding.title) == ("INFERRED", "No second factor for sign-in in api")
     write(tmp_path, "api/requirements.txt", "fastapi\npython-jose\npasslib\npyotp\n")
     assert findings_for(tmp_path, "auth", "AUTH-NO-MFA") == []
+
+
+LOGIN_ROUTE = (
+    "from fastapi import APIRouter, HTTPException\n\n"
+    "router = APIRouter(prefix='/auth')\n\n\n"
+    "@router.post('/login')\n"
+    "async def login(data: dict):\n"
+    "    if not await check_credentials(data):\n"
+    "        raise HTTPException(status_code=401, detail='Invalid email or password')\n"
+    "    return {'ok': True}\n"
+)
+
+
+def two_root_app(root):
+    write(root, "admin/requirements.txt", "fastapi\n")
+    write(root, "admin/app/routes/auth.py", LOGIN_ROUTE)
+    write(root, "api/requirements.txt", "fastapi\n")
+    write(root, "api/app/routes/auth.py", LOGIN_ROUTE)
+
+
+def test_mfa_package_in_one_root_does_not_guard_another_root(tmp_path):
+    two_root_app(tmp_path)
+    write(tmp_path, "admin/requirements.txt", "fastapi\npyotp\n")
+    findings = findings_for(tmp_path, "auth", "AUTH-NO-MFA")
+    assert {f.title for f in findings} == {"No second factor for sign-in in api"}
+
+
+def test_shared_manifest_guards_every_root(tmp_path):
+    two_root_app(tmp_path)
+    write(tmp_path, "requirements.txt", "pyotp\n")
+    assert findings_for(tmp_path, "auth", "AUTH-NO-MFA") == []
