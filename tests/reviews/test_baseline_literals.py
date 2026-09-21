@@ -119,3 +119,48 @@ def test_neither_literal_nor_digest_reaches_output(tmp_path):
     assert FIRST not in outputs and SECOND not in outputs
     assert hashlib.sha256(FIRST.encode("utf-8")).hexdigest() not in outputs
     assert hashlib.sha256(SECOND.encode("utf-8")).hexdigest() not in outputs
+
+
+def _api_server(root):
+    write(root, "api/requirements.txt", "fastapi\n")
+    write(
+        root,
+        "api/app/main.py",
+        "from fastapi import FastAPI\napp = FastAPI()\n\n\n@app.get('/x')\ndef x():\n    return 'ok'\n",
+    )
+
+
+def _worker_server(root):
+    write(root, "worker/requirements.txt", "flask\n")
+    write(
+        root,
+        "worker/app.py",
+        "from flask import Flask\napp = Flask(__name__)\n\n\n@app.route('/x')\ndef x():\n"
+        "    return 'ok'\n",
+    )
+
+
+def test_deploy_file_in_a_different_app_root_does_not_mark_a_seed_script_referenced(tmp_path):
+    _api_server(tmp_path)
+    hashing(tmp_path, "api/scripts/seed_data.py", ADMIN)
+    _worker_server(tmp_path)
+    write(
+        tmp_path,
+        "worker/infra/main.tf",
+        'resource "x" "y" {\n  command = "python scripts/seed_data.py"\n}\n',
+    )
+    [finding] = found(tmp_path).values()
+    assert (finding.tag.value, finding.severity.value) == ("CONFIRMED", "low")
+
+
+def test_repository_level_deploy_file_still_marks_a_seed_script_referenced(tmp_path):
+    _api_server(tmp_path)
+    hashing(tmp_path, "api/scripts/seed_data.py", ADMIN)
+    _worker_server(tmp_path)
+    write(
+        tmp_path,
+        "infra/main.tf",
+        'resource "x" "y" {\n  command = "python scripts/seed_data.py"\n}\n',
+    )
+    [finding] = found(tmp_path).values()
+    assert finding.severity.value == "critical"
