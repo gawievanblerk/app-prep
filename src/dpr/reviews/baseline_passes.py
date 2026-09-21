@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import re
 
+from dpr.discovery.approots import root_of
 from dpr.model import Finding, Location
 from dpr.parsing import pyast
 from dpr.reviews.paths import is_test
@@ -19,7 +20,36 @@ SECRET_SETTING = re.compile(r"(?i)^(?:jwt_)?secret(?:_key)?$|^jwt_secret\w*$")
 DB_TLS = re.compile(
     r"sslmode=(?:require|verify-full|verify-ca)|ssl=(?:require|true)", re.IGNORECASE
 )
+BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+LINE_COMMENT_PREFIXES = {
+    ".py": ("#",),
+    ".toml": ("#",),
+    ".yaml": ("#", "//"),
+    ".yml": ("#", "//"),
+    ".tf": ("#", "//"),
+    ".ts": ("//",),
+    ".js": ("//",),
+}
+LITERAL_CONTEXT = re.compile(r"[:=]\s*$")
 MARKUP = (".html", ".htm")
+
+
+def _is_comment_line(line: str, suffix: str) -> bool:
+    stripped = line.lstrip()
+    return any(stripped.startswith(prefix) for prefix in LINE_COMMENT_PREFIXES.get(suffix, ()))
+
+
+def _is_assigned_literal(line: str, start: int, end: int) -> bool:
+    """Whether line[start:end] is inside a quoted literal assigned or keyed on this line.
+
+    Rejects a string used in a comparison or membership test (`"sslmode=require" in url`),
+    which reads a parameter rather than setting one.
+    """
+    before, after = line[:start], line[end:]
+    quote_at = max(before.rfind('"'), before.rfind("'"))
+    if quote_at == -1 or after.find(before[quote_at]) == -1:
+        return False
+    return bool(LITERAL_CONTEXT.search(before[:quote_at]))
 
 
 def _guarded(cls: ast.ClassDef, name: str) -> int | None:
@@ -64,20 +94,25 @@ def _settings_passes(ctx: Context) -> list[str]:
 
 
 def _hashing(ctx: Context) -> list[str]:
+    found: dict[object, str] = {}
     for entry in [*ctx.index.py_files, *ctx.index.js_files]:
         if is_test(entry.rel):
+            continue
+        home = root_of(ctx.detection.app_roots, entry.rel)
+        if home in found:
             continue
         text = ctx.index.text(entry.rel)
         setup = (
             PY_HASH_SETUP.search(text) if entry.rel.endswith(".py") else JS_HASH_SETUP.search(text)
         )
-        if setup:
-            window = text[setup.start() : setup.start() + 200]
-            strong = STRONG_HASHERS.search(window)
-            if strong:
-                line = line_of(text, setup.start())
-                return [f"Password hashing uses {strong.group(1).lower()} (`{entry.rel}:{line}`)"]
-    return []
+        if not setup:
+            continue
+        window = text[setup.start() : setup.start() + 200]
+        strong = STRONG_HASHERS.search(window)
+        if strong:
+            line = line_of(text, setup.start())
+            found[home] = f"Password hashing uses {strong.group(1).lower()} (`{entry.rel}:{line}`)"
+    return list(found.values())
 
 
 def _database_tls(ctx: Context) -> list[str]:
@@ -88,9 +123,21 @@ def _database_tls(ctx: Context) -> list[str]:
         if is_test(entry.rel):
             continue
         text = ctx.index.text(entry.rel)
-        match = DB_TLS.search(text)
-        if match and "://" in text:
+        if entry.suffix in (".js", ".ts"):
+            text = BLOCK_COMMENT.sub("", text)
+        for match in DB_TLS.finditer(text):
+            line_start = text.rfind("\n", 0, match.start()) + 1
+            line_end = text.find("\n", match.end())
+            line_end = len(text) if line_end == -1 else line_end
+            line_text = text[line_start:line_end]
+            if _is_comment_line(line_text, entry.suffix):
+                continue
+            if not _is_assigned_literal(
+                line_text, match.start() - line_start, match.end() - line_start
+            ):
+                continue
             locations.append(Location(entry.rel, line_of(text, match.start())))
+            break
     if not locations:
         return []
     return [

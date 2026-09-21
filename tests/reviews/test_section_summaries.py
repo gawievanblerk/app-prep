@@ -83,3 +83,51 @@ def test_leak_hunt_places(tmp_path):
         found["Place 3: logs"].body
         == "No log call writes a request, user, token or personal value."
     )
+
+
+DB_TLS_COMMENT_AND_ENV_CHECK = (
+    "class DatabaseSettings(BaseSettings):\n"
+    "    database_url: str = 'postgresql://'\n\n"
+    "    def connect_args(self):\n"
+    "        # Convert ssl=require to asyncpg-compatible format\n"
+    "        if 'sslmode=require' in self.database_url:\n"
+    "            return {'ssl': True}\n"
+    "        return {}\n"
+)
+
+
+def test_database_tls_pass_ignores_comment_and_env_check(tmp_path):
+    write(tmp_path, "api/app/config.py", DB_TLS_COMMENT_AND_ENV_CHECK)
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert "Database connections require TLS" not in body
+
+
+def test_database_tls_pass_from_real_default(tmp_path):
+    write(
+        tmp_path,
+        "api/app/config.py",
+        'DATABASE_URL = "postgresql://u@h/db?sslmode=require"\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert (
+        "- Database connections require TLS (`api/app/config.py:1`). CONFIRMED" in body.splitlines()
+    )
+
+
+def test_hashing_pass_lists_evidence_per_app_root(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\npasslib\n")
+    write(
+        tmp_path,
+        "api/app/security.py",
+        "from passlib.context import CryptContext\npwd = CryptContext(schemes=['bcrypt'])\n",
+    )
+    write(tmp_path, "worker/requirements.txt", "passlib\n")
+    write(
+        tmp_path,
+        "worker/app/security.py",
+        "from passlib.context import CryptContext\npwd = CryptContext(schemes=['bcrypt'])\n",
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    lines = body.splitlines()
+    assert "- Password hashing uses bcrypt (`api/app/security.py:2`). CONFIRMED" in lines
+    assert "- Password hashing uses bcrypt (`worker/app/security.py:2`). CONFIRMED" in lines
