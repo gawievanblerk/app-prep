@@ -11,7 +11,7 @@ from functools import cache
 from dpr.data import load
 
 JWT = re.compile(r"eyJ[0-9A-Za-z_-]{8,}\.(eyJ[0-9A-Za-z_-]{8,})\.[0-9A-Za-z_-]{8,}")
-URL_CREDS = re.compile(r"((?<=[a-zA-Z0-9+.-])://[^\s/:@'\"]*:)([^\s/@'\"]+)(@)")
+URL_CREDS = re.compile(r"((?<=[a-zA-Z0-9+.-])://[^\s/:@'\"]*:)([^\s/'\"]+)(@)")
 CLI_PASSWORD = re.compile(
     r"--[\w-]{0,40}?pass(?:word|wd)?[ =](?![<$*{\[])([^\s\\'\"]+)", re.IGNORECASE
 )
@@ -75,7 +75,14 @@ def public_prefix(name: str) -> str | None:
 
 
 def is_secret_name(name: str) -> bool:
-    return any(word in name for word in secret_config()["secret_name_words"])
+    """A secret word matches whole underscore-separated tokens: PASSWORD, not PASSWORDLESS."""
+    tokens = name.upper().split("_")
+    for word in secret_config()["secret_name_words"]:
+        parts = word.split("_")
+        size = len(parts)
+        if any(tokens[i : i + size] == parts for i in range(len(tokens) - size + 1)):
+            return True
+    return False
 
 
 def _jwt_role(payload: str) -> str | None:

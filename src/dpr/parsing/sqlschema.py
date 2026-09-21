@@ -21,7 +21,27 @@ from dpr.parsing.sql import (
 from dpr.parsing.sqlgrants import Grant, parse_grant
 from dpr.walk import RepoIndex
 
-MIGRATION_GLOBS = ("*migrations/*.sql", "*db/*.sql", "schema.sql", "*/schema.sql")
+MIGRATION_GLOBS = (
+    "*migrations/*.sql",
+    "*db/*.sql",
+    "schema.sql",
+    "*/schema.sql",
+    "*drizzle/*.sql",
+)
+DOWN_MARKER = re.compile(
+    r"^--\s*(?:migrate:down|\+goose\s+down)\b.*$", re.IGNORECASE | re.MULTILINE
+)
+
+
+def up_section(text: str) -> str:
+    """The part of a dbmate or goose migration that runs on up; blanked lines keep numbering."""
+    down = DOWN_MARKER.search(text)
+    if down is None:
+        return text
+    kept = text[: down.start()]
+    return kept + "\n" * text[down.start() :].count("\n")
+
+
 TRUE_WORDS = ("true", "t", "1", "yes", "on")
 
 
@@ -410,7 +430,7 @@ def load_schema(index: RepoIndex) -> SchemaState:
     state = SchemaState()
     for rel in sorted({f.rel for f in index.glob(*MIGRATION_GLOBS)}):
         state.sources.append(rel)
-        for stmt in split_sql(index.text(rel)):
+        for stmt in split_sql(up_section(index.text(rel))):
             state.apply(stmt, rel)
     return state
 

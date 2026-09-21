@@ -67,7 +67,7 @@ def _only_public_names(names: list[str]) -> bool:
 
 @rule("LEAK-ENV-TRACKED", review="leaks", severity="critical", exploitability="high")
 def env_tracked(ctx: Context) -> Iterator[Finding]:
-    tracked = tracked_files(ctx.index.root)
+    tracked = tracked_files(ctx.index.root, notes=ctx.not_covered)
     if tracked is None:
         ctx.not_covered.append("git checks skipped: not a git repository or git is unavailable")
         return
@@ -104,6 +104,7 @@ def env_in_history(ctx: Context) -> Iterator[Finding]:
         "--",
         ":(glob)**/.env",
         ":(glob)**/.env.*",
+        notes=ctx.not_covered,
     )
     if output is None:
         return
@@ -137,9 +138,11 @@ def _snake(name: str) -> str:
 
 def _severity(ctx: Context, name: str | None) -> str:
     model = find_model(ctx.detection.models, name) if name else None
-    words = load("pii_terms.yaml")["sensitive_columns"]
-    if model and any(word in _snake(f.name) for f in model.fields for word in words):
-        return "high"
+    words = [w.split("_") for w in load("pii_terms.yaml")["sensitive_columns"]]
+    for field in model.fields if model else []:
+        tokens = _snake(field.name).split("_")
+        if any(tokens[i : i + len(w)] == w for w in words for i in range(len(tokens))):
+            return "high"
     return "medium"
 
 
