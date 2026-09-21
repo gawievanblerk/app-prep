@@ -13,6 +13,14 @@ DOCUMENTS = re.compile(
     r"(?i)\.(?:pdf|xlsx|xlsm|xls|docx|doc|pptx|png|jpe?g|sqlite3?|db|bak|bacpac|dump)$"
 )
 BREACHED = "Screening new passwords against breached-password lists is not checked"
+HOSTNAMES = (
+    "Infrastructure hostnames and internal endpoints named in committed example env files and "
+    "documentation are not reported"
+)
+OFF_REPO = (
+    "Copies of personal data kept outside the repository, such as database restores or exports "
+    "on developer machines, cannot be seen from the code"
+)
 
 
 def coverage_notes(root, detection: Detection, options: Options, sections: set[str]) -> list[str]:
@@ -34,4 +42,8 @@ def coverage_notes(root, detection: Detection, options: Options, sections: set[s
         )
     if "auth" in sections:
         notes.append(BREACHED)
+    if "leaks" in sections:
+        notes.append(HOSTNAMES)
+    if "inventory" in sections:
+        notes.append(OFF_REPO)
     return notes
