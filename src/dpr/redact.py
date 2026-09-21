@@ -74,15 +74,19 @@ def public_prefix(name: str) -> str | None:
     return None
 
 
+def has_token_phrase(name: str, phrase: str) -> bool:
+    """True when `phrase`'s underscore-separated tokens appear contiguously in `name`'s tokens,
+    case-insensitively: PASSWORD matches PASSWORD but not PASSWORDLESS. Never raises on a
+    one-token or empty name."""
+    tokens = name.upper().split("_")
+    parts = phrase.upper().split("_")
+    size = len(parts)
+    return any(tokens[i : i + size] == parts for i in range(len(tokens) - size + 1))
+
+
 def is_secret_name(name: str) -> bool:
     """A secret word matches whole underscore-separated tokens: PASSWORD, not PASSWORDLESS."""
-    tokens = name.upper().split("_")
-    for word in secret_config()["secret_name_words"]:
-        parts = word.split("_")
-        size = len(parts)
-        if any(tokens[i : i + size] == parts for i in range(len(tokens) - size + 1)):
-            return True
-    return False
+    return any(has_token_phrase(name, word) for word in secret_config()["secret_name_words"])
 
 
 def _jwt_role(payload: str) -> str | None:

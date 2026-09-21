@@ -1,8 +1,10 @@
 import subprocess
 
-from dpr import gitutil
+from dpr import gitutil, rules
+from dpr.discovery.detect import detect
 from dpr.parsing.sqlschema import load_schema
-from dpr.redact import is_secret_name, redact
+from dpr.redact import has_token_phrase, is_secret_name, redact
+from dpr.reviews.leaks_code import env_in_history
 from dpr.walk import RepoIndex
 from tests.reviews.helpers import findings_for, write
 
@@ -84,3 +86,33 @@ def test_down_sections_are_not_applied(tmp_path):
 def test_drizzle_output_folder_is_a_migration_source(tmp_path):
     write(tmp_path, "drizzle/0000_init.sql", 'CREATE TABLE "accounts" ("id" serial PRIMARY KEY);\n')
     assert "public.accounts" in load_schema(RepoIndex(tmp_path)).tables
+
+
+def test_env_in_history_skips_when_ls_files_times_out(tmp_path, monkeypatch):
+    write(tmp_path, "app/page.tsx", "export default function P() { return null }\n")
+
+    def fake_run(command, **kwargs):
+        if "ls-files" in command:
+            raise subprocess.TimeoutExpired(cmd="git", timeout=30)
+        if "log" in command:
+            return subprocess.CompletedProcess(
+                command, 0, stdout="commit abc1234\n.env\n", stderr=""
+            )
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(gitutil.subprocess, "run", fake_run)
+
+    index = RepoIndex(tmp_path)
+    ctx = rules.Context(index=index, detection=detect(index))
+    findings = list(env_in_history(ctx))
+    assert findings == []
+    assert any("ls-files timed out" in note for note in ctx.not_covered)
+
+
+def test_has_token_phrase_matches_whole_token_sequences():
+    assert not has_token_phrase("NEXT_PUBLIC_ADMIN_EMAIL", "ADMIN_KEY")
+    assert has_token_phrase("STRIPE_SECRET_KEY", "SECRET")
+    assert has_token_phrase("stripe_customer_id", "stripe_customer_id")
+    assert not has_token_phrase("stripe_customer_id", "customer_email")
+    assert not has_token_phrase("TOKEN", "ADMIN_KEY")
+    assert not has_token_phrase("", "SECRET")

@@ -13,7 +13,7 @@ from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
 from dpr.parsing.routes_js import response_calls
 from dpr.parsing.schemas import find_model
-from dpr.redact import is_secret_name, public_prefix, snippet
+from dpr.redact import has_token_phrase, is_secret_name, public_prefix, snippet
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import SourceFile
 
@@ -109,7 +109,10 @@ def env_in_history(ctx: Context) -> Iterator[Finding]:
     if output is None:
         return
     prefix = (run_git(root, "rev-parse", "--show-prefix") or "").strip()
-    tracked = set(tracked_files(root) or [])
+    tracked_names = tracked_files(root, notes=ctx.not_covered)
+    if tracked_names is None:
+        return
+    tracked = set(tracked_names)
     first_seen: dict[str, str] = {}
     commit = ""
     for line in output.splitlines():
@@ -138,10 +141,9 @@ def _snake(name: str) -> str:
 
 def _severity(ctx: Context, name: str | None) -> str:
     model = find_model(ctx.detection.models, name) if name else None
-    words = [w.split("_") for w in load("pii_terms.yaml")["sensitive_columns"]]
+    words = load("pii_terms.yaml")["sensitive_columns"]
     for field in model.fields if model else []:
-        tokens = _snake(field.name).split("_")
-        if any(tokens[i : i + len(w)] == w for w in words for i in range(len(tokens))):
+        if any(has_token_phrase(_snake(field.name), word) for word in words):
             return "high"
     return "medium"
 
