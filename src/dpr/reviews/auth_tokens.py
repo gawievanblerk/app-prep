@@ -21,7 +21,7 @@ HASHED = {"hash", "hashed", "digest", "sha256"}
 HASHED_WORDS = "|".join(sorted((re.escape(w) for w in HASHED), key=len, reverse=True))
 HASH_CALL = re.compile(r"(?i)hash|digest|sha\d+|hmac")
 HASHED_LOOKUP = re.compile(
-    rf"(?i)token\w*_?(?:{HASHED_WORDS})\w*\s*==|token_?(?:{HASHED_WORDS})\w*\s*:"
+    rf"(?i)token\w*_?(?:{HASHED_WORDS})\d*\b\s*==|token_?(?:{HASHED_WORDS})\d*\b\s*:"
 )
 EXPIRY_WORDS = re.compile(
     r"(?i)expir|sent_at|sentAt|created_at|createdAt|issued_at|max_age|lifetime|ttl"

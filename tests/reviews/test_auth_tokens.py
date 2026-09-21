@@ -1,5 +1,5 @@
 from dpr.api import review
-from dpr.reviews.auth_tokens import token_column
+from dpr.reviews.auth_tokens import HASHED_LOOKUP, token_column
 from tests.reviews.helpers import findings_for, write
 
 ROUTES = (
@@ -139,3 +139,43 @@ def test_digest_and_sha256_reset_columns_give_case_7_a_pass(tmp_path):
         ].body
         assert "#### CASE 7: Reset token that belongs to someone else (PASSES)" in body, column
         assert "api/app/service.py:3" in body, column
+
+
+def test_hashed_lookup_requires_the_hashed_word_to_end_the_identifier():
+    real = (
+        "reset_token_hash ==",
+        "token_hash:",
+        "reset_token_digest ==",
+        "reset_token_sha256 ==",
+        "password_reset_token_hashed ==",
+    )
+    for text in real:
+        assert HASHED_LOOKUP.search(text), text
+    flags = (
+        "if user.token_sha256_enabled == True:",
+        "if flags.token_digest_email == pref:",
+        "token_sha256_verified: bool",
+        "token_digest_enabled: true,",
+    )
+    for text in flags:
+        assert not HASHED_LOOKUP.search(text), text
+
+
+def test_hashed_flag_columns_do_not_give_case_7_a_false_pass(tmp_path):
+    service = (
+        "class Accounts:\n"
+        "    async def reset(self, data):\n"
+        "        user = (await self.db.execute(select(User).where(User.email == data.email))).scalar_one()\n"
+        "        if user.token_sha256_enabled == True:\n"
+        "            pass\n"
+        "        user.password_hash = hash_password(data.new_password)\n\n"
+        "    async def verify(self, token):\n"
+        "        user = await User.objects.aget(email_verification_token=token)\n"
+        "        user.verified = True\n"
+    )
+    app(tmp_path, service)
+    assert findings_for(tmp_path, "auth", "AUTH-RESET-TRUSTS-EMAIL") == []
+    body = {p.title: p for p in review(tmp_path, reviews=["auth"]).sections["auth"].parts}[
+        "Cases"
+    ].body
+    assert "#### CASE 7: Reset token that belongs to someone else (PASSES)" not in body
