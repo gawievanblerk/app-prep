@@ -1,3 +1,5 @@
+import time
+
 from dpr.model import Location
 from dpr.parsing.sql import split_sql
 from dpr.parsing.sqlgrants import parse_grant
@@ -45,3 +47,24 @@ def test_schema_state_collects_grants_in_order():
         ("grant", ("public.t",), 2),
         ("revoke", ("public.t",), 3),
     ]
+
+
+def test_malformed_grants_with_no_to_or_from_return_none_quickly():
+    start = time.perf_counter()
+    result = grant("grant " + ("select on " * 5000) + "x;")
+    assert time.perf_counter() - start < 0.5
+    assert result is None
+
+    start = time.perf_counter()
+    result = grant("grant " + ("a on " * 20000) + ";")
+    assert time.perf_counter() - start < 0.5
+    assert result is None
+
+
+def test_grant_with_many_objects_still_parses():
+    names = ", ".join(f"t{i}" for i in range(2000))
+    g = grant(f"grant select on {names} to anon;")
+    assert g is not None
+    assert len(g.objects) == 2000
+    assert g.objects[0] == "public.t0" and g.objects[-1] == "public.t1999"
+    assert g.roles == ("anon",)
