@@ -83,6 +83,51 @@ def test_no_deletion_path_groups_models_per_app(tmp_path):
     assert "Lead, Note only set a soft delete flag" in finding.detail
 
 
+def test_deletion_evidence_does_not_cross_app_roots(tmp_path):
+    write(tmp_path, "root_a/requirements.txt", "fastapi\n")
+    write(
+        tmp_path,
+        "root_a/app/models.py",
+        "class User(Base):\n    __tablename__ = 'users'\n    email = Column(String)\n",
+    )
+    write(tmp_path, "root_b/requirements.txt", "fastapi\n")
+    write(
+        tmp_path,
+        "root_b/app/models.py",
+        "class User(Base):\n    __tablename__ = 'users'\n    email = Column(String)\n",
+    )
+    write(
+        tmp_path,
+        "root_b/app/services.py",
+        "class UserService:\n"
+        "    async def delete_user(self, user_id):\n"
+        "        user = await self.db.get(User, user_id)\n"
+        "        await self.db.delete(user)\n",
+    )
+    titles = {f.title for f in findings_for(tmp_path, "inventory", "INV-NO-DELETION-PATH")}
+    assert "Personal data in root_a has no deletion path" in titles
+    assert "Personal data in root_b has no deletion path" not in titles
+
+
+def test_no_deletion_path_puts_person_models_before_the_location_cap(tmp_path):
+    notes = "".join(
+        f"class Note{i}(Base):\n    __tablename__ = 'notes{i}'\n"
+        "    user_id = Column(String)\n    ip = Column(String)\n\n"
+        for i in range(1, 11)
+    )
+    write(tmp_path, "requirements.txt", "fastapi\n")
+    write(tmp_path, "app/notes.py", notes)
+    write(
+        tmp_path,
+        "app/user.py",
+        "class User(Base):\n    __tablename__ = 'users'\n    email = Column(String)\n",
+    )
+    [finding] = findings_for(tmp_path, "inventory", "INV-NO-DELETION-PATH")
+    assert len(finding.locations) == 10
+    assert str(finding.locations[0]) == "app/user.py:1"
+    assert "User" in finding.detail
+
+
 def test_readers_from_route_access(tmp_path):
     ctx = context(app(tmp_path))
     client = next(m for m in ctx.detection.models if m.name == "Client")

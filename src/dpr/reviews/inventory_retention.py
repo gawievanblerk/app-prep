@@ -11,7 +11,7 @@ from dpr.model import DataModel, Finding, Location, Tag
 from dpr.parsing import hcl, jsts, pyast
 from dpr.reviews.access import access
 from dpr.reviews.paths import is_test
-from dpr.reviews.personal import personal_fields
+from dpr.reviews.personal import is_person_model, personal_fields
 from dpr.rules import Context, make_finding, rule
 
 DELETE_CALL = re.compile(
@@ -109,15 +109,26 @@ def _mentions(text: str, model: DataModel) -> bool:
     return bool(re.search(rf"\b{re.escape(model.name)}\b|\b{re.escape(table)}\b", text))
 
 
+def _root_path(ctx: Context, rel: str) -> str | None:
+    home = root_of(ctx.detection.app_roots, rel)
+    return home.path if home else None
+
+
 def deletion_paths(ctx: Context) -> dict[str, list[Location]]:
-    """Model key to lines that hard-delete its rows."""
+    """Model key to lines that hard-delete its rows. Evidence never crosses app roots: a delete
+    call only counts for a model that shares its app root."""
     if "deletion_paths" not in ctx.facts:
         paths: dict[str, list[Location]] = {}
         models = ctx.detection.models
+        by_key = {_key(m): m for m in models}
         for rel, fn, tree, text in _functions(ctx):
             if not re.search(r"(?i)delete|destroy|remove|purge", text):
                 continue
+            call_root = _root_path(ctx, rel)
             for key, line in _deleted_models(fn, tree, models).items():
+                model = by_key.get(key)
+                if model is None or _root_path(ctx, model.location.file) != call_root:
+                    continue
                 paths.setdefault(key, []).append(Location(rel, line))
         ctx.facts["deletion_paths"] = paths
     return ctx.facts["deletion_paths"]
@@ -164,10 +175,14 @@ def iac_retention(ctx: Context) -> list[tuple[str, str, Location]]:
 
 
 def readers(ctx: Context, model: DataModel) -> str:
-    """Route access levels and auth dependencies of routes whose handler names the model."""
+    """Route access levels and auth dependencies of routes whose handler names the model, scoped
+    to routes in the same app root as the model."""
     levels: dict[str, set[str]] = {}
+    model_root = _root_path(ctx, model.location.file)
     for route in ctx.detection.routes:
         if route.method not in ("GET", "ANY") or route.handler is None or is_test(route.file):
+            continue
+        if _root_path(ctx, route.file) != model_root:
             continue
         handler_text = (
             ast.unparse(route.handler)
@@ -205,8 +220,11 @@ def no_deletion_path(ctx: Context) -> Iterator[Finding]:
         for f in ctx.index.named("vercel.json", "*.yml", "*.yaml", "celery*.py", "scheduler*.py")
     )
     for root, models in by_root.items():
-        soft = [m.name for m in models if soft_delete(ctx, m)]
-        what = f"No code path hard-deletes rows of {', '.join(m.name for m in models)}."
+        # Person models first (stable sort keeps each group's existing path order), so a real
+        # person model's location is never the one the 10-location cap below drops.
+        ordered = sorted(models, key=lambda m: not is_person_model(m))
+        soft = [m.name for m in ordered if soft_delete(ctx, m)]
+        what = f"No code path hard-deletes rows of {', '.join(m.name for m in ordered)}."
         if soft:
             what += f" {', '.join(soft)} only set a soft delete flag, so the rows stay."
         if schedules:
@@ -214,7 +232,7 @@ def no_deletion_path(ctx: Context) -> Iterator[Finding]:
         yield make_finding(
             "INV-NO-DELETION-PATH",
             tag=Tag.INFERRED,
-            locations=[m.location for m in models][:10],
+            locations=[m.location for m in ordered][:10],
             app=root or "this repository",
             what=what,
         )

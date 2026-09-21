@@ -19,7 +19,7 @@ findings:
   - {rule: BASE-VERSION-DISCLOSURE, file: next.config.js, line: 1, tag: INFERRED}
   - {rule: INV-CATCHALL-JSON, file: prisma/schema.prisma, line: 6, tag: CONFIRMED}
   - {rule: INV-CATCHALL-JSON, file: supabase/migrations/20240101000000_init.sql, line: 5, tag: CONFIRMED}
-  - {rule: INV-NO-DELETION-PATH, file: prisma/schema.prisma, line: 11, tag: INFERRED}
+  - {rule: INV-NO-DELETION-PATH, file: prisma/schema.prisma, line: 1, tag: INFERRED}
   - {rule: INV-SDK-RECEIVES-PII, file: app/api/generate/route.ts, line: 8, tag: INFERRED}
   - {rule: INV-SPECIAL-CATEGORY, file: prisma/schema.prisma, line: 7, tag: CONFIRMED}
   - {rule: INV-UNUSED-FIELD, file: prisma/schema.prisma, line: 7, tag: INFERRED}
