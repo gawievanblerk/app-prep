@@ -12,6 +12,7 @@ from dpr.model import Finding, Location, Tag
 from dpr.parsing import imports, jsts, pyast
 from dpr.redact import snippet
 from dpr.reviews.baseline_accounts import START_FILES
+from dpr.reviews.deploy_env import applies
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 
@@ -125,7 +126,7 @@ def multi_process(ctx: Context, near: str = "") -> Location | None:
     """
     if ctx.detection.serverless:
         hosting = _hosting_file(ctx, near)
-        if hosting is not None:
+        if hosting is not None and (not near or applies(ctx, hosting.file, near)):
             return hosting
     names = (*START_FILES, "gunicorn.conf.py", "*.yaml", "*.yml", "ecosystem.config.js")
     found = []

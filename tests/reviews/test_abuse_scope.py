@@ -21,6 +21,20 @@ def test_worker_count_from_another_app_root_is_not_borrowed(tmp_path):
     assert findings_for(tmp_path, "abuse", "ABUSE-INMEMORY-LIMITER") == []
 
 
+def test_serverless_hosting_config_in_another_app_root_is_not_borrowed(tmp_path):
+    write(tmp_path, "apps/api-py/requirements.txt", "fastapi\nslowapi\n")
+    write(tmp_path, "apps/api-py/app/rate_limit.py", PY_LIMITER)
+    write(
+        tmp_path,
+        "apps/api-py/app/main.py",
+        "from fastapi import FastAPI\napp = FastAPI()\n@app.get('/x')\ndef x(): ...\n",
+    )
+    write(tmp_path, "apps/web/package.json", '{"dependencies": {}}')
+    write(tmp_path, "apps/web/index.html", "<html></html>\n")
+    write(tmp_path, "apps/web/vercel.json", "{}")
+    assert findings_for(tmp_path, "abuse", "ABUSE-INMEMORY-LIMITER") == []
+
+
 def test_worker_count_in_the_same_app_root_still_counts(tmp_path):
     write(tmp_path, "api/requirements.txt", "fastapi\nslowapi\n")
     write(tmp_path, "api/app/rate_limit.py", PY_LIMITER)

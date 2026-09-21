@@ -5,87 +5,63 @@ from __future__ import annotations
 import ast
 import re
 from dataclasses import replace
-from pathlib import PurePosixPath
 
-from dpr.model import Route
+from dpr.discovery.approots import app_roots as _detect_app_roots
+from dpr.discovery.approots import root_of
+from dpr.model import AppRoot, Route
 from dpr.parsing import jsts, pyast
+from dpr.parsing.imports import js_target, py_imports
+from dpr.reviews.paths import is_test
 from dpr.walk import RepoIndex
 
+# A router mount only ever binds a local name to the mounted file's default export (or a bare
+# require()); dpr.parsing.imports.js_imports resolves every import kind (named, namespace, ...),
+# which is more than mount detection needs, so this keeps its own narrower regex and reuses only
+# js_target's spec-to-file resolution (which also covers the `@/` and `~/` aliases js_target
+# supports, unlike the previous local copy).
 JS_DEFAULT_IMPORT = re.compile(
-    r"""import\s+(\w+)\s+from\s+['"](\.[^'"]+)['"]"""
-    r"""|(?:const|let|var)\s+(\w+)\s*=\s*require\(\s*['"](\.[^'"]+)['"]\s*\)"""
+    r"""import\s+(\w+)\s+from\s+['"]((?:\.|[@~]/)[^'"]+)['"]"""
+    r"""|(?:const|let|var)\s+(\w+)\s*=\s*require\(\s*['"]((?:\.|[@~]/)[^'"]+)['"]\s*\)"""
 )
 LIMITER = re.compile(r"(?i)rate_?limit|limiter|slow_?down|throttle")
-JS_EXTENSIONS = (".ts", ".tsx", ".js", ".mjs", ".cjs", ".jsx")
 VERBS = ("get", "post", "put", "patch", "delete", "route", "api_route")
 Node = tuple[str, str]
 
 
-def _shared(a: str, b: str) -> int:
-    count = 0
-    for left, right in zip(a.split("/"), b.split("/"), strict=False):
-        if left != right:
-            break
-        count += 1
-    return count
+def _app_roots(index: RepoIndex) -> list[AppRoot]:
+    """App roots by folder alone (no routes or CI needed: only `.path` is used here), so this
+    can run before `dpr.discovery.detect` has computed the real `Detection.app_roots`."""
+    key = ("mounts-app-roots", "")
+    if key not in index.cache:
+        index.cache[key] = _detect_app_roots(index, [], [])
+    return index.cache[key]
 
 
-def _module_file(index: RepoIndex, importer: str, module: str, level: int = 0) -> str | None:
-    if level:
-        base = PurePosixPath(importer).parent
-        for _ in range(level - 1):
-            base = base.parent
-        stem = (base / module.replace(".", "/")).as_posix() if module else base.as_posix()
-        wanted = (f"{stem}.py", f"{stem}/__init__.py")
-        return next((f.rel for f in index.py_files if f.rel in wanted), None)
-    tail = module.replace(".", "/")
-    found = [
-        f.rel
-        for f in index.py_files
-        if f.rel in (f"{tail}.py", f"{tail}/__init__.py")
-        or f.rel.endswith((f"/{tail}.py", f"/{tail}/__init__.py"))
-    ]
-    return max(found, key=lambda rel: _shared(rel, importer)) if found else None
-
-
-def _py_imports(index: RepoIndex, rel: str, tree: ast.Module) -> dict[str, Node]:
-    """Local name to (file, attribute); attribute "" means the name is the module itself."""
-    names: dict[str, Node] = {}
-    for node in tree.body:
-        if isinstance(node, ast.ImportFrom):
-            for alias in node.names:
-                local = alias.asname or alias.name
-                sub = f"{node.module}.{alias.name}" if node.module else alias.name
-                as_module = _module_file(index, rel, sub, node.level)
-                if as_module is not None:
-                    names[local] = (as_module, "")
-                    continue
-                owner = _module_file(index, rel, node.module or "", node.level)
-                if owner is not None:
-                    names[local] = (owner, alias.name)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                owner = _module_file(index, rel, alias.name)
-                if owner is not None and alias.asname:
-                    names[alias.asname] = (owner, "")
-    return names
-
-
-def _settings_default(index: RepoIndex, attribute: str) -> str | None:
-    values = set()
+def _settings_default(index: RepoIndex, rel: str, attribute: str) -> str | None:
+    """The literal string every class defining `attribute` in `rel`'s app root gives it (the
+    whole repository when no app roots are known); None when a defining class in scope gives a
+    non-literal value, two disagree, or none defines it."""
+    roots = _app_roots(index)
+    home = root_of(roots, rel) if roots else None
+    values: set[str] = set()
     for entry in index.py_files:
         if attribute not in index.text(entry.rel):
             continue
+        if roots and root_of(roots, entry.rel) != home:
+            continue
         tree = pyast.parse_file(index, entry.rel)
         for cls in pyast.class_defs(tree) if tree else []:
-            value = pyast.assignments(cls.body).get(attribute)
-            text = pyast.constant(value, None)
-            if isinstance(text, str):
-                values.add(text)
+            assignments = pyast.assignments(cls.body)
+            if attribute not in assignments:
+                continue
+            text = pyast.constant(assignments[attribute], None)
+            if not isinstance(text, str):
+                return None
+            values.add(text)
     return values.pop() if len(values) == 1 else None
 
 
-def _py_prefix(index: RepoIndex, tree: ast.Module, node: ast.AST | None) -> str | None:
+def _py_prefix(index: RepoIndex, rel: str, tree: ast.Module, node: ast.AST | None) -> str | None:
     if node is None:
         return ""
     value = pyast.constant(node, None)
@@ -95,36 +71,40 @@ def _py_prefix(index: RepoIndex, tree: ast.Module, node: ast.AST | None) -> str 
         found = pyast.constant(pyast.assignments(tree.body).get(node.id), None)
         return found if isinstance(found, str) else None
     if isinstance(node, ast.Attribute):
-        return _settings_default(index, node.attr)
+        return _settings_default(index, rel, node.attr)
     return None
 
 
 def _py_edges(index: RepoIndex) -> dict[Node, tuple[Node, str]]:
-    """Included router to (parent router, prefix added at the include)."""
+    """Included router to (parent router, prefix added at the include). Test files are never
+    mount evidence, matching access.py's own mount reading."""
     edges: dict[Node, tuple[Node, str]] = {}
     for entry in index.py_files:
+        if is_test(entry.rel):
+            continue
         text = index.text(entry.rel)
         if "include_router" not in text:
             continue
         tree = pyast.parse_file(index, entry.rel)
         if tree is None:
             continue
-        imports = _py_imports(index, entry.rel, tree)
+        imports = py_imports(index, entry.rel, tree)
         for call in pyast.calls(tree, r"(?:\w+\.)*\w+\.include_router"):
             if not call.args or not isinstance(call.func, ast.Attribute):
                 continue
             parent = (entry.rel, pyast.dotted(call.func.value) or "")
             child_expr = call.args[0]
             if isinstance(child_expr, ast.Name):
-                child = imports.get(child_expr.id, (entry.rel, child_expr.id))
+                found = imports.get(child_expr.id)
+                child = (found[0], found[1]) if found and found[0] else (entry.rel, child_expr.id)
             elif isinstance(child_expr, ast.Attribute) and isinstance(child_expr.value, ast.Name):
-                module = imports.get(child_expr.value.id)
-                if module is None or module[1]:
+                found = imports.get(child_expr.value.id)
+                if found is None or found[0] is None or found[1]:
                     continue
-                child = (module[0], child_expr.attr)
+                child = (found[0], child_expr.attr)
             else:
                 continue
-            prefix = _py_prefix(index, tree, pyast.kwarg(call, "prefix"))
+            prefix = _py_prefix(index, entry.rel, tree, pyast.kwarg(call, "prefix"))
             if prefix is not None and child not in edges:
                 edges[child] = (parent, prefix.rstrip("/"))
     return edges
@@ -147,34 +127,23 @@ def _router_name(route: Route) -> str | None:
     return None
 
 
-def _js_target(index: RepoIndex, importer: str, spec: str) -> str | None:
-    base = (PurePosixPath(importer).parent / spec).as_posix()
-    parts = []
-    for part in base.split("/"):
-        if part == "..":
-            parts = parts[:-1]
-        elif part not in (".", ""):
-            parts.append(part)
-    stem = "/".join(parts)
-    stripped = re.sub(r"\.(?:[cm]?js|jsx|ts|tsx)$", "", stem)
-    files = {f.rel for f in index.js_files}
-    candidates = [stem] + [stripped + ext for ext in JS_EXTENSIONS]
-    candidates += [f"{stripped}/index{ext}" for ext in JS_EXTENSIONS]
-    return next((c for c in candidates if c in files), None)
-
-
 def _js_mounts(index: RepoIndex) -> tuple[dict[str, str], list[tuple[str, str]]]:
-    """Route file to mount prefix, and (mounting file, prefix) for each limiter middleware."""
+    """Route file to mount prefix, and (mounting file, prefix) for each limiter middleware.
+
+    Test files are never mount evidence, matching access.py's own mount reading.
+    """
     routers: dict[str, str] = {}
     limiters: list[tuple[str, str]] = []
     for entry in index.js_files:
+        if is_test(entry.rel):
+            continue
         text = index.text(entry.rel)
         if ".use(" not in text:
             continue
         imports = {}
         for match in JS_DEFAULT_IMPORT.finditer(text):
             name, spec = match.group(1) or match.group(3), match.group(2) or match.group(4)
-            target = _js_target(index, entry.rel, spec)
+            target = js_target(index, entry.rel, spec)
             if target:
                 imports[name] = target
         for tree in jsts.parse_file(index, entry.rel):
