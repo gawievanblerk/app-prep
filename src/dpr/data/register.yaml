@@ -5,10 +5,10 @@ chains:
   - title: Accounts can be signed in to with passwords written in the repository
     scope: linked
     rules: [BASE-LITERAL-PASSWORD-HASH, BASE-SEED-ON-START]
-  - title: Sign-in, signup and reset responses reveal which accounts exist
+  - title: Account responses reveal which accounts exist
     scope: app
     rules: [AUTH-ENUM-SIGNUP-MESSAGE, AUTH-ENUM-RESET-MESSAGE, AUTH-ENUM-LOCKOUT-STATUS, AUTH-ENUM-TIMING]
-  - title: Sessions survive logout and refresh without an absolute limit
+  - title: Sessions outlive logout or have no absolute limit
     scope: app
     rules: [AUTH-LOGOUT-NO-REVOKE, AUTH-REFRESH-NO-ABSOLUTE-CAP]
   - title: One-time tokens are stored in plain text or never expire
@@ -17,10 +17,10 @@ chains:
   - title: Rate limits do not hold in production
     scope: app
     rules: [ABUSE-INMEMORY-LIMITER, ABUSE-LIMITER-NOT-APPLIED, ABUSE-LIMITER-PROXY-IP]
-  - title: Paid endpoints without sign-in, limits or a kill switch
+  - title: Paid endpoints can run up the bill
     scope: app
     rules: [ABUSE-PAID-UNAUTH, ABUSE-PAID-UNLIMITED, ABUSE-NO-KILL-SWITCH]
-  - title: Security headers and HTTPS enforcement are missing
+  - title: Security headers or HTTPS enforcement are missing
     scope: repo
     rules: [BASE-HEADER-MISSING-HSTS, BASE-HEADER-MISSING-CSP, BASE-HEADER-MISSING-XCTO, BASE-HEADER-MISSING-FRAME, BASE-HEADER-MISSING-REFERRER, BASE-HEADER-MISSING-PERMISSIONS, BASE-CSP-WEAK, BASE-HTTPS-NOT-ENFORCED, BASE-NO-HTTPS-REDIRECT]
   - title: Database reachable too widely or used with administrator rights

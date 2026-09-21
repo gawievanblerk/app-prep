@@ -36,13 +36,13 @@ def test_chains_group_per_app_and_rules_group_per_app():
         ROOTS,
     )
     by_title = {i.title: i for i in issues}
-    api = by_title["ABUSE-LIMITER-PROXY-IP title (api)"]
+    api = by_title["Rate limits do not hold in production (api)"]
     assert (api.count, api.tags, api.findings) == (
         2,
         "CONFIRMED and INFERRED",
         ("ABUSE-LIMITER-PROXY-IP", "ABUSE-INMEMORY-LIMITER"),
     )
-    assert by_title["ABUSE-INMEMORY-LIMITER title (worker)"].count == 1
+    assert by_title["Rate limits do not hold in production (worker)"].count == 1
     assert by_title["ABUSE-ERROR-LEAK title"].count == 2
     assert [i.id for i in issues] == ["F-01", "F-02", "F-03"]
 
@@ -60,48 +60,22 @@ def test_repo_scope_and_ranking_by_best_score():
         ("F-01", "high", (5,)),
         ("F-02", "medium", (4,)),
     ]
-    assert issues[1].title == "BASE-HEADER-MISSING-CSP title"
+    assert issues[1].title == "Security headers or HTTPS enforcement are missing"
 
 
-def test_chain_title_needs_every_chained_rule_to_have_a_member():
+def test_chain_title_holds_for_a_subset_of_its_rules():
     issues = build_register(
         [
+            finding("ABUSE-PAID-UNLIMITED", "api/app/chat.py", severity="high", review="abuse"),
             finding(
-                "ABUSE-PAID-UNLIMITED",
-                "api/app/chat.py",
-                severity="high",
-                review="abuse",
-                title="Paid chat route has no per-user limit",
-            ),
-            finding(
-                "ABUSE-NO-KILL-SWITCH",
-                "api/app/chat.py",
-                2,
-                severity="medium",
-                review="abuse",
-                title="No kill switch for the paid chat route",
+                "ABUSE-NO-KILL-SWITCH", "api/app/chat.py", 2, severity="medium", review="abuse"
             ),
         ],
         ROOTS,
     )
     [issue] = issues
-    assert issue.title == "Paid chat route has no per-user limit"
-    assert "without sign-in" not in issue.title
-
-
-def test_chain_title_is_static_when_every_chained_rule_has_a_member():
-    issues = build_register(
-        [
-            finding("ABUSE-PAID-UNAUTH", "api/app/chat.py", severity="critical", review="abuse"),
-            finding("ABUSE-PAID-UNLIMITED", "api/app/chat.py", 2, severity="high", review="abuse"),
-            finding(
-                "ABUSE-NO-KILL-SWITCH", "api/app/chat.py", 3, severity="medium", review="abuse"
-            ),
-        ],
-        ROOTS,
-    )
-    [issue] = issues
-    assert issue.title == "Paid endpoints without sign-in, limits or a kill switch"
+    assert issue.title == "Paid endpoints can run up the bill"
+    assert "sign-in" not in issue.title
 
 
 def test_linked_scope_attaches_start_commands_to_the_password_they_seed():
