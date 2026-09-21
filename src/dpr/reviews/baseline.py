@@ -7,8 +7,9 @@ import dpr.reviews.baseline_config  # noqa: F401  (registers rules)
 import dpr.reviews.baseline_debug  # noqa: F401  (registers rules)
 import dpr.reviews.baseline_infra  # noqa: F401  (registers rules)
 import dpr.reviews.baseline_literals  # noqa: F401  (registers rules)
-from dpr.model import Part, ReviewSection
+from dpr.model import Finding, Part, ReviewSection
 from dpr.reviews.baseline_headers import live_reads
+from dpr.reviews.baseline_passes import checks_that_pass
 from dpr.reviews.headers_static import HEADERS, surfaces
 from dpr.rules import Context
 
@@ -28,8 +29,9 @@ HOW_CHECKED_LIVE = (
     "control: one HEAD request each to the https root, the https login page and the http root."
 )
 ENUMERATION = (
-    "Account enumeration through login, signup and reset messages belongs to review 3 cases 2 "
-    "and 4 (AUTH-CASE-2 and AUTH-CASE-4). This review does not repeat it."
+    "Account enumeration through sign-in, signup and reset responses belongs to review 3 cases 1, "
+    "2 and 4 (AUTH-ENUM-SIGNUP-MESSAGE, AUTH-ENUM-RESET-MESSAGE, AUTH-ENUM-LOCKOUT-STATUS and "
+    "AUTH-ENUM-TIMING). This review does not repeat it."
 )
 
 
@@ -70,3 +72,10 @@ def run(ctx: Context) -> ReviewSection:
         )
     parts.append(Part("text", "Password storage and account enumeration", body=notes))
     return ReviewSection("baseline", parts)
+
+
+def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None:
+    position = next(i for i, p in enumerate(section.parts) if p.kind == "findings") + 1
+    section.parts.insert(
+        position, Part("text", "Checks that pass", body=checks_that_pass(ctx, findings))
+    )

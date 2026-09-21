@@ -35,8 +35,8 @@ NOTES = {
     "A05": "Debug mode and missing headers are reported in review 4 (BASE-DEBUG-ON, "
     "BASE-HEADER-MISSING-*); error text and CORS in review 7 (ABUSE-ERROR-LEAK, ABUSE-CORS-*).",
     "A06": "Not run: the dependency audit adapters arrive in a later version.",
-    "A07": "Session and account failure paths belong to review 3, which arrives in a later "
-    "version; committed passwords are reported in review 4.",
+    "A07": "Session and account failure paths are reported in review 3 (AUTH-* findings); "
+    "committed passwords in review 4.",
 }
 INTRO = (
     "Findings are ordered by exploitability and effort. Access control carries the most weight: "

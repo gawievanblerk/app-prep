@@ -14,6 +14,7 @@ from dpr.model import Finding, Location, Part, ReviewSection, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import find_keys, is_secret_name, public_prefix, snippet
 from dpr.reviews import leaks_code  # noqa: F401  (registers the leaks_code rules)
+from dpr.reviews.leaks_summary import summary_parts
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
 
@@ -191,3 +192,8 @@ def run(ctx: Context) -> ReviewSection:
         "leaks",
         [Part("text", "What this review never prints", body=note), Part("findings", "Leaks")],
     )
+
+
+def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None:
+    position = next(i for i, p in enumerate(section.parts) if p.kind == "findings")
+    section.parts[position:position] = summary_parts(ctx, findings)
