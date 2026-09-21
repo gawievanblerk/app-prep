@@ -21,35 +21,85 @@ DB_TLS = re.compile(
     r"sslmode=(?:require|verify-full|verify-ca)|ssl=(?:require|true)", re.IGNORECASE
 )
 BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
-LINE_COMMENT_PREFIXES = {
+COMMENT_MARKERS = {
     ".py": ("#",),
     ".toml": ("#",),
-    ".yaml": ("#", "//"),
-    ".yml": ("#", "//"),
+    ".yaml": ("#",),
+    ".yml": ("#",),
     ".tf": ("#", "//"),
     ".ts": ("//",),
     ".js": ("//",),
 }
-LITERAL_CONTEXT = re.compile(r"[:=]\s*$")
+KEY_VALUE_PREFIX = re.compile(r"""^\s*(?:[A-Za-z_][\w.]*|"[^"]*"|'[^']*')\s*[:=]\s*""")
+HEREDOC_MARK = re.compile(r"<<-?(\w+)\s*$")
 MARKUP = (".html", ".htm")
 
 
-def _is_comment_line(line: str, suffix: str) -> bool:
-    stripped = line.lstrip()
-    return any(stripped.startswith(prefix) for prefix in LINE_COMMENT_PREFIXES.get(suffix, ()))
+def _comment_start(line: str, suffix: str) -> int | None:
+    """Index of the first comment marker on the line that is not inside a quoted string.
 
-
-def _is_assigned_literal(line: str, start: int, end: int) -> bool:
-    """Whether line[start:end] is inside a quoted literal assigned or keyed on this line.
-
-    Rejects a string used in a comparison or membership test (`"sslmode=require" in url`),
-    which reads a parameter rather than setting one.
+    A `#` or `//` inside a quoted string (the `//` in `"postgres://"`) never starts a comment.
     """
-    before, after = line[:start], line[end:]
-    quote_at = max(before.rfind('"'), before.rfind("'"))
-    if quote_at == -1 or after.find(before[quote_at]) == -1:
+    markers = COMMENT_MARKERS.get(suffix, ())
+    if not markers:
+        return None
+    quote = None
+    i, n = 0, len(line)
+    while i < n:
+        ch = line[i]
+        if quote:
+            if ch == "\\" and quote in ('"', "'"):
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            quote = ch
+            i += 1
+            continue
+        if any(line.startswith(marker, i) for marker in markers):
+            return i
+        i += 1
+    return None
+
+
+def _heredoc_lines(text: str) -> set[int]:
+    """1-indexed line numbers inside a Terraform `<<EOT` / `<<-EOT` heredoc body."""
+    inside: set[int] = set()
+    marker = None
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if marker is None:
+            found = HEREDOC_MARK.search(line)
+            if found:
+                marker = found.group(1)
+            continue
+        if line.strip() == marker:
+            marker = None
+            continue
+        inside.add(lineno)
+    return inside
+
+
+def _is_real_tls_evidence(line: str, start: int, suffix: str, in_heredoc: bool) -> bool:
+    """Whether a DB_TLS match at line[start:] is a real value, not a comment or a parameter read.
+
+    Heredoc content is a raw literal (no nested comment syntax), so it only needs `://` on the
+    line. Everywhere else the match must sit in the value half of a key-value or assignment line
+    (an identifier, dotted name or quoted key, then `=` or `:`), with `://` in that value, and
+    must not follow an unquoted comment marker: a membership test such as `"sslmode=require" in
+    url` has no such key-value shape and never counts.
+    """
+    if in_heredoc:
+        return "://" in line
+    comment_at = _comment_start(line, suffix)
+    if comment_at is not None and start >= comment_at:
         return False
-    return bool(LITERAL_CONTEXT.search(before[:quote_at]))
+    prefix = KEY_VALUE_PREFIX.match(line)
+    if not prefix or start < prefix.end():
+        return False
+    return "://" in line[prefix.end() :]
 
 
 def _guarded(cls: ast.ClassDef, name: str) -> int | None:
@@ -125,18 +175,17 @@ def _database_tls(ctx: Context) -> list[str]:
         text = ctx.index.text(entry.rel)
         if entry.suffix in (".js", ".ts"):
             text = BLOCK_COMMENT.sub("", text)
+        heredoc = _heredoc_lines(text) if entry.suffix == ".tf" else set()
         for match in DB_TLS.finditer(text):
             line_start = text.rfind("\n", 0, match.start()) + 1
             line_end = text.find("\n", match.end())
             line_end = len(text) if line_end == -1 else line_end
             line_text = text[line_start:line_end]
-            if _is_comment_line(line_text, entry.suffix):
+            line_no = line_of(text, match.start())
+            local_start = match.start() - line_start
+            if not _is_real_tls_evidence(line_text, local_start, entry.suffix, line_no in heredoc):
                 continue
-            if not _is_assigned_literal(
-                line_text, match.start() - line_start, match.end() - line_start
-            ):
-                continue
-            locations.append(Location(entry.rel, line_of(text, match.start())))
+            locations.append(Location(entry.rel, line_no))
             break
     if not locations:
         return []

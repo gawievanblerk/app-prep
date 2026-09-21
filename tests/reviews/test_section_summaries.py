@@ -131,3 +131,59 @@ def test_hashing_pass_lists_evidence_per_app_root(tmp_path):
     lines = body.splitlines()
     assert "- Password hashing uses bcrypt (`api/app/security.py:2`). CONFIRMED" in lines
     assert "- Password hashing uses bcrypt (`worker/app/security.py:2`). CONFIRMED" in lines
+
+
+def test_database_tls_pass_ignores_trailing_comment(tmp_path):
+    write(
+        tmp_path,
+        "api/app/config.py",
+        'configure()  # database_url = "postgres://x?sslmode=require"\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert "Database connections require TLS" not in body
+
+
+def test_database_tls_pass_from_unquoted_yaml_value(tmp_path):
+    write(tmp_path, "infra/db.yaml", "DATABASE_URL: postgres://u@h/db?sslmode=require\n")
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert "- Database connections require TLS (`infra/db.yaml:1`). CONFIRMED" in body.splitlines()
+
+
+def test_database_tls_pass_from_terraform_heredoc(tmp_path):
+    write(
+        tmp_path,
+        "infra/main.tf",
+        (
+            'resource "example" "x" {\n'
+            "  user_data = <<-EOT\n"
+            "    postgres://u@h/db?sslmode=require\n"
+            "  EOT\n"
+            "}\n"
+        ),
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert "- Database connections require TLS (`infra/main.tf:3`). CONFIRMED" in body.splitlines()
+
+
+def test_database_tls_pass_from_fstring_default(tmp_path):
+    write(
+        tmp_path,
+        "api/app/config.py",
+        'DATABASE_URL = f"postgresql://{host}/db?sslmode=require"\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert (
+        "- Database connections require TLS (`api/app/config.py:1`). CONFIRMED" in body.splitlines()
+    )
+
+
+def test_database_tls_pass_from_triple_quoted_default(tmp_path):
+    write(
+        tmp_path,
+        "api/app/config.py",
+        'DATABASE_URL = """postgresql://u@h/db?sslmode=require"""\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert (
+        "- Database connections require TLS (`api/app/config.py:1`). CONFIRMED" in body.splitlines()
+    )
