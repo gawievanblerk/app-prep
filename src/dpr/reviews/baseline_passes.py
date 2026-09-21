@@ -30,7 +30,27 @@ COMMENT_MARKERS = {
     ".ts": ("//",),
     ".js": ("//",),
 }
-KEY_VALUE_PREFIX = re.compile(r"""^\s*(?:[A-Za-z_][\w.]*|"[^"]*"|'[^']*')\s*[:=]\s*""")
+DECLARATION_KEYWORDS = (
+    "export",
+    "default",
+    "const",
+    "let",
+    "var",
+    "final",
+    "static",
+    "public",
+    "private",
+    "protected",
+    "readonly",
+    "declare",
+)
+# A leading YAML list dash, then zero or more JS/TS declaration keywords (each its own
+# alternative followed by mandatory whitespace, so this stays linear: no nested quantifier
+# ever backtracks over a wildcard), then the key itself.
+KEY_VALUE_PREFIX = re.compile(
+    r"^\s*(?:-\s+)?(?:(?:" + "|".join(DECLARATION_KEYWORDS) + r")\s+)*"
+    r"""(?:[A-Za-z_][\w.]*|"[^"]*"|'[^']*')\s*[:=]\s*"""
+)
 HEREDOC_MARK = re.compile(r"<<-?(\w+)\s*$")
 MARKUP = (".html", ".htm")
 

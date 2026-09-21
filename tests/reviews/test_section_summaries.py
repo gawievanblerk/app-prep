@@ -187,3 +187,59 @@ def test_database_tls_pass_from_triple_quoted_default(tmp_path):
     assert (
         "- Database connections require TLS (`api/app/config.py:1`). CONFIRMED" in body.splitlines()
     )
+
+
+def test_database_tls_pass_from_js_const_declaration(tmp_path):
+    write(
+        tmp_path,
+        "web/src/db.ts",
+        'const DATABASE_URL = "postgres://x?sslmode=require";\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert "- Database connections require TLS (`web/src/db.ts:1`). CONFIRMED" in body.splitlines()
+
+
+def test_database_tls_pass_from_js_let_declaration(tmp_path):
+    write(
+        tmp_path,
+        "web/src/db.ts",
+        'let dbUrl = "postgres://x?sslmode=require";\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert "- Database connections require TLS (`web/src/db.ts:1`). CONFIRMED" in body.splitlines()
+
+
+def test_database_tls_pass_from_js_export_const_declaration(tmp_path):
+    write(
+        tmp_path,
+        "web/src/db.ts",
+        'export const DB_URL = "postgres://x?sslmode=require";\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert "- Database connections require TLS (`web/src/db.ts:1`). CONFIRMED" in body.splitlines()
+
+
+def test_database_tls_pass_from_yaml_list_item(tmp_path):
+    write(tmp_path, "infra/db.yaml", "- DATABASE_URL: postgres://u@h/db?sslmode=require\n")
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert "- Database connections require TLS (`infra/db.yaml:1`). CONFIRMED" in body.splitlines()
+
+
+def test_database_tls_pass_counts_trailing_comment_after_real_value(tmp_path):
+    write(
+        tmp_path,
+        "web/src/db.ts",
+        'const u = "postgres://x?sslmode=require" // prod\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert "- Database connections require TLS (`web/src/db.ts:1`). CONFIRMED" in body.splitlines()
+
+
+def test_database_tls_pass_ignores_includes_method_call(tmp_path):
+    write(
+        tmp_path,
+        "web/src/db.ts",
+        'if (url.includes("sslmode=require")) {\n  handle();\n}\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert "Database connections require TLS" not in body
