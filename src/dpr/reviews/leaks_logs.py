@@ -159,6 +159,23 @@ def _catch_all(handler: ast.ExceptHandler | None) -> bool:
     )
 
 
+def _functions(ctx: Context, rel: str, tree: ast.Module) -> list[pyast.FunctionNode]:
+    """Every function in the file, once per file."""
+    key = ("py-functions", rel)
+    if key not in ctx.index.cache:
+        ctx.index.cache[key] = pyast.functions(tree)
+    return ctx.index.cache[key]
+
+
+def _function_at(ctx: Context, rel: str, tree: ast.Module, line: int) -> pyast.FunctionNode | None:
+    best = None
+    for fn in _functions(ctx, rel, tree):
+        end = fn.end_lineno or fn.lineno
+        if fn.lineno <= line <= end and (best is None or fn.lineno >= best.lineno):
+            best = fn
+    return best
+
+
 def _py_error(ctx: Context, rel: str, tree: ast.Module, call: ast.Call, arg: ast.AST) -> bool:
     if isinstance(arg, ast.JoinedStr):
         values = [v.value for v in arg.values if isinstance(v, ast.FormattedValue)]
@@ -174,7 +191,7 @@ def _py_error(ctx: Context, rel: str, tree: ast.Module, call: ast.Call, arg: ast
         if PY_DB.search(body) and not HEALTH_QUERY.search(body):
             return True
     traced = pyast.constant(pyast.kwarg(call, "exc_info")) is True
-    fn = pyast.function_at(tree, call.lineno)
+    fn = _function_at(ctx, rel, tree, call.lineno)
     decorated = fn is not None and any(
         "exception_handler" in ast.unparse(d) for d in fn.decorator_list
     )
