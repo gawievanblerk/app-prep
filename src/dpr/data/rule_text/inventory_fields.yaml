@@ -1,0 +1,22 @@
+INV-SPECIAL-CATEGORY:
+  title: ${model} stores special category data
+  effort_minutes: 30
+  detail: 'Fields of ${model} carry special category data by name: ${fields}. This data needs a specific legal condition, tighter access and usually encryption.'
+  blast: Health, biometric, belief or similar data of every person with a record, which carries the highest harm if exposed.
+  fix: Confirm each field is necessary; remove the ones that are not. Restrict read access to the roles that need it, encrypt the columns, and record the purpose for the data protection lawyer.
+  verify: List who can query these columns in production and confirm each field is still collected on purpose.
+INV-CHILDREN-SIGNAL:
+  title: Signs that the product holds children's data
+  effort_minutes: 30
+  detail: ${what}
+  proof_needed: Confirm with the product owner whether people under 18 use the product or appear in its records.
+  blast: Personal data of minors, which most privacy laws protect more strictly.
+  fix: Decide whether minors are in scope. If they are, record it for the data protection lawyer (consent age, parental consent flows); if not, enforce a minimum age of 18 at signup.
+  verify: Check the signup validation and the stored records for ages below 18.
+INV-CATCHALL-JSON:
+  title: Catch-all JSON column ${model}.${field}
+  effort_minutes: 20
+  detail: ${model}.${field} is a JSON column with a catch-all name, so it can accumulate personal data that no schema declares. Its contents are unbounded and unverified.
+  blast: Whatever the application or clients have ever written into the column.
+  fix: Sample the column in production, document the keys it holds, and replace it with declared columns or a validated schema.
+  verify: Run a query that lists the distinct top-level keys in the column and review each.

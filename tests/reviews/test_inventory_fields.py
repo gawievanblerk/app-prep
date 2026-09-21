@@ -1,0 +1,96 @@
+from dpr import reviews, rules
+from dpr.discovery.detect import detect
+from dpr.reviews.personal import classify, is_person_model, personal_fields
+from dpr.walk import RepoIndex
+from tests.reviews.helpers import findings_for, write
+
+
+def context(root):
+    reviews.available()
+    index = RepoIndex(root)
+    return rules.Context(index=index, detection=detect(index))
+
+
+def test_classify_field_names():
+    assert classify("email").key == "identifiers"
+    assert classify("firstName").key == "identifiers"
+    assert classify("medicalConditions").key == "special"
+    assert classify("password_hash").key == "account"
+    assert classify("ip_address").key == "technical"
+    assert classify("status_note").key == "content"
+    assert classify("id_number").key == "government_ids"
+    assert classify("client_id") is None and classify("uploaded_by") is None
+    assert classify("name", person=False) is None and classify("name").key == "identifiers"
+    assert classify("crop_year") is None and classify("muscle_grade") is None
+
+
+def test_person_models_and_models_keyed_to_people(tmp_path):
+    write(
+        tmp_path,
+        "app/models.py",
+        "class Client(Base):\n    __tablename__ = 'clients'\n"
+        "    name = Column(String)\n    phone = Column(String)\n"
+        "class Order(Base):\n    __tablename__ = 'orders'\n"
+        "    client_id = Column(String)\n    net_price = Column(Numeric)\n    notes = Column(Text)\n"
+        "class CropType(Base):\n    __tablename__ = 'crop_types'\n"
+        "    name = Column(String)\n    price = Column(Numeric)\n",
+    )
+    ctx = context(tmp_path)
+    found = sorted((p.model.name, p.field.name, p.category.key) for p in personal_fields(ctx))
+    assert found == [
+        ("Client", "name", "identifiers"),
+        ("Client", "phone", "identifiers"),
+        ("Order", "net_price", "financial"),
+        ("Order", "notes", "content"),
+    ]
+    assert is_person_model(ctx.detection.models[0])
+
+
+def test_special_category_and_catch_all_json(tmp_path):
+    write(
+        tmp_path,
+        "prisma/schema.prisma",
+        "model Patient {\n  id Int @id\n  email String @unique\n  diagnosis String?\n"
+        "  metadata Json?\n  notes String?\n}\n",
+    )
+    [special] = findings_for(tmp_path, "inventory", "INV-SPECIAL-CATEGORY")
+    assert (special.tag.value, special.severity.value) == ("CONFIRMED", "high")
+    assert [str(loc) for loc in special.locations] == ["prisma/schema.prisma:4"]
+    [catch_all] = findings_for(tmp_path, "inventory", "INV-CATCHALL-JSON")
+    assert (catch_all.title, str(catch_all.locations[0])) == (
+        "Catch-all JSON column Patient.metadata",
+        "prisma/schema.prisma:5",
+    )
+
+
+def test_text_column_named_metadata_is_not_catch_all_json(tmp_path):
+    write(tmp_path, "prisma/schema.prisma", "model Post {\n  id Int @id\n  metadata String?\n}\n")
+    assert findings_for(tmp_path, "inventory", "INV-CATCHALL-JSON") == []
+
+
+def test_children_signals_from_fields_and_age_minimums(tmp_path):
+    write(
+        tmp_path,
+        "app/models.py",
+        "class Student(Base):\n    __tablename__ = 'students'\n"
+        "    guardian = Column(String)\n    school_name = Column(String)\n",
+    )
+    write(
+        tmp_path,
+        "app/schemas.py",
+        "class Signup(BaseModel):\n    age: int = Field(ge=13)\n"
+        "class Adult(BaseModel):\n    age: int = Field(ge=18)\n",
+    )
+    write(tmp_path, "web/signup.ts", "const schema = z.object({ age: z.number().int().min(16) })\n")
+    found = findings_for(tmp_path, "inventory", "INV-CHILDREN-SIGNAL")
+    assert sorted(f.detail for f in found) == [
+        "An age check accepts users as young as 13.",
+        "Student stores guardian, school_name.",
+    ]
+    ages = next(f for f in found if f.detail.startswith("An age"))
+    assert [str(loc) for loc in ages.locations] == ["app/schemas.py:2", "web/signup.ts:1"]
+
+
+def test_no_children_signal_for_adult_products(tmp_path):
+    write(tmp_path, "app/schemas.py", "class Signup(BaseModel):\n    age: int = Field(ge=18)\n")
+    assert findings_for(tmp_path, "inventory", "INV-CHILDREN-SIGNAL") == []

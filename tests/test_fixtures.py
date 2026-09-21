@@ -6,8 +6,8 @@ from tests.fixture_builder import FIXTURES, build
 
 BAD = ("next-supabase-bad", "django-bad", "fastapi-bad", "express-prisma")
 GOOD = {
-    "next-supabase-good": {"leaks", "rls", "auth", "baseline", "owasp", "abuse"},
-    "fastapi-good": {"leaks", "rls", "auth", "baseline", "owasp", "abuse"},
+    "next-supabase-good": {"inventory", "leaks", "rls", "auth", "baseline", "owasp", "abuse"},
+    "fastapi-good": {"inventory", "leaks", "rls", "auth", "baseline", "owasp", "abuse"},
 }
 
 
