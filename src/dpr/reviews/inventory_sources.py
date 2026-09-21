@@ -11,6 +11,7 @@ from dpr.discovery.approots import root_of
 from dpr.model import Finding, Location, Route, SdkUse, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
+from dpr.reviews.inventory_callers import caller_value
 from dpr.reviews.paid import _names_from_import
 from dpr.reviews.paths import is_test
 from dpr.reviews.personal import classify
@@ -233,28 +234,6 @@ def _py_clients(tree: ast.Module, names: set[str]) -> set[str]:
     return clients
 
 
-def _py_caller_value(tree: ast.Module, fn: ast.AST, param_name: str) -> ast.expr | None:
-    """The argument a same-file call to `fn` (by name, or a self./cls. attribute call) binds to
-    `param_name`. First matching call only, one level: the caller is not itself traced further."""
-    is_method = bool(fn.args.args) and fn.args.args[0].arg in ("self", "cls")
-    params = [a.arg for a in (fn.args.args[1:] if is_method else fn.args.args)]
-    if getattr(fn, "name", None) is None or param_name not in params:
-        return None
-    index = params.index(param_name)
-    for call in [n for n in ast.walk(tree) if isinstance(n, ast.Call)]:
-        callee = pyast.dotted(call.func) or ""
-        name = callee.rsplit(".", 1)[-1]
-        owner = callee.rsplit(".", 1)[0] if "." in callee else ""
-        if name != fn.name or owner not in ("", "self", "cls"):
-            continue
-        for keyword in call.keywords:
-            if keyword.arg == param_name:
-                return keyword.value
-        if index < len(call.args):
-            return call.args[index]
-    return None
-
-
 def _py_dict_keys(node: ast.AST, fn: ast.AST | None, tree: ast.Module | None = None) -> list[str]:
     if isinstance(node, ast.Name) and fn is not None:
         for sub in ast.walk(fn):
@@ -263,7 +242,7 @@ def _py_dict_keys(node: ast.AST, fn: ast.AST | None, tree: ast.Module | None = N
             ):
                 return _py_dict_keys(sub.value, None)
         if tree is not None:
-            value = _py_caller_value(tree, fn, node.id)
+            value = caller_value(tree, fn, node.id)
             if value is not None:
                 return _py_dict_keys(value, pyast.function_at(tree, value.lineno))
         return [node.id] if node.id in WHOLE_OBJECTS else []

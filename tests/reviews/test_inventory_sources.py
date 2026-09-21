@@ -193,3 +193,53 @@ def test_zod_schema_parsed_from_request_body_is_collected(tmp_path):
     assert len(zod) == 1
     assert zod[0].fields == ("email", "fullName")
     assert not any(c.source == "ConfigSchema" for c in points)
+
+
+THREAD_RUNNER_SERVICE = (
+    "import logging\n\nclass EmailService:\n"
+    "    def __init__(self, conn):\n"
+    "        from azure.communication.email import EmailClient\n"
+    "        self.client = EmailClient.from_connection_string(conn)\n\n"
+    "    def _dispatch(self, message):\n"
+    "        return self.client.begin_send(message).result()\n\n"
+    "    async def send(self, to_email, to_name, html):\n"
+    "        message = {\n"
+    "            'senderAddress': 'noreply@example.invalid',\n"
+    "            'recipients': {'to': [{'address': to_email, 'displayName': to_name}]},\n"
+    "            'content': {'html': html},\n"
+    "        }\n"
+    "        return await to_thread.run_sync(self._dispatch, message)\n"
+)
+
+
+def test_method_passed_to_thread_runner_is_followed_for_sent_dicts(tmp_path):
+    write(tmp_path, "requirements.txt", "azure-communication-email\n")
+    write(tmp_path, "app/email.py", THREAD_RUNNER_SERVICE)
+    [finding] = findings_for(tmp_path, "inventory", "INV-SDK-RECEIVES-PII")
+    assert (finding.tag.value, str(finding.locations[0])) == ("CONFIRMED", "app/email.py:9")
+    assert "identifying fields (recipients, to, address, displayName)" in finding.detail
+
+
+EXECUTOR_SERVICE = (
+    "import logging\n\nclass EmailService:\n"
+    "    def __init__(self, conn):\n"
+    "        from azure.communication.email import EmailClient\n"
+    "        self.client = EmailClient.from_connection_string(conn)\n\n"
+    "    def _dispatch(self, message):\n"
+    "        return self.client.begin_send(message).result()\n\n"
+    "    async def send(self, to_email, to_name, html):\n"
+    "        message = {\n"
+    "            'senderAddress': 'noreply@example.invalid',\n"
+    "            'recipients': {'to': [{'address': to_email, 'displayName': to_name}]},\n"
+    "            'content': {'html': html},\n"
+    "        }\n"
+    "        return await loop.run_in_executor(None, self._dispatch, message)\n"
+)
+
+
+def test_method_passed_to_run_in_executor_is_followed_for_sent_dicts(tmp_path):
+    write(tmp_path, "requirements.txt", "azure-communication-email\n")
+    write(tmp_path, "app/email.py", EXECUTOR_SERVICE)
+    [finding] = findings_for(tmp_path, "inventory", "INV-SDK-RECEIVES-PII")
+    assert (finding.tag.value, str(finding.locations[0])) == ("CONFIRMED", "app/email.py:9")
+    assert "identifying fields (recipients, to, address, displayName)" in finding.detail
