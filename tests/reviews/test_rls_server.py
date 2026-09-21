@@ -74,6 +74,22 @@ def test_least_privilege_sql_grants_migrations_and_cloud_commands(tmp_path):
     assert "az postgres flexible-server firewall-rule list" in confirm
 
 
+def test_migration_evidence_in_a_sibling_root_does_not_count_for_a_repository_root_app(tmp_path):
+    write(tmp_path, "requirements.txt", "flask\nsqlalchemy\n")
+    write(
+        tmp_path,
+        "app/models.py",
+        "class User(Base):\n    __tablename__ = 'users'\n    id = Column(String, primary_key=True)\n",
+    )
+    write(tmp_path, "migrations/0001_init.sql", "-- noop\n")
+    write(tmp_path, "admin/requirements.txt", "flask\n")
+    write(tmp_path, "admin/migrations/0001_init.sql", "-- noop\n")
+    rows = section(tmp_path)["Table protection status"].rows
+    [row] = rows
+    assert row[:3] == ("repository root: users", "no", "0")
+    assert row[5] == "models in app; no RLS or policy statements in migrations"
+
+
 def test_mysql_and_unknown_engines(tmp_path):
     write(tmp_path, "requirements.txt", "flask\npymysql\nsqlalchemy\n")
     write(

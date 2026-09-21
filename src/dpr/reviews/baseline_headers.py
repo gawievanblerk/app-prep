@@ -6,6 +6,7 @@ import re
 from collections.abc import Iterator
 
 from dpr.adapters.headers import HeaderRead, read_headers
+from dpr.discovery.approots import same_root
 from dpr.model import Finding, Location, Tag
 from dpr.reviews.baseline_config import cookie_findings
 from dpr.reviews.headers_static import HEADERS, Surface, api_only, app_root, csp_values, surfaces
@@ -179,7 +180,7 @@ def version_disclosure(ctx: Context) -> Iterator[Finding]:
             what = (
                 "next.config does not set poweredByHeader: false, so X-Powered-By: Next.js is sent."
             )
-        elif surface.kind == "Express app" and not _express_hides(ctx, surface.root):
+        elif surface.kind == "Express app" and not _express_hides(ctx, surface.location.file):
             what = "The Express app neither calls app.disable('x-powered-by') nor uses helmet."
         else:
             continue
@@ -191,9 +192,9 @@ def version_disclosure(ctx: Context) -> Iterator[Finding]:
         )
 
 
-def _express_hides(ctx: Context, root: str) -> bool:
+def _express_hides(ctx: Context, rel: str) -> bool:
     for entry in ctx.index.js_files:
-        if root and not entry.rel.startswith(root + "/"):
+        if not same_root(ctx.detection.app_roots, entry.rel, rel):
             continue
         text = ctx.index.text(entry.rel)
         if re.search(r"disable\(\s*['\"]x-powered-by['\"]", text) or "helmet(" in text:

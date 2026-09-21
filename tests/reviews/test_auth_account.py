@@ -103,6 +103,24 @@ def test_signup_route_defined_in_the_client_but_never_called(tmp_path):
     assert findings_for(tmp_path, "auth", "AUTH-SIGNUP-NO-UI") == []
 
 
+def root_web_app(root, client, screen):
+    auth_app(root)
+    write(root, "package.json", '{"dependencies": {"react": "18"}}')
+    write(root, "index.html", "<div id=root></div>\n")
+    write(root, "src/api.ts", client)
+    write(root, "src/Screen.tsx", screen)
+
+
+def test_repository_root_web_app_files_count_toward_the_frontend(tmp_path):
+    client = (
+        "export const authApi = {\n"
+        "  register: (data) => api.post('/auth/register', data),\n"
+        "  login: (data) => api.post('/auth/login', data),\n}\n"
+    )
+    root_web_app(tmp_path, client, "authApi.register({})\n")
+    assert findings_for(tmp_path, "auth", "AUTH-SIGNUP-NO-UI") == []
+
+
 def test_signup_route_with_no_reference_and_without_a_frontend(tmp_path):
     web_app(tmp_path, "export const x = 1\n", "export {}\n")
     [finding] = findings_for(tmp_path, "auth", "AUTH-SIGNUP-NO-UI")

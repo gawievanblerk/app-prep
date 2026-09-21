@@ -158,6 +158,20 @@ def test_csp_weak_and_version_disclosure_from_config(tmp_path):
     ] == ["other/app.js:2"]
 
 
+def test_helmet_in_a_sibling_root_does_not_hide_disclosure_for_a_repository_root_app(tmp_path):
+    root = tmp_path
+    write(root, "package.json", "{}")
+    write(root, "app.js", "const express = require('express')\nconst app = express()\n")
+    write(root, "admin/package.json", "{}")
+    write(
+        root,
+        "admin/server.js",
+        "const express = require('express')\nconst app = express()\napp.use(helmet())\n",
+    )
+    found = findings_for(root, "baseline", "BASE-VERSION-DISCLOSURE")
+    assert [str(f.locations[0]) for f in found] == ["app.js:2"]
+
+
 READS = [
     HeaderRead(
         "https root",

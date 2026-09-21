@@ -150,7 +150,8 @@ def _frontend_files(ctx: Context) -> list[str]:
     for entry in ctx.index.js_files:
         if is_test(entry.rel):
             continue
-        in_web = any(entry.rel.startswith(root + "/") for root in web_roots if root)
+        home = root_of(ctx.detection.app_roots, entry.rel)
+        in_web = home is not None and home.path in web_roots
         if in_web or entry.rel.endswith(UI_SUFFIXES):
             found.append(entry.rel)
     return found

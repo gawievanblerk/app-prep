@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import PurePosixPath
 
-from dpr.discovery.approots import root_of
+from dpr.discovery.approots import root_of, same_root
 from dpr.model import Location, Part, ReviewSection
 from dpr.parsing import hcl
 from dpr.parsing.pymigrations import migration_folders, python_migration_state
@@ -114,7 +114,7 @@ def _status_rows(ctx: Context) -> tuple[tuple[str, ...], ...]:
         label = f"{root or 'repository root'}: {names}"
         policies = sum(len(s.policies_for(f"public.{n}")) for n, _ in items for s in (scanned, sql))
         where = sorted({str(PurePosixPath(loc.file).parent) for _, loc in items})
-        local = [f for f, _ in folders if not root or f.startswith(root + "/")]
+        local = [f for f, _ in folders if same_root(ctx.detection.app_roots, f, items[0][1].file)]
         statements = (
             "RLS or policy statements found" if rls or policies else "no RLS or policy statements"
         )
