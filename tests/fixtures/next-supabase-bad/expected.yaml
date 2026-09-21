@@ -19,6 +19,7 @@ findings:
   - {rule: BASE-VERSION-DISCLOSURE, file: next.config.js, line: 1, tag: INFERRED}
   - {rule: INV-CATCHALL-JSON, file: prisma/schema.prisma, line: 6, tag: CONFIRMED}
   - {rule: INV-CATCHALL-JSON, file: supabase/migrations/20240101000000_init.sql, line: 5, tag: CONFIRMED}
+  - {rule: INV-SDK-RECEIVES-PII, file: app/api/generate/route.ts, line: 8, tag: INFERRED}
   - {rule: INV-SPECIAL-CATEGORY, file: prisma/schema.prisma, line: 7, tag: CONFIRMED}
   - {rule: LEAK-BROAD-RESPONSE, file: "app/api/users/[id]/route.ts", line: 6, tag: INFERRED}
   - {rule: LEAK-ENV-IN-HISTORY, file: .env.production, line: 1, tag: CONFIRMED}

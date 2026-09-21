@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dpr.reviews.inventory_fields  # noqa: F401  (registers rules)
+import dpr.reviews.inventory_sources  # noqa: F401  (registers rules)
 from dpr.model import Part, ReviewSection
 from dpr.reviews.personal import personal_fields
 from dpr.rules import Context
