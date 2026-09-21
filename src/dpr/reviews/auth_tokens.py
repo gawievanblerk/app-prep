@@ -18,7 +18,11 @@ PURPOSE = {
     "activation", "magic", "recovery",
 }  # fmt: skip
 HASHED = {"hash", "hashed", "digest", "sha256"}
+HASHED_WORDS = "|".join(sorted((re.escape(w) for w in HASHED), key=len, reverse=True))
 HASH_CALL = re.compile(r"(?i)hash|digest|sha\d+|hmac")
+HASHED_LOOKUP = re.compile(
+    rf"(?i)token\w*_?(?:{HASHED_WORDS})\w*\s*==|token_?(?:{HASHED_WORDS})\w*\s*:"
+)
 EXPIRY_WORDS = re.compile(
     r"(?i)expir|sent_at|sentAt|created_at|createdAt|issued_at|max_age|lifetime|ttl"
 )
@@ -209,7 +213,7 @@ def _hashed_lookups(flow: Flow) -> list[Location]:
     for code in flow.code:
         text_lines = code.text().splitlines()
         for offset, line in enumerate(text_lines):
-            if re.search(r"(?i)token\w*_?hash\w*\s*==|token_?hash\w*\s*:", line):
+            if HASHED_LOOKUP.search(line):
                 found.append(Location(code.rel, code.line + offset))
     return found
 

@@ -127,3 +127,15 @@ def test_email_and_token_in_one_query_is_not_trusting_email(tmp_path):
     )
     app(tmp_path, service)
     assert findings_for(tmp_path, "auth", "AUTH-RESET-TRUSTS-EMAIL") == []
+
+
+def test_digest_and_sha256_reset_columns_give_case_7_a_pass(tmp_path):
+    for column in ("reset_token_digest", "reset_token_sha256"):
+        service = SAFE.replace("reset_token_hash", column)
+        app(tmp_path, service)
+        assert findings_for(tmp_path, "auth", "AUTH-TOKEN-PLAINTEXT") == [], column
+        body = {p.title: p for p in review(tmp_path, reviews=["auth"]).sections["auth"].parts}[
+            "Cases"
+        ].body
+        assert "#### CASE 7: Reset token that belongs to someone else (PASSES)" in body, column
+        assert "api/app/service.py:3" in body, column
