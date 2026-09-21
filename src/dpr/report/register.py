@@ -106,12 +106,21 @@ def build_register(findings: list[Finding], roots: list[AppRoot]) -> list[Issue]
     return issues
 
 
+def _most_severe(members: list[Finding]) -> Finding:
+    """The worst-severity member, ties broken by ranked order (first in `members`)."""
+    return min(
+        enumerate(members), key=lambda pair: (SEVERITY_ORDER.index(pair[1].severity), pair[0])
+    )[1]
+
+
 def _title(key: tuple, members: list[Finding], lead: Finding) -> str:
     if key[0] != "chain":
         return lead.title
     spec = load("register.yaml")["chains"][key[1]]
     if spec["scope"] != "linked":
-        return spec["title"]
+        if set(spec["rules"]) <= {f.rule_id for f in members}:
+            return spec["title"]
+        return _most_severe(members).title
     anchors = [f for f in members if f.rule_id == spec["rules"][0]]
     title = anchors[0].title if anchors else lead.title
     if anchors and len({f.rule_id for f in members}) > 1:
