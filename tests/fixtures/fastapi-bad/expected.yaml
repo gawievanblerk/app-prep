@@ -11,11 +11,8 @@ findings:
   - {rule: BASE-DB-ADMIN-LOGIN, file: infra/main.tf, line: 9, tag: INFERRED}
   - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 1, tag: CONFIRMED}
   - {rule: BASE-DEBUG-ON, file: api/app/config.py, line: 5, tag: INFERRED}
-  - {rule: BASE-HEADER-MISSING-CSP, file: api/app/main.py, line: 10, tag: UNVERIFIED}
-  - {rule: BASE-HEADER-MISSING-FRAME, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-CSP, file: web/staticwebapp.config.json, line: 3, tag: UNVERIFIED}
   - {rule: BASE-HEADER-MISSING-HSTS, file: api/app/main.py, line: 10, tag: UNVERIFIED}
-  - {rule: BASE-HEADER-MISSING-PERMISSIONS, file: api/app/main.py, line: 10, tag: UNVERIFIED}
-  - {rule: BASE-HEADER-MISSING-REFERRER, file: api/app/main.py, line: 10, tag: UNVERIFIED}
   - {rule: BASE-HEADER-MISSING-XCTO, file: api/app/main.py, line: 10, tag: UNVERIFIED}
   - {rule: BASE-HTTPS-NOT-ENFORCED, file: infra/main.tf, line: 12, tag: CONFIRMED}
   - {rule: BASE-LITERAL-PASSWORD-HASH, file: api/app/db/seed.py, line: 8, tag: CONFIRMED}

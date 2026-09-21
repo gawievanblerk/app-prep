@@ -15,6 +15,7 @@ from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 
 WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
+ROLE_ORDER = ("customer", "client", "viewer", "member", "editor", "agent", "manager", "staff")
 EMAIL_SUBJECT = re.compile(
     r"\b(?:current_user|user|me|caller|request\.user|session\.user)\.email\b"
 )
@@ -24,6 +25,14 @@ PUBLIC_ATTACK = (
     "1. Without signing in, request the route with one identifier. 2. Change the identifier. "
     "3. Read or change a record that was not meant to be public."
 )
+
+
+def attacker(evidence: str) -> str:
+    """Who can make the request, from the least privileged role named by the auth check."""
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", evidence).lower()
+    named = set(re.split(r"[^a-z0-9]+", spaced))
+    role = next((r for r in ROLE_ORDER if r in named or f"{r}s" in named), None)
+    return f"any {role} account" if role else "any signed-in user"
 
 
 def unscoped(ctx: Context) -> list[tuple[Route, list, str]]:
@@ -55,7 +64,7 @@ def unscoped_query(ctx: Context) -> Iterator[Finding]:
     for route, items, check in unscoped(ctx):
         lookup = items[0]
         known = owned(ctx, lookup.model) is not None
-        level = access(ctx, route).level
+        level = access(ctx, route)
         proofs = []
         if check == "helper":
             proofs.append(
@@ -65,7 +74,7 @@ def unscoped_query(ctx: Context) -> Iterator[Finding]:
             proofs.append(
                 "The model was not found; confirm the record belongs to a user or tenant."
             )
-        if level == PUBLIC:
+        if level.level == PUBLIC:
             proofs.append(PUBLIC_PROOF)
         locations = [lookup.location, *([lookup.via] if lookup.via else [])]
         locations += [item.location for item in items[1:]]
@@ -75,12 +84,13 @@ def unscoped_query(ctx: Context) -> Iterator[Finding]:
             locations=locations,
             snippet=snippet(ctx.index.text(route.file), lookup.location.line),
             proof_needed=" ".join(proofs) or None,
-            attack=PUBLIC_ATTACK if level == PUBLIC else None,
+            attack=PUBLIC_ATTACK if level.level == PUBLIC else None,
             method=route.method,
             path=route.path,
             key=", ".join(lookup.keys),
             model=lookup.model or "record",
-            level=level,
+            level=level.level,
+            attacker=attacker(level.evidence),
         )
 
 

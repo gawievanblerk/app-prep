@@ -180,11 +180,16 @@ def _py_cookies(ctx: Context) -> Iterator[Finding]:
                 )
 
 
+def cookie_findings(ctx: Context) -> list[Finding]:
+    """Cookie flag findings, computed once per run and shared with the header checks."""
+    if "cookie_findings" not in ctx.facts:
+        ctx.facts["cookie_findings"] = [*_js_cookies(ctx), *_py_cookies(ctx)]
+    return ctx.facts["cookie_findings"]
+
+
 def _cookie_rule(flag: str):
     def check(ctx: Context) -> Iterator[Finding]:
-        if "cookie_findings" not in ctx.facts:
-            ctx.facts["cookie_findings"] = [*_js_cookies(ctx), *_py_cookies(ctx)]
-        for finding in ctx.facts["cookie_findings"]:
+        for finding in cookie_findings(ctx):
             if finding.rule_id == FLAGS[flag]:
                 yield finding
 

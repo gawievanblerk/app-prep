@@ -74,14 +74,14 @@ def test_surfaces_collect_headers_per_app(tmp_path):
 def test_missing_headers_are_unverified_without_url(tmp_path):
     root = repo(tmp_path)
     [hsts] = findings_for(root, "baseline", "BASE-HEADER-MISSING-HSTS")
-    assert hsts.tag.value == "UNVERIFIED" and hsts.severity.value == "high"
+    assert hsts.tag.value == "UNVERIFIED" and hsts.severity.value == "low"
     assert [str(loc) for loc in hsts.locations] == [
         "site/next.config.js:1",
         "web/staticwebapp.config.json:2",
     ]
     assert "web/staticwebapp.config.json (static host config)" in hsts.detail
     [csp] = findings_for(root, "baseline", "BASE-HEADER-MISSING-CSP")
-    assert len(csp.locations) == 4 and csp.severity.value == "medium"
+    assert len(csp.locations) == 3 and csp.severity.value == "medium"
     assert findings_for(root, "baseline", "BASE-HEADER-MISSING-FRAME")[0].severity.value == "low"
 
 

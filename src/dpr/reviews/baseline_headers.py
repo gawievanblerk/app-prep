@@ -7,10 +7,12 @@ from collections.abc import Iterator
 
 from dpr.adapters.headers import HeaderRead, read_headers
 from dpr.model import Finding, Location, Tag
-from dpr.reviews.headers_static import HEADERS, csp_values, surfaces
+from dpr.reviews.baseline_config import cookie_findings
+from dpr.reviews.headers_static import HEADERS, api_only, csp_values, surfaces
 from dpr.rules import Context, make_finding, rule
 
-SEVERITY = {"HSTS": "high", "CSP": "medium"}
+SEVERITY = {"HSTS": "low", "CSP": "medium"}
+DOCUMENT_HEADERS = ("CSP", "FRAME", "REFERRER", "PERMISSIONS")
 LOGIN_PATH = re.compile(r"(?i)/(?:log-?in|sign-?in)$")
 VERSION = re.compile(r"\d")
 
@@ -44,6 +46,13 @@ def _read(ctx: Context, label: str) -> HeaderRead | None:
     return None
 
 
+def _severity(ctx: Context, key: str) -> str:
+    """Header gaps rank below access control: at most medium, HSTS medium only with weak cookies."""
+    if key == "HSTS" and any(f.rule_id == "BASE-COOKIE-SECURE" for f in cookie_findings(ctx)):
+        return "medium"
+    return SEVERITY.get(key, "low")
+
+
 def _missing(ctx: Context, key: str) -> Iterator[Finding]:
     header = HEADERS[key]
     root = _read(ctx, "https root")
@@ -56,19 +65,23 @@ def _missing(ctx: Context, key: str) -> Iterator[Finding]:
                 f"BASE-HEADER-MISSING-{key}",
                 tag=Tag.CONFIRMED,
                 locations=[Location(root.url, 1)],
-                severity=SEVERITY.get(key, "low"),
+                severity=_severity(ctx, key),
                 header=header,
                 where=f"the live response from {root.url}",
             )
         return
-    lacking = [s for s in surfaces(ctx) if header not in s.headers]
+    lacking = [
+        s
+        for s in surfaces(ctx)
+        if header not in s.headers and not (key in DOCUMENT_HEADERS and api_only(ctx, s))
+    ]
     if lacking:
         where = "; ".join(f"{s.name} ({s.kind})" for s in lacking)
         yield make_finding(
             f"BASE-HEADER-MISSING-{key}",
             tag=Tag.UNVERIFIED,
             locations=[s.location for s in lacking][:10],
-            severity=SEVERITY.get(key, "low"),
+            severity=_severity(ctx, key),
             header=header,
             where=where,
         )

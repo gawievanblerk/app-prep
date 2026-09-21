@@ -3,7 +3,7 @@ OWASP-A01-UNSCOPED-QUERY:
   effort_minutes: 15
   detail: The ${level} route ${method} ${path} looks up a ${model} using ${key} from the request, and neither the query nor a later check ties the record to the caller.
   proof_needed: Confirm the record belongs to a user or tenant and that nothing outside this code path checks ownership.
-  attack: 1. Sign in as any user. 2. Note the identifier of one of your own records. 3. Request the same route with another identifier. 4. Read or change a record that belongs to someone else.
+  attack: 1. Sign in as ${attacker}. 2. Note the identifier of one of your own records. 3. Request the same route with another identifier. 4. Read or change a record that belongs to someone else.
   blast: Every ${model} record reachable through ${method} ${path}.
   fix: Put the caller into the query itself, for example where(Model.id == key, Model.owner_id == current_user.id) or findFirst({ where { id, userId session.user.id } }), and return 404 when nothing matches.
   verify: As user A, request a record that belongs to user B through ${method} ${path} and expect 404.
