@@ -126,12 +126,30 @@ def _py_kind(node: ast.AST) -> str | None:
     return "value" if personal_name(leaf, ".".join(chain[:-1])) else None
 
 
-def _handler_scope(tree: ast.Module, line: int) -> tuple[ast.ExceptHandler | None, ast.Try | None]:
-    for block in ast.walk(tree):
-        if isinstance(block, ast.Try):
-            for handler in block.handlers:
-                if handler.lineno <= line <= (handler.end_lineno or handler.lineno):
-                    return handler, block
+HandlerScope = tuple[int, int, ast.ExceptHandler, ast.Try]
+
+
+def _handler_scopes(ctx: Context, rel: str, tree: ast.Module) -> list[HandlerScope]:
+    """(first line, last line, handler, try block) for every except handler, once per file."""
+    key = ("py-except-scopes", rel)
+    if key not in ctx.index.cache:
+        found = []
+        for block in ast.walk(tree):
+            if isinstance(block, ast.Try):
+                for handler in block.handlers:
+                    found.append(
+                        (handler.lineno, handler.end_lineno or handler.lineno, handler, block)
+                    )
+        ctx.index.cache[key] = found
+    return ctx.index.cache[key]
+
+
+def _handler_scope(
+    ctx: Context, rel: str, tree: ast.Module, line: int
+) -> tuple[ast.ExceptHandler | None, ast.Try | None]:
+    for first, last, handler, block in _handler_scopes(ctx, rel, tree):
+        if first <= line <= last:
+            return handler, block
     return None, None
 
 
@@ -141,16 +159,16 @@ def _catch_all(handler: ast.ExceptHandler | None) -> bool:
     )
 
 
-def _py_error(tree: ast.Module, call: ast.Call, arg: ast.AST) -> bool:
+def _py_error(ctx: Context, rel: str, tree: ast.Module, call: ast.Call, arg: ast.AST) -> bool:
     if isinstance(arg, ast.JoinedStr):
         values = [v.value for v in arg.values if isinstance(v, ast.FormattedValue)]
-        return any(_py_error(tree, call, v) for v in values)
+        return any(_py_error(ctx, rel, tree, call, v) for v in values)
     if isinstance(arg, ast.Call) and pyast.dotted(arg.func) in ("str", "repr") and arg.args:
-        return _py_error(tree, call, arg.args[0])
+        return _py_error(ctx, rel, tree, call, arg.args[0])
     root = pyast.name_root(arg)
     if root not in ERROR_NAMES:
         return False
-    handler, block = _handler_scope(tree, call.lineno)
+    handler, block = _handler_scope(ctx, rel, tree, call.lineno)
     if handler is not None and handler.name == root:
         body = "\n".join(ast.unparse(s) for s in block.body)
         if PY_DB.search(body) and not HEALTH_QUERY.search(body):
@@ -174,7 +192,7 @@ def _python(ctx: Context, rel: str) -> Iterator[Hit]:
     for call in pyast.calls(tree, PY_LOG_CALL):
         values = [*call.args, *(k.value for k in call.keywords if k.arg == "extra")]
         kinds = [_py_kind(a) for a in values]
-        if any(_py_error(tree, call, a) for a in call.args):
+        if any(_py_error(ctx, rel, tree, call, a) for a in call.args):
             kinds.append("object")
         kind = "object" if "object" in kinds else ("value" if "value" in kinds else None)
         if kind is None:
