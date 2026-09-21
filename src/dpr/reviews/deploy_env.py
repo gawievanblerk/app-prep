@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from dpr.discovery.approots import DEPLOY_FILES
+from dpr.discovery.approots import DEPLOY_FILES, root_of
 from dpr.model import Location
 from dpr.rules import Context
 from dpr.walk import line_of
@@ -31,12 +31,30 @@ class Setting:
     secret: bool
 
 
-def deploy_files(ctx: Context, ci: bool = True) -> list[str]:
-    """Files that configure a deployed environment. Local compose files are not included."""
+def _applies(ctx: Context, deploy_rel: str, rel: str | None) -> bool:
+    """A deploy file applies to `rel`'s app root when it is shared or belongs to that root.
+
+    Shared: the deploy file's own root is None, the repository root (path ""), or a "library"
+    kind. Repository-level infra configures every app and always applies. Any other deploy file
+    (inside a different app root) applies only when it shares that root with `rel`."""
+    if rel is None:
+        return True
+    deploy_root = root_of(ctx.detection.app_roots, deploy_rel)
+    if deploy_root is None or not deploy_root.path or deploy_root.kind == "library":
+        return True
+    finding_root = root_of(ctx.detection.app_roots, rel)
+    return finding_root is not None and finding_root.path == deploy_root.path
+
+
+def deploy_files(ctx: Context, ci: bool = True, rel: str | None = None) -> list[str]:
+    """Files that configure a deployed environment. Local compose files are not included.
+
+    With `rel`, only files that apply to that finding's app root are returned (see `_applies`)."""
     names = [f.rel for f in ctx.index.named(*DEPLOY_FILES, "Dockerfile")]
     names += [f.rel for f in ctx.index.with_suffix(".tf")]
     names += list(ctx.detection.ci) if ci else []
-    return list(dict.fromkeys(names))
+    names = list(dict.fromkeys(names))
+    return [n for n in names if _applies(ctx, n, rel)]
 
 
 def _assignment(name: str) -> re.Pattern[str]:
@@ -59,33 +77,40 @@ def _render_pairs(text: str, name: str) -> list[tuple[int, str, str]]:
     return found
 
 
-def settings_named(ctx: Context, name: str, ci: bool = True) -> list[Setting]:
+def settings_named(
+    ctx: Context, name: str, ci: bool = True, rel: str | None = None
+) -> list[Setting]:
     found = []
-    for rel in deploy_files(ctx, ci):
-        text = ctx.index.text(rel)
+    for deploy_rel in deploy_files(ctx, ci, rel):
+        text = ctx.index.text(deploy_rel)
         if name not in text:
             continue
         for number, value, tail in _render_pairs(text, name):
             secret = bool(SECRET_MARKERS.search(tail))
-            found.append(Setting(name, value, Location(rel, number), secret))
+            found.append(Setting(name, value, Location(deploy_rel, number), secret))
         for match in _assignment(name).finditer(text):
             raw = match.group(1).strip()
             if raw.startswith("-") or not raw:
                 continue
             value = raw.strip().strip("\"'").split('"')[0].split("'")[0]
             secret = bool(SECRET_MARKERS.search(raw))
-            found.append(Setting(name, value, Location(rel, line_of(text, match.start())), secret))
+            location = Location(deploy_rel, line_of(text, match.start()))
+            found.append(Setting(name, value, location, secret))
     return found
 
 
-def secret_reference(ctx: Context, name: str) -> Location | None:
-    """Where a deploy config supplies the variable from a secret store, if it does."""
-    return next((s.location for s in settings_named(ctx, name) if s.secret), None)
+def secret_reference(ctx: Context, name: str, rel: str | None = None) -> Location | None:
+    """Where a deploy config supplies the variable from a secret store, if it does.
+
+    With `rel`, only a deploy file that applies to that finding's app root counts."""
+    return next((s.location for s in settings_named(ctx, name, rel=rel) if s.secret), None)
 
 
-def all_false(ctx: Context, name: str) -> list[Location]:
-    """Locations when every deploy config (not CI) that sets the variable sets it false."""
-    values = settings_named(ctx, name, ci=False)
+def all_false(ctx: Context, name: str, rel: str | None = None) -> list[Location]:
+    """Locations when every applicable deploy config (not CI) that sets the variable sets it
+    false, and at least one does. With `rel`, only deploy files that apply to that finding's app
+    root count."""
+    values = settings_named(ctx, name, ci=False, rel=rel)
     if values and all(s.value.lower() in FALSE_WORDS for s in values):
         return [s.location for s in values]
     return []

@@ -82,7 +82,7 @@ def _settings_debug(ctx: Context, rel: str, tree: ast.Module) -> Iterator[Findin
                 and pyast.constant(stmt.value) is True
             ):
                 continue
-            if _production_guard(cls) or all_false(ctx, "DEBUG"):
+            if _production_guard(cls) or all_false(ctx, "DEBUG", rel):
                 continue
             sinks, docs = _uses(ctx, rel)
             if sinks:

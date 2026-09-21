@@ -89,6 +89,30 @@ def test_one_deploy_config_turning_debug_on_keeps_the_finding(tmp_path):
     assert len(findings_for(tmp_path, "baseline", "BASE-DEBUG-ON")) == 1
 
 
+def _worker_app(root):
+    write(root, "worker/requirements.txt", "flask\n")
+    write(
+        root,
+        "worker/app.py",
+        "from flask import Flask\napp = Flask(__name__)\n\n\n@app.route('/x')\ndef x():\n"
+        "    return 'ok'\n",
+    )
+
+
+def test_deploy_setting_in_a_different_app_root_does_not_suppress(tmp_path):
+    api(tmp_path, main="from fastapi import FastAPI\napp = FastAPI(debug=settings.debug)\n")
+    _worker_app(tmp_path)
+    write(tmp_path, "worker/infra/main.tf", 'app_settings = {\n  DEBUG = "false"\n}\n')
+    assert len(findings_for(tmp_path, "baseline", "BASE-DEBUG-ON")) == 1
+
+
+def test_shared_repository_level_deploy_setting_still_suppresses(tmp_path):
+    api(tmp_path, main="from fastapi import FastAPI\napp = FastAPI(debug=settings.debug)\n")
+    _worker_app(tmp_path)
+    write(tmp_path, "infra/main.tf", 'app_settings = {\n  DEBUG = "false"\n}\n')
+    assert findings_for(tmp_path, "baseline", "BASE-DEBUG-ON") == []
+
+
 def test_sink_in_another_app_root_does_not_count(tmp_path):
     api(tmp_path)
     write(tmp_path, "worker/requirements.txt", "flask\n")

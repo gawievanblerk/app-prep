@@ -219,7 +219,7 @@ def _seed_finding(ctx: Context, rel: str, number: int, text: str, sites: dict) -
         severity = "high" if non_production(stage) else "critical"
         detail = f" The seed file {direct[0]} hashes passwords written in the repository."
     elif fallback and fallback[0].env_name:
-        secret = secret_reference(ctx, fallback[0].env_name)
+        secret = secret_reference(ctx, fallback[0].env_name, rel)
         if secret is not None:
             severity = "medium"
             locations.append(secret)
