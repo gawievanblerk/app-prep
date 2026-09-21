@@ -104,7 +104,7 @@ def app_roots(index: RepoIndex, routes: list[Route], ci: list[str]) -> list[AppR
         else:
             roots.append(AppRoot(folder, kind, None, ""))
     apps = [r for r in roots if r.path and r.kind != "library"]
-    if any(r.deployed for r in apps):
+    if any(r.deployed for r in roots if r.path):
         roots = [
             replace(r, deployed=False, evidence="no deploy or CI configuration names it")
             if r in apps and r.deployed is None

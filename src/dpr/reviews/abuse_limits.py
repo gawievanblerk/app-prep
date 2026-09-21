@@ -7,6 +7,7 @@ import re
 from collections.abc import Iterator
 
 from dpr.data import load
+from dpr.discovery.approots import root_of
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import imports, jsts, pyast
 from dpr.redact import snippet
@@ -135,6 +136,9 @@ def multi_process(ctx: Context, near: str = "") -> Location | None:
             if number is not None:
                 found.append(Location(entry.rel, number))
                 break
+    if near:
+        home = root_of(ctx.detection.app_roots, near)
+        found = [loc for loc in found if root_of(ctx.detection.app_roots, loc.file) == home]
     if not found:
         return None
     return max(found, key=lambda loc: len(_common(loc.file, near)))
@@ -238,6 +242,8 @@ def inmemory_limiter(ctx: Context) -> Iterator[Finding]:
     configured = _configured_storage(ctx)
     for rel, tree, call in _limiters(ctx):
         evidence = multi_process(ctx, rel)
+        if evidence is None:
+            continue
         kind = _memory_storage(tree, call, configured)
         if kind == "always":
             what = "The limiter keeps its counters in process memory."
@@ -263,20 +269,21 @@ def inmemory_limiter(ctx: Context) -> Iterator[Finding]:
         for tree in jsts.parse_file(ctx.index, entry.rel):
             for call in jsts.calls(tree, callee) if callee else []:
                 args = jsts.arguments(call)
-                if not args or "store" not in jsts.object_pairs(args[0]):
+                evidence = multi_process(ctx, entry.rel)
+                if evidence is not None and (not args or "store" not in jsts.object_pairs(args[0])):
                     what = "express-rate-limit has no store option, so it counts in process memory."
                     line = jsts.line(tree, call)
-                    evidence = multi_process(ctx, entry.rel)
                     yield _inmemory(ctx, entry.rel, line, Tag.CONFIRMED, what, evidence)
             for decl in jsts.walk(tree.root, {"variable_declarator"}):
                 name = jsts.node_text(decl.child_by_field_name("name"))
                 value = jsts.node_text(decl.child_by_field_name("value"))
                 top_level = jsts.enclosing_function(decl) is None
+                evidence = multi_process(ctx, entry.rel)
                 if top_level and value.startswith("new Map(") and COUNTER_NAME.search(name):
-                    what = f"The module-level Map {name} counts requests in process memory."
-                    line = jsts.line(tree, decl)
-                    evidence = multi_process(ctx, entry.rel)
-                    yield _inmemory(ctx, entry.rel, line, Tag.INFERRED, what, evidence)
+                    if evidence is not None:
+                        what = f"The module-level Map {name} counts requests in process memory."
+                        line = jsts.line(tree, decl)
+                        yield _inmemory(ctx, entry.rel, line, Tag.INFERRED, what, evidence)
 
 
 @rule(
@@ -316,7 +323,14 @@ def limiter_proxy_ip(ctx: Context) -> Iterator[Finding]:
         return
     if any(PROXY_TRUST.search(ctx.index.text(f.rel)) for f in ctx.index.files):
         return
+
+    def undeployed(rel: str) -> bool:
+        home = root_of(ctx.detection.app_roots, rel)
+        return home is not None and home.deployed is False
+
     for rel, _tree, call in _limiters(ctx):
+        if undeployed(rel):
+            continue
         key = pyast.kwarg(call, "key_func")
         if key is not None and (pyast.dotted(key) or "").endswith("get_remote_address"):
             yield make_finding(
@@ -328,6 +342,8 @@ def limiter_proxy_ip(ctx: Context) -> Iterator[Finding]:
             )
     for entry in ctx.index.js_files:
         if is_test(entry.rel) or "rate-limit" not in ctx.index.text(entry.rel):
+            continue
+        if undeployed(entry.rel):
             continue
         names = {
             local

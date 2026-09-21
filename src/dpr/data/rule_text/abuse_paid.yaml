@@ -24,7 +24,7 @@ ABUSE-NO-KILL-SWITCH:
   fix: Read an environment or feature flag such as ${flag} on every request and return 503 when it is off.
   verify: Set ${flag}=false in a test environment and confirm the route returns 503 without calling ${sdk}.
 ABUSE-FORM-NO-CHALLENGE:
-  title: Public forms accept unlimited automated submissions
+  title: Public forms ${summary}
   effort_minutes: 30
   detail: 'These unauthenticated form routes have no bot challenge or honeypot: ${routes}. Each is a free write into the system and, when it sends email, a free send from your quota.'
   proof_needed: Check whether a WAF, edge rule or provider-side challenge protects these routes.
