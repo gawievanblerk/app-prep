@@ -82,7 +82,6 @@ def test_debug_on(tmp_path):
     write(tmp_path, "notes.py", "DEBUG = True\n")
     found = findings_for(tmp_path, "baseline", "BASE-DEBUG-ON")
     assert sorted(str(f.locations[0]) for f in found) == [
-        "api/config.py:3",
         "api/main.py:2",
         "proj/settings.py:2",
     ]

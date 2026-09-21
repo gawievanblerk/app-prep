@@ -1,6 +1,6 @@
 # Every finding the scan must report, and nothing else.
 findings:
-  - {rule: ABUSE-ERROR-LEAK, file: api/app/main.py, line: 29, tag: CONFIRMED}
+  - {rule: ABUSE-ERROR-LEAK, file: api/app/main.py, line: 30, tag: CONFIRMED}
   - {rule: ABUSE-FORM-NO-CHALLENGE, file: api/app/routes/auth.py, line: 13, tag: INFERRED}
   - {rule: ABUSE-INMEMORY-LIMITER, file: api/app/core/rate_limit.py, line: 12, tag: INFERRED}
   - {rule: ABUSE-LIMITER-NOT-APPLIED, file: api/app/core/rate_limit.py, line: 15, tag: CONFIRMED}
@@ -11,12 +11,12 @@ findings:
   - {rule: BASE-DB-ADMIN-LOGIN, file: infra/main.tf, line: 9, tag: INFERRED}
   - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 1, tag: CONFIRMED}
   - {rule: BASE-DEBUG-ON, file: api/app/config.py, line: 5, tag: INFERRED}
-  - {rule: BASE-HEADER-MISSING-CSP, file: api/app/main.py, line: 9, tag: UNVERIFIED}
-  - {rule: BASE-HEADER-MISSING-FRAME, file: api/app/main.py, line: 9, tag: UNVERIFIED}
-  - {rule: BASE-HEADER-MISSING-HSTS, file: api/app/main.py, line: 9, tag: UNVERIFIED}
-  - {rule: BASE-HEADER-MISSING-PERMISSIONS, file: api/app/main.py, line: 9, tag: UNVERIFIED}
-  - {rule: BASE-HEADER-MISSING-REFERRER, file: api/app/main.py, line: 9, tag: UNVERIFIED}
-  - {rule: BASE-HEADER-MISSING-XCTO, file: api/app/main.py, line: 9, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-CSP, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-FRAME, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-HSTS, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-PERMISSIONS, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-REFERRER, file: api/app/main.py, line: 10, tag: UNVERIFIED}
+  - {rule: BASE-HEADER-MISSING-XCTO, file: api/app/main.py, line: 10, tag: UNVERIFIED}
   - {rule: BASE-HTTPS-NOT-ENFORCED, file: infra/main.tf, line: 12, tag: CONFIRMED}
   - {rule: BASE-LITERAL-PASSWORD-HASH, file: api/app/db/seed.py, line: 8, tag: CONFIRMED}
   - {rule: BASE-SAMESITE-NONE-NO-CSRF, file: infra/main.tf, line: 15, tag: INFERRED}

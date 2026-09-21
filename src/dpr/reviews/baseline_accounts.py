@@ -12,6 +12,7 @@ from pathlib import PurePosixPath
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast, pyvalues
 from dpr.redact import redact, snippet
+from dpr.reviews.deploy_env import non_production, secret_reference, start_stage
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
@@ -240,25 +241,42 @@ def seed_on_start(ctx: Context) -> Iterator[Finding]:
                 continue
             if not SEED_COMMAND.search(stripped):
                 continue
-            targets = _seed_target(ctx, entry.rel, stripped)
-            with_passwords = [
-                t for t in targets if any(not lit.env_fallback for _, lit in sites.get(t, []))
-            ]
+            yield _seed_finding(ctx, entry.rel, number, text, sites)
+
+
+def _seed_finding(ctx: Context, rel: str, number: int, text: str, sites: dict) -> Finding:
+    targets = _seed_target(ctx, rel, text.splitlines()[number - 1].strip())
+    direct = [t for t in targets if any(not lit.env_fallback for _, lit in sites.get(t, []))]
+    fallback = [lit for t in targets for _, lit in sites.get(t, []) if lit.env_fallback]
+    stage = start_stage(ctx, rel, number)
+    severity, detail, proof, locations = "high", "", None, [Location(rel, number)]
+    if direct:
+        severity = "high" if non_production(stage) else "critical"
+        detail = f" The seed file {direct[0]} hashes passwords written in the repository."
+    elif fallback and fallback[0].env_name:
+        secret = secret_reference(ctx, fallback[0].env_name)
+        if secret is not None:
+            severity = "medium"
+            locations.append(secret)
             detail = (
-                f" The seed file {with_passwords[0]} hashes passwords written in the repository."
-                if with_passwords
-                else ""
+                f" The seed falls back to a committed password only when "
+                f"{fallback[0].env_name} is unset, and {secret.file} supplies that variable "
+                "from a secret store."
             )
-            yield make_finding(
-                "BASE-SEED-ON-START",
-                tag=Tag.INFERRED,
-                locations=[Location(entry.rel, number)],
-                severity="critical" if with_passwords else "high",
-                snippet=snippet(text, number),
-                refs=("BASE-LITERAL-PASSWORD-HASH",) if with_passwords else (),
-                start=entry.rel,
-                extra=detail,
-            )
+            proof = f"Check that the secret reference for {fallback[0].env_name} resolves."
+    if stage:
+        detail += f" This start command runs with the {stage} environment setting."
+    return make_finding(
+        "BASE-SEED-ON-START",
+        tag=Tag.INFERRED,
+        locations=locations,
+        severity=severity,
+        snippet=snippet(text, number),
+        proof_needed=proof,
+        refs=("BASE-LITERAL-PASSWORD-HASH",) if direct else (),
+        start=rel,
+        extra=detail,
+    )
 
 
 def _py_short_minimums(tree: ast.Module) -> Iterator[tuple[int, int]]:

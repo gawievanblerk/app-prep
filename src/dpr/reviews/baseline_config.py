@@ -1,4 +1,4 @@
-"""Review 4, baseline: cookie flags, debug mode, weak password hashing, mixed content."""
+"""Review 4, baseline: cookie flags, weak password hashing, mixed content."""
 
 from __future__ import annotations
 
@@ -195,54 +195,6 @@ for _flag, _rule_id in FLAGS.items():
     rule(_rule_id, review="baseline", severity="high", exploitability="medium", owasp="A05")(
         _cookie_rule(_flag)
     )
-
-
-def _debug(ctx: Context, rel: str, line: int, what: str) -> Finding:
-    return make_finding(
-        "BASE-DEBUG-ON",
-        tag=Tag.INFERRED,
-        locations=[Location(rel, line)],
-        snippet=snippet(ctx.index.text(rel), line),
-        what=what,
-    )
-
-
-@rule("BASE-DEBUG-ON", review="baseline", severity="high", exploitability="medium", owasp="A05")
-def debug_on(ctx: Context) -> Iterator[Finding]:
-    for entry in ctx.index.py_files:
-        text = ctx.index.text(entry.rel)
-        if "debug" not in text.lower():
-            continue
-        tree = pyast.parse_file(ctx.index, entry.rel)
-        if tree is None:
-            continue
-        django = "INSTALLED_APPS" in text
-        for stmt in tree.body:
-            if (
-                django
-                and isinstance(stmt, ast.Assign)
-                and isinstance(stmt.targets[0], ast.Name)
-                and stmt.targets[0].id == "DEBUG"
-                and pyast.constant(stmt.value) is True
-            ):
-                yield _debug(ctx, entry.rel, stmt.lineno, "Django settings set DEBUG = True.")
-        for call in pyast.calls(tree, r"(?:\w+\.)?(?:FastAPI|Flask|run)"):
-            if pyast.constant(pyast.kwarg(call, "debug")) is True:
-                yield _debug(
-                    ctx, entry.rel, call.lineno, "The app is created or run with debug=True."
-                )
-        for cls in pyast.class_defs(tree):
-            if not any(b.endswith("Settings") for b in pyast.base_names(cls)):
-                continue
-            for stmt in cls.body:
-                if (
-                    isinstance(stmt, ast.AnnAssign)
-                    and isinstance(stmt.target, ast.Name)
-                    and stmt.target.id.lower() == "debug"
-                    and pyast.constant(stmt.value) is True
-                ):
-                    what = "The settings class turns debug on unless the environment sets it."
-                    yield _debug(ctx, entry.rel, stmt.lineno, what)
 
 
 def _password_context(call_text: str, fn: ast.AST | None) -> bool:

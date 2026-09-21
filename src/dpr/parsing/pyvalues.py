@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from dpr.parsing import pyast
 
@@ -14,6 +14,7 @@ ENV_GET = ("os.environ.get", "os.getenv", "environ.get", "getenv")
 class Literal:
     value: str
     env_fallback: bool = False
+    env_name: str = field(default="", compare=False)
 
 
 def _assigned(body: list[ast.stmt], name: str, before: int) -> ast.expr | None:
@@ -62,7 +63,8 @@ def resolve(tree: ast.Module, node: ast.AST | None, line: int, depth: int = 0) -
         return Literal(node.value)
     if isinstance(node, ast.Call) and pyast.dotted(node.func) in ENV_GET and len(node.args) > 1:
         inner = resolve(tree, node.args[1], line, depth + 1)
-        return Literal(inner.value, True) if inner else None
+        name = pyast.constant(node.args[0], "")
+        return Literal(inner.value, True, name if isinstance(name, str) else "") if inner else None
     fn = pyast.function_at(tree, line)
     if isinstance(node, ast.Name):
         value = _assigned(fn.body, node.id, line) if fn is not None else None
