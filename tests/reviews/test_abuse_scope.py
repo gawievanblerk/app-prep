@@ -146,3 +146,18 @@ def test_shared_store_setting_of_another_root_does_not_cover_the_limiter(tmp_pat
     assert (str(finding.locations[0]), finding.tag.value) == ("api/app/rate_limit.py:3", "INFERRED")
     write(root, "api/app/config.py", "RATELIMIT_STORAGE_URL = 'redis://cache:6379'\n")
     assert findings_for(root, "abuse", "ABUSE-INMEMORY-LIMITER") == []
+
+
+def test_repository_level_compose_worker_count_applies_to_every_root(tmp_path):
+    write(tmp_path, "backend/requirements.txt", "fastapi\nslowapi\n")
+    write(
+        tmp_path, "backend/main.py", "from fastapi import FastAPI\napp = FastAPI()\n" + PY_LIMITER
+    )
+    write(
+        tmp_path,
+        "docker-compose.yml",
+        "services:\n  api:\n    build: ./backend\n"
+        "    command: uvicorn main:app --host 0.0.0.0 --workers 4\n",
+    )
+    [finding] = findings_for(tmp_path, "abuse", "ABUSE-INMEMORY-LIMITER")
+    assert [str(loc) for loc in finding.locations] == ["backend/main.py:5", "docker-compose.yml:4"]

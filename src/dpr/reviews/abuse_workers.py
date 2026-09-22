@@ -6,7 +6,6 @@ import re
 from collections.abc import Iterator
 
 from dpr.data import load
-from dpr.discovery.approots import root_of
 from dpr.model import Location
 from dpr.reviews.baseline_accounts import START_FILES
 from dpr.reviews.deploy_env import applies
@@ -106,6 +105,8 @@ def multi_process(ctx: Context, near: str = "") -> Location | None:
     """Evidence that more than one process or instance serves requests, closest to `near`.
 
     For serverless hosting the evidence is the host's config file (for example vercel.json).
+    With `near`, only files that apply to its app root count: its own root, or shared
+    repository-level infra such as a root docker-compose.yml (see `deploy_env.applies`).
     """
     if ctx.detection.serverless:
         hosting = _hosting_file(ctx, near)
@@ -121,8 +122,7 @@ def multi_process(ctx: Context, near: str = "") -> Location | None:
                 found.append(Location(entry.rel, number))
                 break
     if near:
-        home = root_of(ctx.detection.app_roots, near)
-        found = [loc for loc in found if root_of(ctx.detection.app_roots, loc.file) == home]
+        found = [loc for loc in found if applies(ctx, loc.file, near)]
     if not found:
         return None
     return max(found, key=lambda loc: len(_common(loc.file, near)))
