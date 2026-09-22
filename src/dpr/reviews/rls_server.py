@@ -193,9 +193,17 @@ def reduced_section(ctx: Context) -> ReviewSection:
         confirm += (
             "\n\nNetwork exposure, run by the owner:\n\n```bash\n" + "\n".join(commands) + "\n```"
         )
+    rows = _status_rows(ctx)
+    count = sum(int(row[2]) for row in rows)
+    found = (
+        f"{count} database {'policy was' if count == 1 else 'policies were'} found; "
+        f"{'it is' if count == 1 else 'they are'} not evaluated at reduced relevance."
+        if count
+        else "No database policies are defined, so none can be defective."
+    )
     defects = (
-        "No database policies are defined, so none can be defective. Access control is enforced "
-        "in application code; review 5 lists routes that load records without an owner check."
+        f"{found} Access control is enforced in application code; review 5 lists routes that "
+        "load records without an owner check."
     )
     return ReviewSection(
         "rls",
@@ -212,7 +220,7 @@ def reduced_section(ctx: Context) -> ReviewSection:
                     "Verdict",
                     "Evidence",
                 ),
-                _status_rows(ctx),
+                rows,
             ),
             Part("text", "Policy defects", body=defects),
             Part(

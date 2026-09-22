@@ -120,3 +120,19 @@ def test_refs_part_without_findings_prints_its_note(tmp_path):
     )
     text = render_markdown(review(tmp_path, reviews=["rls"]))
     assert "No database firewall, public access or admin connection string finding" in text
+
+
+def test_policy_defects_text_follows_the_policy_count(tmp_path):
+    root = two_apis(tmp_path)
+    assert section(root)["Policy defects"].body.startswith("No database policies are defined")
+    write(
+        root,
+        "api/alembic/versions/003_policy.py",
+        "from alembic import op\n\ndef upgrade():\n"
+        '    op.execute("create policy notes_all on notes using (true)")\n',
+    )
+    parts = section(root)
+    assert [r[:3] for r in parts["Table protection status"].rows][1] == ("api: notes", "yes", "1")
+    body = parts["Policy defects"].body
+    assert body.startswith("1 database policy was found; it is not evaluated at reduced relevance.")
+    assert "No database policies" not in body
