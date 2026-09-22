@@ -11,7 +11,7 @@ findings:
   - {rule: ABUSE-PAID-ANY-ROLE, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
   - {rule: ABUSE-PAID-UNLIMITED, file: api/app/routes/chat.py, line: 10, tag: INFERRED}
   - {rule: ABUSE-UPLOAD-UNBOUNDED, file: api/app/routes/files.py, line: 19, tag: CONFIRMED}
-  - {rule: AUTH-EMAIL-CHANGE-UNVERIFIED, file: api/app/services/accounts.py, line: 73, tag: CONFIRMED}
+  - {rule: AUTH-EMAIL-CHANGE-UNVERIFIED, file: api/app/services/accounts.py, line: 73, tag: INFERRED}
   - {rule: AUTH-ENUM-LOCKOUT-STATUS, file: api/app/routes/account.py, line: 19, tag: CONFIRMED}
   - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: api/app/services/accounts.py, line: 22, tag: CONFIRMED}
   - {rule: AUTH-ENUM-TIMING, file: api/app/services/accounts.py, line: 29, tag: INFERRED}

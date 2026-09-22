@@ -21,14 +21,15 @@ USERS = (
 )
 
 
-def test_self_update_that_allows_email_is_confirmed(tmp_path):
+def test_update_by_user_id_that_allows_email_is_inferred(tmp_path):
     auth_app(tmp_path, users=USERS)
     write(tmp_path, "api/app/services/user_service.py", UPDATE_SERVICE)
     [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED")
     assert (finding.tag.value, str(finding.locations[0])) == (
-        "CONFIRMED",
+        "INFERRED",
         "api/app/services/user_service.py:4",
     )
+    assert finding.proof_needed
 
 
 def test_email_change_with_verification_passes(tmp_path):
@@ -207,3 +208,94 @@ def test_email_uniqueness_is_judged_only_where_a_register_flow_shares_the_root(t
     write(tmp_path, "api/app/models.py", LEGACY_USER)
     [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-NOT-UNIQUE")
     assert str(finding.locations[0]) == "api/app/models.py:7"
+
+
+def self_route(root, path, body, method="patch", args="data: UserUpdate"):
+    write(root, "api/requirements.txt", "fastapi\n")
+    write(
+        root,
+        "api/app/routes/users.py",
+        "from fastapi import APIRouter, Depends\n\nrouter = APIRouter()\n\n\n"
+        f"@router.{method}('{path}')\n"
+        f"async def update({args}, user=Depends(get_current_user)):\n{body}",
+    )
+
+
+def test_a_handler_that_excludes_email_is_not_an_email_write(tmp_path):
+    self_route(
+        tmp_path,
+        "/users/me",
+        "    values = data.model_dump(exclude_unset=True, exclude={'email', 'role'})\n"
+        "    for key, value in values.items():\n"
+        "        setattr(user, key, value)\n"
+        "    return user\n",
+    )
+    assert findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED") == []
+
+
+def test_a_field_tuple_that_guards_no_write_is_not_an_email_write(tmp_path):
+    self_route(
+        tmp_path,
+        "/users/me",
+        "    audited = ('role', 'email')\n"
+        "    changed = {}\n"
+        "    for key, value in data.model_dump(exclude_unset=True).items():\n"
+        "        if key in audited and getattr(user, key) != value:\n"
+        "            changed[key] = value\n"
+        "    return changed\n",
+    )
+    assert findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED") == []
+
+
+def test_a_direct_email_write_on_a_self_route_is_confirmed(tmp_path):
+    self_route(tmp_path, "/profile", "    user.email = data.email\n    return user\n", "put")
+    [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED")
+    assert (finding.tag.value, str(finding.locations[0])) == (
+        "CONFIRMED",
+        "api/app/routes/users.py:8",
+    )
+
+
+def test_an_allow_list_on_a_self_route_is_inferred(tmp_path):
+    self_route(
+        tmp_path,
+        "/users/me",
+        "    allowed = {'name', 'email'}\n"
+        "    restricted = set(data.model_dump(exclude_unset=True)) - allowed\n"
+        "    if restricted:\n"
+        "        raise ValueError('not allowed')\n"
+        "    return await save(user, data)\n",
+    )
+    [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED")
+    assert (finding.tag.value, str(finding.locations[0])) == (
+        "INFERRED",
+        "api/app/routes/users.py:8",
+    )
+    assert finding.proof_needed
+
+
+def test_admin_put_on_a_user_id_with_a_generic_guard_is_inferred(tmp_path):
+    self_route(
+        tmp_path,
+        "/users/{user_id}",
+        "    target = await db.get(User, user_id)\n    target.email = data.email\n    return target\n",
+        "put",
+        "user_id: int, data: UserUpdate",
+    )
+    [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED")
+    assert (finding.tag.value, str(finding.locations[0])) == (
+        "INFERRED",
+        "api/app/routes/users.py:9",
+    )
+    assert finding.proof_needed
+
+
+def test_a_resource_profile_route_is_not_an_email_change(tmp_path):
+    self_route(
+        tmp_path,
+        "/clients/{client_id}/profile",
+        "    client = await db.get(Client, client_id)\n    client.email = data.email\n    return client\n",
+        "patch",
+        "client_id: int, data: ClientUpdate",
+    )
+    assert findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED") == []

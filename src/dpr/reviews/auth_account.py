@@ -11,6 +11,7 @@ from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
 from dpr.reviews.auth_flows import (
+    PARAM_SEGMENT,
     Code,
     Flow,
     flows_of,
@@ -59,31 +60,91 @@ def _identifiers(code: Code) -> list[str]:
     return [jsts.node_text(n) for n in jsts.walk(code.node, kinds)]
 
 
-def _py_email_writes(code: Code) -> list[Location]:
-    found = []
+def _email_list(node: ast.AST | None) -> bool:
+    """A set, list or tuple of two or more field names that includes an email field."""
+    if not isinstance(node, ast.Set | ast.List | ast.Tuple) or len(node.elts) < 2:
+        return False
+    values = [pyast.constant(e, None) for e in node.elts]
+    return all(isinstance(v, str) for v in values) and any(v in EMAIL_FIELDS for v in values)
+
+
+def _writes(nodes: list[ast.stmt]) -> bool:
+    """The statements set an attribute on an object (setattr or `x.field = value`)."""
+    return any(
+        (isinstance(n, ast.Call) and pyast.dotted(n.func) == "setattr")
+        or (isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Attribute))
+        for stmt in nodes
+        for n in ast.walk(stmt)
+    )
+
+
+def _refuses(nodes: list[ast.stmt]) -> bool:
+    return any(isinstance(n, ast.Raise | ast.Continue) for stmt in nodes for n in ast.walk(stmt))
+
+
+def _named(node: ast.AST, names: set[str]) -> bool:
+    return isinstance(node, ast.Name) and node.id in names
+
+
+def _allow_list_uses(root: ast.AST, names: set[str]) -> set[str]:
+    """Names used as an allow-list of updatable fields: in a set difference, as
+    `model_dump(include=...)`, in an `in` test that guards a write or filters a comprehension, in
+    a `not in` test that refuses or skips, or as the fields a loop writes."""
+    used = set()
+    for node in ast.walk(root):
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Sub):
+            used |= {n.id for n in (node.left, node.right) if _named(n, names)}
+        elif isinstance(node, ast.keyword) and node.arg == "include" and _named(node.value, names):
+            used.add(node.value.id)
+        elif isinstance(node, ast.If | ast.comprehension):
+            tests = [node.test] if isinstance(node, ast.If) else node.ifs
+            for compare in (c for t in tests for c in ast.walk(t) if isinstance(c, ast.Compare)):
+                if len(compare.ops) != 1 or not _named(compare.comparators[0], names):
+                    continue
+                allowing = isinstance(compare.ops[0], ast.In) and (
+                    isinstance(node, ast.comprehension) or _writes(node.body)
+                )
+                refusing = isinstance(compare.ops[0], ast.NotIn) and (
+                    isinstance(node, ast.If) and _refuses(node.body)
+                )
+                if allowing or refusing:
+                    used.add(compare.comparators[0].id)
+        elif isinstance(node, ast.For) and _named(node.iter, names) and _writes(node.body):
+            used.add(node.iter.id)
+    return used
+
+
+def _py_email_writes(code: Code) -> list[tuple[Location, bool]]:
+    """(location, direct) for each place the code writes an email field: `x.email = value` is
+    direct; a field allow-list that names email is not. A collection passed as `exclude` is
+    never a write."""
+    found, lists = [], {}
     for node in ast.walk(code.node):
-        if isinstance(node, ast.Set | ast.List | ast.Tuple) and len(node.elts) >= 2:
-            values = [pyast.constant(e, None) for e in node.elts]
-            if all(isinstance(v, str) for v in values) and any(v in EMAIL_FIELDS for v in values):
-                found.append(Location(code.rel, node.lineno))
-        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Attribute):
+        if isinstance(node, ast.Assign | ast.AnnAssign) and _email_list(node.value):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            lists.update({t.id: node.lineno for t in targets if isinstance(t, ast.Name)})
+        elif isinstance(node, ast.keyword) and node.arg == "include" and _email_list(node.value):
+            found.append((Location(code.rel, node.value.lineno), False))
+        elif isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Attribute):
             if node.targets[0].attr in EMAIL_FIELDS and not isinstance(node.value, ast.Constant):
-                found.append(Location(code.rel, node.lineno))
-    return found
+                found.append((Location(code.rel, node.lineno), True))
+    for name in sorted(_allow_list_uses(code.node, set(lists)), key=lists.get):
+        found.append((Location(code.rel, lists[name]), False))
+    return sorted(found, key=lambda item: (not item[1], item[0].line))
 
 
-def _js_email_writes(code: Code) -> list[Location]:
+def _js_email_writes(code: Code) -> list[tuple[Location, bool]]:
     found = []
     for pair in jsts.walk(code.node, {"pair"}):
         if jsts.node_text(pair.child_by_field_name("key")) != "data":
             continue
         for key, value in jsts.object_pairs(pair.child_by_field_name("value")).items():
             if key in EMAIL_FIELDS and value is not None and value.type != "string":
-                found.append(Location(code.rel, jsts.line(code.tree, value)))
+                found.append((Location(code.rel, jsts.line(code.tree, value)), True))
     for node in jsts.walk(code.node, {"assignment_expression"}):
         left = jsts.node_text(node.child_by_field_name("left"))
         if left.split(".")[-1] in EMAIL_FIELDS:
-            found.append(Location(code.rel, jsts.line(code.tree, node)))
+            found.append((Location(code.rel, jsts.line(code.tree, node)), True))
     return found
 
 
@@ -95,14 +156,19 @@ def _js_email_writes(code: Code) -> list[Location]:
     owasp="A07",
 )
 def email_change_unverified(ctx: Context) -> Iterator[Finding]:
+    """CONFIRMED needs a direct write of email on a self route (no path parameter, so the caller
+    edits their own account). An allow-list naming email, or a route that takes an id and may be
+    an admin editing another user, is INFERRED."""
     for flow in flows_of(ctx, "update_self"):
-        writes = [
-            loc
+        found = [
+            item
             for code in flow.code
-            for loc in (_py_email_writes(code) if code.python else _js_email_writes(code))
+            for item in (_py_email_writes(code) if code.python else _js_email_writes(code))
         ]
-        if not writes:
+        if not found:
             continue
+        writes = list(dict.fromkeys(loc for loc, _ in found))
+        own = not any(PARAM_SEGMENT.fullmatch(s) for s in flow.route.path.split("/") if s)
         guarded = any(
             VERIFY_WORDS.search(name) for code in flow.code for name in _identifiers(code)
         )
@@ -117,7 +183,7 @@ def email_change_unverified(ctx: Context) -> Iterator[Finding]:
             continue
         yield make_finding(
             "AUTH-EMAIL-CHANGE-UNVERIFIED",
-            tag=Tag.CONFIRMED,
+            tag=Tag.CONFIRMED if own and any(direct for _, direct in found) else Tag.INFERRED,
             locations=[*writes, flow.location],
             snippet=snippet(ctx.index.text(writes[0].file), writes[0].line),
             route=f"{flow.route.method} {flow.route.path}",
