@@ -151,3 +151,42 @@ def test_failing_cases_come_first_by_exploitability_and_passes_are_named(tmp_pat
     )
     assert "#### CASE 7: Reset token that belongs to someone else (PASSES)" in body
     assert "This app: CONFIRMED. The reset request carries only the token (`a.py:3`)." in body
+
+
+def committed_password_app(root):
+    write(root, "api/requirements.txt", "fastapi\npasslib\n")
+    write(
+        root,
+        "api/app/db/seed.py",
+        "from app.core.security import get_password_hash\n\n"
+        "def seed():\n"
+        "    return get_password_hash('placeholder-demo-value')\n",
+    )
+    write(root, "api/start.sh", "#!/bin/sh\npython -m app.db.seed\nuvicorn app.main:app\n")
+    write(
+        root,
+        "api/app/routes/auth.py",
+        "from fastapi import APIRouter, HTTPException\n\nrouter = APIRouter(prefix='/auth')\n\n\n"
+        "@router.post('/login')\nasync def login(data: dict):\n"
+        "    if not await check_credentials(data):\n"
+        "        raise HTTPException(status_code=401, detail='Invalid email or password')\n"
+        "    return {'ok': True}\n",
+    )
+    return root
+
+
+def test_committed_password_case_fails_from_baseline_findings(tmp_path):
+    report = review(committed_password_app(tmp_path))
+    assert {"BASE-LITERAL-PASSWORD-HASH", "BASE-SEED-ON-START"} <= {
+        f.rule_id for f in report.findings
+    }
+    body = {p.title: p for p in report.sections["auth"].parts}["Cases"].body
+    assert "Accounts created with passwords written in the repository (FAILS)" in body
+    assert "BASE-LITERAL-PASSWORD-HASH)" in body and "BASE-SEED-ON-START)" in body
+    assert "placeholder-demo-value" not in render_markdown(report)
+
+
+def test_committed_password_case_stays_out_when_baseline_did_not_run(tmp_path):
+    report = review(committed_password_app(tmp_path), reviews=["auth"])
+    body = {p.title: p for p in report.sections["auth"].parts}["Cases"].body
+    assert "Accounts created with passwords written in the repository" not in body

@@ -124,6 +124,7 @@ def review(
         findings.extend(found)
         finish = getattr(modules[slug], "finish", None)
         if finish is not None:
+            ctx.run_findings = tuple(findings)
             try:
                 finish(ctx, section, found)
             except Exception as exc:

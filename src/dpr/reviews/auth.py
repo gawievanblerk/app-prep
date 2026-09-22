@@ -137,8 +137,13 @@ def run(ctx: Context) -> ReviewSection | None:
 
 
 def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None:
+    """Cases are decided by this review's findings plus those of reviews that ran before it: the
+    committed-passwords case is decided by review 4 rules, and stays out when review 4 did not
+    run."""
+    earlier = [f for f in ctx.run_findings if f.review != "auth"]
     position = next(i for i, p in enumerate(section.parts) if p.kind == "findings")
-    section.parts.insert(position, Part("text", "Cases", body=case_blocks(ctx, findings)))
+    body = case_blocks(ctx, [*findings, *earlier])
+    section.parts.insert(position, Part("text", "Cases", body=body))
     if ctx.detection.test_frameworks:
         frameworks = ", ".join(ctx.detection.test_frameworks)
         note = (
