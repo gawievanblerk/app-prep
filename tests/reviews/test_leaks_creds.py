@@ -32,12 +32,12 @@ def repo(root):
     write(
         root,
         "scripts/restore.sh",
-        f'SQL_PASSWORD="${{SQL_PASSWORD:-{DB_DEFAULT}}}"\nUSER="${{DB_USER:-sa}}"\n',
+        f'STORE_PASSWORD="${{STORE_PASSWORD:-{DB_DEFAULT}}}"\nUSER="${{STORE_USER:-admin}}"\n',
     )
     write(
         root,
         "scripts/migrate.py",
-        f'"""Usage: migrate.py --src-password {DB_DEFAULT} --src-host localhost"""\n',
+        f'"""Usage: migrate.py --from-password {DB_DEFAULT} --from-server localhost"""\n',
     )
     write(
         root,
