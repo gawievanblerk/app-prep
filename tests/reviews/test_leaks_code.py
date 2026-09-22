@@ -241,8 +241,9 @@ def test_env_tracked_severity_follows_the_names_in_the_file(tmp_path):
     }
     low = found[".env.production:1"]
     assert low.detail == (
-        "Only public-prefixed, non-secret names are tracked; "
-        "frameworks such as Next.js commit these on purpose."
+        "Nothing secret is tracked here: every name is public-prefixed, or its value is public "
+        "by design, such as a publishable key; frameworks such as Next.js commit these on "
+        "purpose."
     )
     assert "Rotate" not in low.fix
     assert "Rotate" in found[".env:1"].fix
@@ -264,3 +265,38 @@ def test_env_tracked_with_unparseable_contents_stays_critical(tmp_path):
     }
     assert "contents could not be checked" in found[".env.local:1"].detail
     assert "contents could not be checked" in found[".env.production:1"].detail
+
+
+def test_env_tracked_is_low_when_unprefixed_names_hold_public_values(tmp_path):
+    git(tmp_path, "init", "-q")
+    write(
+        tmp_path,
+        ".env",
+        "SUPABASE_URL=https://demoproject.supabase.co\n"
+        "SUPABASE_PROJECT_ID=demoproject\n"
+        "SUPABASE_PUBLISHABLE_KEY=sb_publishable_demo_value_0123456789\n"
+        "VITE_SUPABASE_URL=https://demoproject.supabase.co\n"
+        "VITE_SUPABASE_PROJECT_ID=demoproject\n"
+        "VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_demo_value_0123456789\n",
+    )
+    write(tmp_path, "a.py", "x = 1\n")
+    git(tmp_path, "add", "-A")
+    git(tmp_path, "commit", "-q", "-m", "env")
+    [found] = findings_for(tmp_path, "leaks", "LEAK-ENV-TRACKED")
+    assert found.severity.value == "low"
+    assert "Rotate" not in found.fix
+
+
+def test_env_tracked_stays_critical_when_an_unprefixed_name_holds_a_secret(tmp_path):
+    git(tmp_path, "init", "-q")
+    write(
+        tmp_path,
+        ".env",
+        "SUPABASE_URL=https://demoproject.supabase.co\n"
+        "SUPABASE_SECRET_KEY=sb_secret_demo_value_0123456789\n",
+    )
+    write(tmp_path, "a.py", "x = 1\n")
+    git(tmp_path, "add", "-A")
+    git(tmp_path, "commit", "-q", "-m", "env")
+    [found] = findings_for(tmp_path, "leaks", "LEAK-ENV-TRACKED")
+    assert found.severity.value == "critical"

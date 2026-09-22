@@ -77,6 +77,23 @@ def public_prefix(name: str) -> str | None:
     return None
 
 
+@cache
+def _public_values() -> list[re.Pattern[str]]:
+    return [re.compile(p + r"\Z") for p in secret_config()["public_value_patterns"]]
+
+
+def is_public_value(value: str) -> bool:
+    """True for a value that is public by design: a publishable key or a Supabase anon JWT.
+    Such a value is safe in a tracked file even when its name carries no public prefix."""
+    value = value.strip()
+    if not value:
+        return False
+    if any(pattern.match(value) for pattern in _public_values()):
+        return True
+    match = JWT.fullmatch(value)
+    return bool(match) and _jwt_role(match.group(1)) == "anon"
+
+
 def has_token_phrase(name: str, phrase: str) -> bool:
     """True when `phrase`'s underscore-separated tokens appear contiguously in `name`'s tokens,
     case-insensitively: PASSWORD matches PASSWORD but not PASSWORDLESS. Never raises on a
