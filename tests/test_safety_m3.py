@@ -201,3 +201,21 @@ def test_limits_found_by_the_comparison_are_listed_as_not_covered(tmp_path):
         for n in report.not_covered
     )
     assert any(n.startswith("Screening new passwords") for n in report.not_covered)
+
+
+def test_no_module_imports_a_private_name_from_another_module():
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "src"
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("dpr"):
+                offenders += [
+                    f"{path.relative_to(root)}: {alias.name}"
+                    for alias in node.names
+                    if alias.name.startswith("_") and not alias.name.startswith("__")
+                ]
+    assert offenders == []
