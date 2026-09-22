@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
-import json
 import re
 from collections.abc import Iterator
 from pathlib import PurePosixPath
@@ -12,7 +10,7 @@ from pathlib import PurePosixPath
 from dpr.discovery.approots import same_root
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast, pyvalues
-from dpr.redact import redact, snippet
+from dpr.redact import snippet
 from dpr.reviews.deploy_env import (
     non_production,
     secret_reference,
@@ -55,7 +53,6 @@ START_LINE = re.compile(
     r"(?i)^\s*(?:-\s*)?(?:CMD|ENTRYPOINT|startCommand|releaseCommand|release_command|command|cmd"
     r"|\"(?:start|prestart|poststart|predeploy|postdeploy)\")\b"
 )
-TOKEN = re.compile(r"[^\s\"'`,;()\[\]{}<>]+")
 SAMESITE_NONE = re.compile(r"""(?i)\b\w*same_?site\w*["']?\s*[:=]\s*["']none["']""")
 CSRF_PACKAGES = {
     "fastapi-csrf-protect",
@@ -67,10 +64,6 @@ CSRF_PACKAGES = {
     "@edge-csrf/nextjs",
 }
 CONFIG_SUFFIXES = (".tf", ".yaml", ".yml", ".json", ".toml", ".py", ".ts", ".js", ".mjs", ".cjs")
-
-
-def _digest(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _py_hash_sites(tree: ast.Module) -> Iterator[tuple[ast.Call, pyvalues.Literal]]:
@@ -117,84 +110,6 @@ def literal_password_sites(ctx: Context) -> dict[str, list[tuple[int, pyvalues.L
             sites.setdefault(entry.rel, []).append((line, literal))
     ctx.facts["literal_password_sites"] = sites
     return sites
-
-
-def _token_sites(ctx: Context) -> dict[str, list[tuple[int, int, Location]]]:
-    """Digest to (file order, offset, location) for every token in the indexed files that has the
-    length and digest of a committed literal. Each file is scanned once per run."""
-    if "password_token_sites" not in ctx.facts:
-        literals = [lit for items in literal_password_sites(ctx).values() for _, lit in items]
-        lengths = {len(lit.value) for lit in literals}
-        digests = {_digest(lit.value) for lit in literals}
-        found: dict[str, list[tuple[int, int, Location]]] = {}
-        for order, entry in enumerate(ctx.index.files if literals else []):
-            text = ctx.index.text(entry.rel)
-            for match in TOKEN.finditer(text):
-                token = match.group(0)
-                digest = _digest(token) if len(token) in lengths else None
-                if digest in digests:
-                    location = Location(entry.rel, line_of(text, match.start()))
-                    found.setdefault(digest, []).append((order, match.start(), location))
-        ctx.facts["password_token_sites"] = found
-    return ctx.facts["password_token_sites"]
-
-
-def _copies(ctx: Context, owner: str, literals: list[pyvalues.Literal]) -> list[Location]:
-    """Places outside `owner` where the text of one of `literals` appears as a whole token."""
-    sites = _token_sites(ctx)
-    digests = {_digest(lit.value) for lit in literals}
-    hits = sorted(site for digest in digests for site in sites.get(digest, []))
-    return [location for _, _, location in hits if location.file != owner]
-
-
-def _char_column(source_line: str, byte_column: int) -> int:
-    return len(source_line.encode("utf-8")[:byte_column].decode("utf-8", errors="ignore"))
-
-
-def _literal_spans(text: str, line: int, values: set[str]) -> list[tuple[int, int]]:
-    """Character ranges on `line` covered by Python string literals whose value is one of
-    `values`, however the literal is spelled (adjacent parts, escapes, triple quotes)."""
-    try:
-        tree = ast.parse(text)
-    except (SyntaxError, ValueError, RecursionError, MemoryError):
-        return []
-    lines = text.split("\n")
-    spans = []
-    for node in ast.walk(tree):
-        if not (isinstance(node, ast.Constant) and node.value in values):
-            continue
-        end_line = node.end_lineno or node.lineno
-        if not node.lineno <= line <= end_line or node.end_col_offset is None:
-            continue
-        source = lines[line - 1]
-        start = _char_column(source, node.col_offset) if node.lineno == line else 0
-        end = _char_column(source, node.end_col_offset) if end_line == line else len(source)
-        spans.append((start, end))
-    return spans
-
-
-def _masked(text: str, line: int, literals: list[pyvalues.Literal]) -> str:
-    """The snippet of `line` with every literal masked on the whole line before it is cut.
-
-    Python literals are masked by their source range, so a value spelled differently in the
-    source (adjacent parts, escaped quotes, a triple-quoted block) never survives; other files
-    fall back to the value's text forms."""
-    lines = text.split("\n")
-    full = lines[line - 1].removesuffix("\r") if 0 < line <= len(lines) else ""
-    values = {lit.value for lit in literals}
-    for start, end in sorted(_literal_spans(text, line, values), reverse=True):
-        full = full[:start] + "<redacted:password>" + full[end:]
-    forms = {f for v in values for f in (v, repr(v)[1:-1], json.dumps(v)[1:-1])}
-    forms |= {part for form in forms for part in form.split("\n") if len(part) >= 4}
-    for form in sorted(forms, key=len, reverse=True):
-        full = full.replace(form, "<redacted:password>")
-    value = snippet(full, 1)
-    if len(value) < len(redact(full)):
-        for form in forms:
-            for size in range(len(form) - 1, 0, -1):
-                if value.endswith(form[:size]):
-                    return value[: len(value) - size] + "<redacted:password>"
-    return value
 
 
 def _seed_target(ctx: Context, start: str, number: int, line: str) -> tuple[list[str], list[str]]:

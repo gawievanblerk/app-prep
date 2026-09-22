@@ -39,7 +39,7 @@ def _requirement_name(spec: str) -> str:
     return re.split(r"[\s\[<>=!~;@]", spec.strip(), maxsplit=1)[0]
 
 
-def _js_package(spec: str) -> str:
+def js_package(spec: str) -> str:
     parts = spec.split("/")
     return "/".join(parts[:2]) if spec.startswith("@") else parts[0]
 
@@ -74,7 +74,7 @@ def _requirements_names(text: str) -> set[str]:
 def manifest_packages_by_file(index: RepoIndex) -> dict[str, set[str]]:
     """Package names declared in each manifest file, keyed by the manifest's own path.
 
-    Covers the same manifests as `_manifest_packages` (package.json, pyproject.toml,
+    Covers the same manifests as `manifest_packages` (package.json, pyproject.toml,
     requirements*.txt) but keeps each manifest's names separate, so a caller can scope a
     package to the app root the manifest sits in."""
     found: dict[str, set[str]] = {}
@@ -96,7 +96,7 @@ def manifest_packages_by_file(index: RepoIndex) -> dict[str, set[str]]:
     return found
 
 
-def _manifest_packages(index: RepoIndex) -> set[str]:
+def manifest_packages(index: RepoIndex) -> set[str]:
     names: set[str] = set()
     for packages in manifest_packages_by_file(index).values():
         names.update(packages)
@@ -104,12 +104,12 @@ def _manifest_packages(index: RepoIndex) -> set[str]:
 
 
 def collect_packages(index: RepoIndex) -> tuple[set[str], dict[str, list[Location]]]:
-    packages = _manifest_packages(index)
+    packages = manifest_packages(index)
     sites: dict[str, list[Location]] = defaultdict(list)
     for entry in index.js_files:
         text = index.text(entry.rel)
         for match in JS_IMPORT.finditer(text):
-            name = normalise(_js_package(match.group(1)))
+            name = normalise(js_package(match.group(1)))
             packages.add(name)
             sites[name].append(Location(entry.rel, line_of(text, match.start(1))))
     for entry in index.py_files:

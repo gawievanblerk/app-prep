@@ -10,8 +10,8 @@ from dpr.discovery.approots import root_of, same_root
 from dpr.model import DataModel, Location, Route, Tag
 from dpr.parsing import jsts, pyast
 from dpr.reviews.access import ADMIN, PUBLIC, access
-from dpr.reviews.lookups import _helper
-from dpr.reviews.paid import _js_target
+from dpr.reviews.lookups import resolve_helper
+from dpr.reviews.paid import js_call_target
 from dpr.reviews.paths import is_test
 from dpr.rules import Context
 from dpr.walk import line_of
@@ -173,7 +173,7 @@ def _py_code(ctx: Context, route: Route, depth: int = 2) -> list[Code]:
             receiver = parts[-2] if len(parts) > 1 else ""
             if parts[-1] in GENERIC_CALLS and (not receiver or GENERIC_RECEIVER.search(receiver)):
                 continue
-            helper = _helper(ctx, rel, call, fn)
+            helper = resolve_helper(ctx, rel, call, fn)
             if helper is None or is_test(helper[0]):
                 continue
             key = (helper[0], helper[1].lineno)
@@ -198,7 +198,7 @@ def _js_code(ctx: Context, route: Route, depth: int = 2) -> list[Code]:
         if level >= depth:
             continue
         for call in jsts.walk(fn, {"call_expression"}):
-            target = _js_target(ctx, tree, call)
+            target = js_call_target(ctx, tree, call)
             if target is None:
                 continue
             target_tree, target_fn, _exact = target

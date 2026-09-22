@@ -16,7 +16,7 @@ from dpr.data import load
 from dpr.discovery.packages import (
     JS_IMPORT,
     PY_IMPORT,
-    _js_package,
+    js_package,
     normalise,
 )
 from dpr.model import Route, SdkUse
@@ -71,7 +71,7 @@ def sdk_names(ctx: Context) -> dict[str, dict[str, SdkUse]]:
             lines = text.splitlines()
             for match in (PY_IMPORT if python else JS_IMPORT).finditer(text):
                 module = match.group(1) or (match.group(2) if python else "")
-                sdk = packages.get(normalise(module if python else _js_package(module)))
+                sdk = packages.get(normalise(module if python else js_package(module)))
                 if sdk is not None:
                     line = lines[line_of(text, match.start(1 if match.group(1) else 2)) - 1]
                     for name in names_from_import(line, python):
@@ -205,7 +205,7 @@ def _js_local_functions(ctx: Context, tree) -> dict[str, object]:
     return ctx.index.cache[key]
 
 
-def _js_target(ctx: Context, tree, call) -> tuple[object, object, bool] | None:
+def js_call_target(ctx: Context, tree, call) -> tuple[object, object, bool] | None:
     """(tree, function, exact) for a call that resolves through this file or its imports."""
     func = jsts.unwrap(call.child_by_field_name("function"))
     names = imports.js_imports(ctx.index, tree.rel)
@@ -240,7 +240,7 @@ def _js_paid(ctx: Context, tree, fn, depth: int) -> tuple[SdkUse, str, bool] | N
     if depth >= MAX_DEPTH:
         return None
     for call in jsts.walk(fn, {"call_expression"}):
-        target = _js_target(ctx, tree, call)
+        target = js_call_target(ctx, tree, call)
         if target is None or target[1] is fn:
             continue
         found = _js_paid(ctx, target[0], target[1], depth + 1)

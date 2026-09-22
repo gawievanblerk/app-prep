@@ -205,7 +205,7 @@ class CountingPattern:
 
 
 def test_copies_of_many_literals_scan_each_file_once(tmp_path, monkeypatch):
-    from dpr.reviews import baseline_accounts
+    from dpr.reviews import baseline_literals
 
     literals = [f"Demo{n}" + "-Scale-" + f"{n}{n}{n}" for n in range(8)]
     write(tmp_path, "api/requirements.txt", "fastapi\n")
@@ -218,8 +218,8 @@ def test_copies_of_many_literals_scan_each_file_once(tmp_path, monkeypatch):
     write(tmp_path, "README.md", "".join(f"Account {n}: {v}\n" for n, v in enumerate(literals)))
     for n in range(20):
         write(tmp_path, f"api/app/other_{n}.py", f"VALUE_{n} = {n}\n")
-    counter = CountingPattern(baseline_accounts.TOKEN)
-    monkeypatch.setattr(baseline_accounts, "TOKEN", counter)
+    counter = CountingPattern(baseline_literals.TOKEN)
+    monkeypatch.setattr(baseline_literals, "TOKEN", counter)
     result = findings_for(tmp_path, "baseline", "BASE-LITERAL-PASSWORD-HASH")
     assert len(result) == 8
     assert sorted(str(f.locations[-1]) for f in result) == [f"README.md:{n}" for n in range(1, 9)]

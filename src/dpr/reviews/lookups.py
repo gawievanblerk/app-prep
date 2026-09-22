@@ -160,7 +160,9 @@ def _is_method(fn: ast.AST) -> bool:
     return bool(args) and args[0].arg in ("self", "cls")
 
 
-def _helper(ctx: Context, rel: str, call: ast.Call, caller: ast.AST) -> tuple[str, ast.AST] | None:
+def resolve_helper(
+    ctx: Context, rel: str, call: ast.Call, caller: ast.AST
+) -> tuple[str, ast.AST] | None:
     """The one definition of the called name, preferring the closest file when names repeat."""
     name = (pyast.dotted(call.func) or "").split(".")[-1]
     method = isinstance(call.func, ast.Attribute)
@@ -227,7 +229,7 @@ def py_lookups(
                 continue
             if not pyast.names_in(call) & keys:
                 continue
-            helper = _helper(ctx, rel, call, fn)
+            helper = resolve_helper(ctx, rel, call, fn)
             if helper is None:
                 continue
             helper_rel, helper_fn = helper
