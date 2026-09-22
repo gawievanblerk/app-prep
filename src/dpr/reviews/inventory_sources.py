@@ -32,6 +32,7 @@ ZOD_FIELD = re.compile(r"(\w+)\s*:")
 ZOD_PARSE = re.compile(r"\b(\w+)\.(?:parse|safeParse|parseAsync)\(\s*([^)]*?)\s*\)")
 REQUEST_BODY_EXPR = r"(?:await\s+)?req(?:uest)?\.(?:body|json\(\))"
 REQUEST_BODY = re.compile(REQUEST_BODY_EXPR)
+RUNTIME_SOURCE = "captured at runtime"
 RUNTIME = (
     (
         re.compile(
@@ -166,9 +167,24 @@ def _js_request_body(text: str, arg: str) -> bool:
     return False
 
 
+def _enclosing_route(ctx: Context, rel: str, line: int) -> Route | None:
+    """The innermost route in `rel` whose handler spans `line`."""
+    best, size = None, None
+    for route in ctx.detection.routes:
+        handler = route.handler
+        if route.file != rel or handler is None or isinstance(handler, ast.AST):
+            continue
+        offset = getattr(route.tree, "line_offset", 0)
+        start, end = handler.start_point[0] + 1 + offset, handler.end_point[0] + 1 + offset
+        if start <= line <= end and (size is None or end - start < size):
+            best, size = route, end - start
+    return best
+
+
 def _zod_collections(ctx: Context, rel: str) -> Iterator[Collection]:
     """Zod schemas (`z.object({...})`, with or without a trailing `.strict()` and similar chains)
-    parsed from a request body in the same file. Top-level keys only."""
+    parsed from a request body in the same file, tied to the route whose handler holds the parse
+    call. Top-level keys only."""
     text = ctx.index.text(rel)
     if "z.object(" not in text:
         return
@@ -180,7 +196,8 @@ def _zod_collections(ctx: Context, rel: str) -> Iterator[Collection]:
             continue
         personal = tuple(dict.fromkeys(f for f in fields if classify(f)))
         if personal:
-            yield Collection(None, personal, Location(rel, line_of(text, match.start())), name)
+            line = line_of(text, match.start())
+            yield Collection(_enclosing_route(ctx, rel, line), personal, Location(rel, line), name)
 
 
 def collection_points(ctx: Context) -> list[Collection]:
@@ -206,7 +223,7 @@ def collection_points(ctx: Context) -> list[Collection]:
                 match = pattern.search(text)
                 if match:
                     location = Location(entry.rel, line_of(text, match.start()))
-                    found.append(Collection(None, (label,), location, "captured at runtime"))
+                    found.append(Collection(None, (label,), location, RUNTIME_SOURCE))
         for entry in ctx.index.js_files:
             if is_test(entry.rel):
                 continue

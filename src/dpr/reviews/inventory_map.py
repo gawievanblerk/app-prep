@@ -8,7 +8,12 @@ from dpr.discovery.approots import root_of
 from dpr.model import DataModel, Location
 from dpr.reviews.auth_flows import route_code
 from dpr.reviews.inventory_retention import iac_retention, readers, retention_text
-from dpr.reviews.inventory_sources import Collection, collection_points, sdk_receipts
+from dpr.reviews.inventory_sources import (
+    RUNTIME_SOURCE,
+    Collection,
+    collection_points,
+    sdk_receipts,
+)
 from dpr.reviews.leaks import sentry_inits
 from dpr.reviews.leaks_logs import destinations, logged_locations, words
 from dpr.reviews.paths import is_test
@@ -129,7 +134,7 @@ def _log_retention(ctx: Context) -> str:
 
 def runtime_rows(ctx: Context) -> list[tuple[str, ...]]:
     rows = []
-    runtime = [c for c in collection_points(ctx) if c.route is None]
+    runtime = [c for c in collection_points(ctx) if c.source == RUNTIME_SOURCE]
     if runtime:
         labels = ", ".join(dict.fromkeys(c.fields[0] for c in runtime))
         exported = sorted({d for c in runtime for d in destinations(ctx, c.location.file)})

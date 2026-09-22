@@ -111,3 +111,41 @@ def test_answered_by_this_review(tmp_path):
     text = render_markdown(report)
     answered = text[text.index("### Answered by this review") : text.index("### Still open")]
     assert "- What retention does the code enforce? 0 of 1 personal data tables" in answered
+
+
+def zod_app(root):
+    write(
+        root,
+        "package.json",
+        '{"dependencies": {"express": "4", "zod": "3", "@prisma/client": "5"}}',
+    )
+    write(
+        root,
+        "src/routes.js",
+        "const express = require('express')\n"
+        "const { z } = require('zod')\n"
+        "const router = express.Router()\n"
+        "const signupSchema = z.object({ email: z.string(), phone: z.string() })\n"
+        "router.post('/signup', async (req, res) => {\n"
+        "  const input = signupSchema.parse(req.body)\n"
+        "  await prisma.user.create({ data: input })\n"
+        "  res.json({ ok: true })\n"
+        "})\n"
+        "module.exports = router\n",
+    )
+    write(
+        root,
+        "prisma/schema.prisma",
+        "model User {\n  id Int @id @default(autoincrement())\n  email String @unique\n"
+        "  phone String\n}\n",
+    )
+    return root
+
+
+def test_zod_collection_is_tied_to_its_route_not_the_runtime_row(tmp_path):
+    found = parts(review(zod_app(tmp_path), reviews=["inventory"]))
+    rows = found["Personal data map"].rows
+    [user] = [r for r in rows if r[0].startswith("User:")]
+    assert user[2] == "POST /signup (`src/routes.js:6`)"
+    assert not any(r[1] == "Technical identifiers" for r in rows)
+    assert "- POST /signup (`src/routes.js:6`) -> User" in found["Data flows"].body
