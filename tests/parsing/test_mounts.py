@@ -215,3 +215,22 @@ def test_an_inline_middleware_that_mentions_a_limiter_is_not_a_limiter_mount(tmp
         "app.post('/login', (req, res) => res.json({}))\n",
     )
     assert limiter_mounts(RepoIndex(tmp_path)) == [("server.js", "/auth")]
+
+
+def test_a_limiter_behind_a_ternary_or_an_await_is_a_limiter_mount(tmp_path):
+    cases = {
+        "ternary": "const apiLimiter = rateLimit({ max: 5 })\n"
+        "app.use('/api', isProd ? apiLimiter : (req, res, next) => next())\n",
+        "await": "app.use('/api', await buildRateLimiter())\n",
+        "parenthesised": "const apiLimiter = rateLimit({ max: 5 })\napp.use('/api', (apiLimiter))\n",
+    }
+    for name, text in cases.items():
+        write(tmp_path / name, "server.js", "const app = express()\n" + text)
+        assert limiter_mounts(RepoIndex(tmp_path / name)) == [("server.js", "/api")], name
+    write(
+        tmp_path / "inline",
+        "server.js",
+        "const app = express()\n"
+        "app.use('/api', isProd ? (req, res, next) => { limiter.check(); next() } : noop)\n",
+    )
+    assert limiter_mounts(RepoIndex(tmp_path / "inline")) == []

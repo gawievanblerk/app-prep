@@ -127,14 +127,27 @@ def _router_name(route: Route) -> str | None:
     return None
 
 
-def _handler_name(handler) -> str | None:
-    """The name a mounted handler is known by: an identifier or member name, or the callee of an
-    inline call such as `rateLimit({...})`. An inline function has no name and is not read."""
+def _handler_names(handler) -> list[str]:
+    """The names a mounted handler is known by: an identifier or member name, the callee of an
+    inline call such as `rateLimit({...})`, through `await` and parentheses, and both branches
+    of a ternary. An inline function has no name and is not read."""
+    handler = jsts.unwrap(handler)
+    if handler is None:
+        return []
     if handler.type in ("identifier", "member_expression"):
-        return jsts.node_text(handler)
+        return [jsts.node_text(handler)]
     if handler.type == "call_expression":
-        return jsts.callee(handler)
-    return None
+        return [jsts.callee(handler)]
+    if handler.type == "ternary_expression":
+        branches = ("consequence", "alternative")
+        return [n for b in branches for n in _handler_names(handler.child_by_field_name(b))]
+    return []
+
+
+def _limiter(text: str, name: str) -> bool:
+    """The handler name, or the call its variable is declared from, reads as a limiter."""
+    declared = re.search(rf"(?:const|let|var)\s+{re.escape(name)}\s*=\s*([\w.]+)\(", text)
+    return bool(LIMITER.search(name) or (declared and LIMITER.search(declared.group(1))))
 
 
 def _js_mounts(index: RepoIndex) -> tuple[dict[str, str], list[tuple[str, str]]]:
@@ -162,15 +175,10 @@ def _js_mounts(index: RepoIndex) -> tuple[dict[str, str], list[tuple[str, str]]]
                 prefix = jsts.string_value(args[0]) if args else None
                 handlers = args[1:] if prefix is not None else args
                 for handler in handlers:
-                    name = _handler_name(handler)
-                    if name is None:
-                        continue
+                    name = jsts.node_text(handler)
                     if handler.type == "identifier" and name in imports and prefix:
                         routers.setdefault(imports[name], prefix.rstrip("/"))
-                    declared = re.search(
-                        rf"(?:const|let|var)\s+{re.escape(name)}\s*=\s*([\w.]+)\(", text
-                    )
-                    if LIMITER.search(name) or (declared and LIMITER.search(declared.group(1))):
+                    if any(_limiter(text, n) for n in _handler_names(handler)):
                         limiters.append((entry.rel, (prefix or "/").rstrip("/")))
     return routers, limiters
 
