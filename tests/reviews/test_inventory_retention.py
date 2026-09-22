@@ -219,3 +219,23 @@ def test_personal_values_in_a_data_file_never_reach_any_output(tmp_path, capsys)
     for value in PERSONAL_VALUES:
         for text in outputs:
             assert value not in text
+
+
+def test_a_line_that_writes_a_key_and_reads_the_field_counts_as_a_read(tmp_path):
+    write(
+        tmp_path,
+        "app/models.py",
+        "class Subscriber(Base):\n    __tablename__ = 'subscribers'\n"
+        "    email = Column(String)\n    home_phone = Column(String)\n",
+    )
+    write(
+        tmp_path,
+        "app/importer.py",
+        "def apply(subscriber, row):\n    subscriber.home_phone = row['phone']\n",
+    )
+    write(
+        tmp_path,
+        "app/export.py",
+        "def row(subscriber):\n    return {'home_phone': subscriber.home_phone}\n",
+    )
+    assert findings_for(tmp_path, "inventory", "INV-UNUSED-FIELD") == []

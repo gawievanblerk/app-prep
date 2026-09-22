@@ -35,10 +35,20 @@ CONFIG_JSON = re.compile(
     r"|\.schema\.json$|openapi\.json$|swagger\.json$"
 )
 DATA_CATEGORIES = ("identifiers", "government_ids", "financial", "special", "children")
+REQUEST_INPUT = re.compile(
+    r"(?i)req|request|body|data|input|payload|form|params|query|args|values|json|validated_data"
+)
 STRONG_KEYS = re.compile(
     r"(?i)e_?mail|phone|mobile|first_?name|last_?name|full_?name|surname|birth|dob|ssn|passport"
     r"|id_?number|iban|account_?number|street|address_?(?:line)?1"
 )
+
+
+def _read(line: str, name: str) -> bool:
+    """The line reads the field as an attribute of a record (`planned.name`) that is not being
+    assigned. An attribute of the request input (`req.body.name`, `data.name`) is not a read."""
+    pattern = rf"([\w$]+)\??\.{re.escape(name)}\b(?!\s*=(?!=))"
+    return any(not REQUEST_INPUT.fullmatch(m.group(1)) for m in re.finditer(pattern, line))
 
 
 def _write(line: str, name: str) -> bool:
@@ -60,7 +70,7 @@ def field_reads(ctx: Context, name: str, skip: set[str]) -> tuple[int, int]:
             continue
         for line in text.splitlines():
             if pattern.search(line):
-                if _write(line, name):
+                if _write(line, name) and not _read(line, name):
                     writes += 1
                 else:
                     reads += 1

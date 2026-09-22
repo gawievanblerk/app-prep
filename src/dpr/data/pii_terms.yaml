@@ -34,7 +34,8 @@ categories:
     terms: [score, risk_score, health_score, segment, segments, lifetime_value, churn, prediction, rating, risk_tolerance, personality]
 catch_all_json: [metadata, properties, custom_fields, extra, payload, raw, attributes, data, detail, details, context, info]
 person_models: [user, users, account, customer, client, member, contact, profile, person, people, employee, patient, student, insured, producer, lead, subscriber, recipient, applicant, guest, staff, agent, author, owner, tenant_user, lender]
-# Bare terms that also occur in ordinary software names (minor_version, race_condition_flag).
-# Each must be a single category word. It counts only when it is the field's last name word, or
-# when every word after it is itself a personal word from any category list.
-ambiguous_terms: [race, genetic, minor, school, guardian]
+# Bare terms that also occur in ordinary software names (minor_version, race_condition_flag,
+# total_distance, price_tier_label). Each must be a single category word. It counts only when it
+# is the field's last name word, or when every word after it is itself a personal word from any
+# category list.
+ambiguous_terms: [race, genetic, minor, school, guardian, price, total, amount]

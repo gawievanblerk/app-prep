@@ -121,3 +121,12 @@ def test_ambiguous_terms_need_a_personal_neighbour_or_last_place():
     assert classify("is_minor").key == "children"
     assert classify("race").key == "special"
     assert classify("ethnicity").key == "special"
+
+
+def test_price_total_and_amount_count_only_as_the_head_of_a_field_name():
+    assert classify("net_price").key == "financial"
+    assert classify("total").key == "financial"
+    assert classify("total_amount").key == "financial"
+    assert classify("price_tier_label") is None
+    assert classify("total_distance") is None
+    assert classify("amount_in_stock_units") is None
