@@ -9,10 +9,16 @@ import re
 from collections.abc import Iterator
 from pathlib import PurePosixPath
 
+from dpr.discovery.approots import same_root
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast, pyvalues
 from dpr.redact import redact, snippet
-from dpr.reviews.deploy_env import non_production, secret_reference, start_stage
+from dpr.reviews.deploy_env import (
+    non_production,
+    secret_reference,
+    service_root_dir,
+    start_stage,
+)
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
@@ -178,18 +184,29 @@ def _masked(text: str, line: int, literals: list[pyvalues.Literal]) -> str:
     return value
 
 
-def _seed_target(ctx: Context, start: str, line: str) -> list[str]:
+def _seed_target(ctx: Context, start: str, number: int, line: str) -> tuple[list[str], list[str]]:
+    """(seed files the start command runs, files with the same name in other app roots).
+
+    The name resolves under the Render service's rootDir, or else next to the start file; a
+    file with that exact path wins, then any file in the same app root."""
     module = re.search(r"-m\s+([\w.]*seed\w*)", line)
     script = re.search(r"([\w./-]*seed\w*\.(?:py|js|ts|mjs))", line)
     suffix = (
         module.group(1).replace(".", "/") + ".py" if module else (script.group(1) if script else "")
-    )
+    ).lstrip("./")
     if not suffix:
-        return []
-    matches = [f.rel for f in ctx.index.files if f.rel.endswith(suffix.lstrip("./"))]
-    folder = str(PurePosixPath(start).parent)
-    local = [m for m in matches if folder == "." or m.startswith(folder + "/")]
-    return local or matches
+        return [], []
+    matches = [f.rel for f in ctx.index.files if f.rel == suffix or f.rel.endswith("/" + suffix)]
+    base = service_root_dir(ctx, start, number)
+    if base is None:
+        anchor = str(PurePosixPath(start).parent / suffix)
+    else:
+        anchor = f"{base}/{suffix}" if base else suffix
+    roots = ctx.detection.app_roots
+    local = [m for m in matches if m == anchor] or [
+        m for m in matches if same_root(roots, m, anchor)
+    ]
+    return local, [m for m in matches if m not in local]
 
 
 @rule("BASE-SEED-ON-START", review="baseline", severity="high", exploitability="high", owasp="A05")
@@ -210,8 +227,9 @@ def seed_on_start(ctx: Context) -> Iterator[Finding]:
 
 
 def _seed_finding(ctx: Context, rel: str, number: int, text: str, sites: dict) -> Finding:
-    targets = _seed_target(ctx, rel, text.splitlines()[number - 1].strip())
+    targets, elsewhere = _seed_target(ctx, rel, number, text.splitlines()[number - 1].strip())
     direct = [t for t in targets if any(not lit.env_fallback for _, lit in sites.get(t, []))]
+    other = [t for t in elsewhere if any(not lit.env_fallback for _, lit in sites.get(t, []))]
     fallback = [lit for t in targets for _, lit in sites.get(t, []) if lit.env_fallback]
     stage = start_stage(ctx, rel, number)
     severity, detail, proof, locations = "high", "", None, [Location(rel, number)]
@@ -232,6 +250,11 @@ def _seed_finding(ctx: Context, rel: str, number: int, text: str, sites: dict) -
                 "from a secret store."
             )
             proof = f"Check that the secret reference for {fallback[0].env_name} resolves."
+    elif not targets and other:
+        proof = (
+            f"Check which seed file this start command runs: {other[0]}, in another app root, "
+            "hashes passwords written in the repository."
+        )
     if stage:
         detail += f" This start command runs with the {stage} environment setting."
     return make_finding(

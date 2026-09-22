@@ -130,16 +130,33 @@ def all_false(ctx: Context, name: str, rel: str | None = None) -> list[Location]
     return []
 
 
-def start_stage(ctx: Context, rel: str, line: int) -> str | None:
-    """The stage a start command runs in when its own file names one (render service blocks)."""
-    text = ctx.index.text(rel)
-    lines = text.splitlines()
+def service_block(ctx: Context, rel: str, line: int) -> str:
+    """The service block (render style `- type:` items) that holds `line`, or the whole file."""
+    lines = ctx.index.text(rel).splitlines()
     start, end = 0, len(lines)
     if rel.endswith((".yaml", ".yml")):
         heads = [i for i, raw in enumerate(lines) if re.match(r"^\s*-\s*type:", raw)]
         start = max([i for i in heads if i < line] or [0])
         end = min([i for i in heads if i >= line] or [len(lines)])
-    block = "\n".join(lines[start:end])
+    return "\n".join(lines[start:end])
+
+
+def service_root_dir(ctx: Context, rel: str, line: int) -> str | None:
+    """The `rootDir` of the service block that holds `line`, as a repository-relative folder
+    ("" for the repository root), or None when the block names none."""
+    if not rel.endswith((".yaml", ".yml")):
+        return None
+    block = service_block(ctx, rel, line)
+    match = re.search(r"""^\s*rootDir:\s*["']?([^"'\s#]+)""", block, re.MULTILINE)
+    if match is None:
+        return None
+    folder = match.group(1).removeprefix("./").strip("/")
+    return "" if folder == "." else folder
+
+
+def start_stage(ctx: Context, rel: str, line: int) -> str | None:
+    """The stage a start command runs in when its own file names one (render service blocks)."""
+    block = service_block(ctx, rel, line)
     for name in STAGE_NAMES:
         for _number, value, _tail in _render_pairs(block, name):
             if value:

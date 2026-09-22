@@ -115,3 +115,51 @@ def test_shared_repository_level_secret_reference_still_lowers_severity(tmp_path
     )
     finding = by_location(tmp_path)["api/startup.sh:1"]
     assert (finding.severity.value, finding.tag.value) == ("medium", "INFERRED")
+
+
+SEED_LITERAL = (
+    "from app.core.security import get_password_hash\n\n"
+    "def seed():\n"
+    "    return get_password_hash('placeholder-demo-value')\n"
+)
+SEED_ENV = (
+    "import os\n"
+    "from app.core.security import get_password_hash\n\n"
+    "def seed():\n"
+    "    return get_password_hash(os.environ['ADMIN_PASSWORD'])\n"
+)
+
+
+def two_seed_roots(root):
+    write(root, "a/requirements.txt", "fastapi\n")
+    write(root, "a/app/db/seed.py", SEED_LITERAL)
+    write(root, "b/requirements.txt", "fastapi\n")
+    write(root, "b/app/db/seed.py", SEED_ENV)
+
+
+def test_render_service_resolves_the_seed_module_under_its_root_dir(tmp_path):
+    two_seed_roots(tmp_path)
+    write(
+        tmp_path,
+        "render.yaml",
+        "services:\n  - type: web\n    name: b-api\n    rootDir: b\n"
+        "    startCommand: python -m app.db.seed && uvicorn app.main:app\n",
+    )
+    finding = by_location(tmp_path)["render.yaml:5"]
+    assert finding.severity.value == "high"
+    assert [loc.file for loc in finding.locations] == ["render.yaml"]
+    assert finding.refs == ()
+
+
+def test_seed_module_found_only_in_another_root_is_not_given_its_severity(tmp_path):
+    two_seed_roots(tmp_path)
+    write(tmp_path, "c/requirements.txt", "fastapi\n")
+    write(tmp_path, "c/start.sh", "python -m app.db.seed\nuvicorn app.main:app\n")
+    finding = by_location(tmp_path)["c/start.sh:1"]
+    assert (finding.severity.value, finding.tag.value) == ("high", "INFERRED")
+    assert [loc.file for loc in finding.locations] == ["c/start.sh"]
+    assert "a/app/db/seed.py" in finding.proof_needed
+    write(tmp_path, "a/start.sh", "python -m app.db.seed\nuvicorn app.main:app\n")
+    local = by_location(tmp_path)["a/start.sh:1"]
+    assert local.severity.value == "critical"
+    assert [str(loc) for loc in local.locations] == ["a/start.sh:1", "a/app/db/seed.py:4"]
