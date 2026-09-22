@@ -119,11 +119,12 @@ def _minutes(window: str) -> float:
 
 def _strictest(categories: list[str]) -> tuple[str, int, int, str]:
     """Per-user and per-IP are the lowest across all categories; the note and window come from
-    whichever category gave the strictest per-user value (ties broken by the shorter window)."""
+    whichever category gave the strictest per-user value. On a tie the longer window wins: the
+    same count over a longer window is the lower rate."""
     scored = [costs().get(c, costs()["form"]) for c in categories]
     per_user = min(cost["per_user"] for cost in scored)
     per_ip = min(cost["per_ip"] for cost in scored)
-    strictest = min(
+    strictest = max(
         (c for c in categories if costs().get(c, costs()["form"])["per_user"] == per_user),
         key=lambda c: _minutes(costs().get(c, costs()["form"])["window"]),
     )

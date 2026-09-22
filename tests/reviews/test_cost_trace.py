@@ -169,3 +169,15 @@ def test_self_clients_scan_each_class_once_however_many_routes_reach_it(tmp_path
     assert len(rows) == 30
     assert all(r.calls == ("azure-communication-email",) for r in rows)
     assert counter.class_scans <= 2
+
+
+def test_a_tie_in_per_user_count_recommends_the_longer_window():
+    from dpr.reviews.abuse import _minutes, _strictest, costs
+
+    tied = ["spreadsheet", "vector-store"]
+    assert costs()["spreadsheet"]["per_user"] == costs()["vector-store"]["per_user"]
+    longer = max(tied, key=lambda name: _minutes(costs()[name]["window"]))
+    assert _minutes(costs()[tied[0]]["window"]) != _minutes(costs()[tied[1]]["window"])
+    for order in (tied, tied[::-1]):
+        category, _per_user, _per_ip, window = _strictest(order)
+        assert (category, window) == (longer, costs()[longer]["window"])
