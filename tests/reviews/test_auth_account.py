@@ -167,3 +167,43 @@ def test_shared_manifest_guards_every_root(tmp_path):
     two_root_app(tmp_path)
     write(tmp_path, "requirements.txt", "pyotp\n")
     assert findings_for(tmp_path, "auth", "AUTH-NO-MFA") == []
+
+
+LEGACY_USER = (
+    "from sqlalchemy.orm import Mapped, mapped_column\n"
+    "from sqlalchemy import String, Integer\n\n"
+    "class User(Base):\n"
+    "    __tablename__ = 'users'\n"
+    "    id: Mapped[int] = mapped_column(Integer, primary_key=True)\n"
+    "    email: Mapped[str] = mapped_column(String)\n"
+    "    totp_secret: Mapped[str] = mapped_column(String)\n"
+    "    failed_login_attempts: Mapped[int] = mapped_column(Integer)\n"
+)
+
+
+def test_mfa_field_on_a_user_model_in_another_root_does_not_guard_sign_in(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    write(tmp_path, "api/app/routes/auth.py", LOGIN_ROUTE)
+    write(tmp_path, "legacy/requirements.txt", "flask\n")
+    write(tmp_path, "legacy/models.py", LEGACY_USER)
+    [finding] = findings_for(tmp_path, "auth", "AUTH-NO-MFA")
+    assert finding.title == "No second factor for sign-in in api"
+    write(tmp_path, "api/app/models.py", LEGACY_USER)
+    assert findings_for(tmp_path, "auth", "AUTH-NO-MFA") == []
+
+
+def test_email_uniqueness_is_judged_only_where_a_register_flow_shares_the_root(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    write(
+        tmp_path,
+        "api/app/routes/auth.py",
+        "from fastapi import APIRouter\n\nrouter = APIRouter(prefix='/auth')\n\n\n"
+        "@router.post('/register')\nasync def register(data: RegisterRequest):\n"
+        "    return {'ok': True}\n",
+    )
+    write(tmp_path, "legacy/requirements.txt", "flask\n")
+    write(tmp_path, "legacy/models.py", LEGACY_USER)
+    assert findings_for(tmp_path, "auth", "AUTH-EMAIL-NOT-UNIQUE") == []
+    write(tmp_path, "api/app/models.py", LEGACY_USER)
+    [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-NOT-UNIQUE")
+    assert str(finding.locations[0]) == "api/app/models.py:7"

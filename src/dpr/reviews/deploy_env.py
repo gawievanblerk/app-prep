@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 
 from dpr.discovery.approots import DEPLOY_FILES, root_of
+from dpr.discovery.packages import manifest_packages_by_file
 from dpr.model import Location
 from dpr.rules import Context
 from dpr.walk import line_of
@@ -44,6 +45,19 @@ def applies(ctx: Context, deploy_rel: str, rel: str | None) -> bool:
         return True
     finding_root = root_of(ctx.detection.app_roots, rel)
     return finding_root is not None and finding_root.path == deploy_root.path
+
+
+def declared_for(ctx: Context, rel: str, names: set[str] | frozenset[str]) -> bool:
+    """True when a manifest that applies to `rel`'s app root declares one of `names`: a manifest
+    inside the same root, or a shared one (see `applies`)."""
+    key = ("manifest-packages-by-file", "")
+    if key not in ctx.index.cache:
+        ctx.index.cache[key] = manifest_packages_by_file(ctx.index)
+    return any(
+        names & packages
+        for manifest_rel, packages in ctx.index.cache[key].items()
+        if applies(ctx, manifest_rel, rel)
+    )
 
 
 def deploy_files(ctx: Context, ci: bool = True, rel: str | None = None) -> list[str]:

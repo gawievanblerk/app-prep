@@ -10,7 +10,8 @@ from dpr.model import Finding, Location, Tag
 from dpr.redact import snippet
 from dpr.reviews.abuse_paid import is_limited
 from dpr.reviews.auth_code import call_names
-from dpr.reviews.auth_flows import Flow, flows_of, lifetimes, record_pass, user_models
+from dpr.reviews.auth_flows import Flow, flows_of, lifetimes, record_pass, user_models_in
+from dpr.reviews.deploy_env import declared_for
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
 
@@ -125,7 +126,7 @@ def _lockout_evidence(ctx: Context, flow: Flow) -> Location | None:
         match = LOCKOUT.search(code.text())
         if match:
             return Location(code.rel, code.line + line_of(code.text(), match.start()) - 1)
-    for model in user_models(ctx):
+    for model in user_models_in(ctx, flow.route.file):
         field = next((f for f in model.fields if LOCKOUT.search(f.name)), None)
         if field is not None:
             return field.location
@@ -134,9 +135,9 @@ def _lockout_evidence(ctx: Context, flow: Flow) -> Location | None:
 
 @rule("AUTH-NO-LOCKOUT", review="auth", severity="medium", exploitability="high", owasp="A07")
 def no_lockout(ctx: Context) -> Iterator[Finding]:
-    if LOCKOUT_PACKAGES & ctx.detection.packages:
-        return
     for flow in flows_of(ctx, "login"):
+        if declared_for(ctx, flow.route.file, LOCKOUT_PACKAGES):
+            continue
         if is_limited(ctx, flow.route):
             record_pass(ctx, 1, Tag.CONFIRMED, "Sign-in has a rate limit", flow.location)
             continue

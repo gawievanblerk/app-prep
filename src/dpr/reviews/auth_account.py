@@ -6,13 +6,20 @@ import ast
 import re
 from collections.abc import Iterator
 
-from dpr.discovery.approots import root_of
-from dpr.discovery.packages import manifest_packages_by_file
+from dpr.discovery.approots import root_of, same_root
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
-from dpr.reviews.auth_flows import Code, Flow, flows_of, managed_provider, record_pass, user_models
-from dpr.reviews.deploy_env import applies
+from dpr.reviews.auth_flows import (
+    Code,
+    Flow,
+    flows_of,
+    managed_provider,
+    record_pass,
+    user_models,
+    user_models_in,
+)
+from dpr.reviews.deploy_env import declared_for
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 
@@ -124,11 +131,12 @@ def _declared_unique(ctx: Context, model) -> bool:
 
 @rule("AUTH-EMAIL-NOT-UNIQUE", review="auth", severity="medium", exploitability="low", owasp="A07")
 def email_not_unique(ctx: Context) -> Iterator[Finding]:
-    if not flows_of(ctx, "register"):
-        return
+    """A user model is judged only when a register flow sits in its own app root."""
+    registers = [f.route.file for f in flows_of(ctx, "register")]
     for model in user_models(ctx):
         field = next((f for f in model.fields if f.name in EMAIL_FIELDS), None)
-        if field is None:
+        roots = ctx.detection.app_roots
+        if field is None or not any(same_root(roots, model.location.file, r) for r in registers):
             continue
         if field.unique or _declared_unique(ctx, model):
             record_pass(
@@ -224,22 +232,6 @@ def signup_no_ui(ctx: Context) -> Iterator[Finding]:
         )
 
 
-def _mfa_package_declared(ctx: Context, rel: str) -> bool:
-    """True when a manifest that applies to `rel`'s app root declares an MFA package.
-
-    A manifest applies when it sits inside the same app root as `rel`, or is shared (its own
-    root is unset, the repository root, or a library root); see `deploy_env.applies`."""
-    key = ("manifest-packages-by-file", "")
-    if key not in ctx.index.cache:
-        ctx.index.cache[key] = manifest_packages_by_file(ctx.index)
-    by_file = ctx.index.cache[key]
-    return any(
-        MFA_PACKAGES & packages
-        for manifest_rel, packages in by_file.items()
-        if applies(ctx, manifest_rel, rel)
-    )
-
-
 @rule("AUTH-NO-MFA", review="auth", severity="low", exploitability="low", owasp="A07")
 def no_mfa(ctx: Context) -> Iterator[Finding]:
     # managed_provider reads repository-wide signals (dpr.discovery.detect); scoping it to one
@@ -250,9 +242,10 @@ def no_mfa(ctx: Context) -> Iterator[Finding]:
     for flow in flows_of(ctx, "login"):
         home = root_of(ctx.detection.app_roots, flow.route.file)
         by_root.setdefault(home.path if home else "", []).append(flow)
-    model_fields = [f.name for m in user_models(ctx) for f in m.fields]
     for root, login_flows in sorted(by_root.items()):
-        if _mfa_package_declared(ctx, login_flows[0].route.file):
+        home = login_flows[0].route.file
+        model_fields = [f.name for m in user_models_in(ctx, home) for f in m.fields]
+        if declared_for(ctx, home, MFA_PACKAGES):
             record_pass(
                 ctx,
                 "mfa",

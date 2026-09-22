@@ -6,7 +6,7 @@ import ast
 import re
 from dataclasses import dataclass, field
 
-from dpr.discovery.approots import root_of
+from dpr.discovery.approots import root_of, same_root
 from dpr.model import DataModel, Location, Route, Tag
 from dpr.parsing import jsts, pyast
 from dpr.reviews.access import ADMIN, PUBLIC, access
@@ -211,6 +211,12 @@ def user_models(ctx: Context) -> list[DataModel]:
         for m in ctx.detection.models
         if USER_MODEL.match(m.name) or USER_MODEL.match(m.table.split(".")[-1])
     ]
+
+
+def user_models_in(ctx: Context, rel: str) -> list[DataModel]:
+    """User models in the app root of `rel`: a model in another root never decides a flow."""
+    roots = ctx.detection.app_roots
+    return [m for m in user_models(ctx) if same_root(roots, m.location.file, rel)]
 
 
 def lifetimes(ctx: Context, root: str | None = None) -> list[tuple[str, str, Location]]:

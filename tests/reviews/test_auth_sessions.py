@@ -96,3 +96,43 @@ def test_limiter_or_lockout_columns_pass_case_1(tmp_path):
         "class User(Base):\n    __tablename__ = 'users'\n    failed_login_attempts = Column(Integer)\n",
     )
     assert findings_for(tmp_path, "auth", "AUTH-NO-LOCKOUT") == []
+
+
+LOGIN_ONLY = (
+    "from fastapi import APIRouter, HTTPException\n\n"
+    "router = APIRouter(prefix='/auth')\n\n\n"
+    "@router.post('/login')\n"
+    "async def login(data: dict):\n"
+    "    if not await check_credentials(data):\n"
+    "        raise HTTPException(status_code=401, detail='Invalid email or password')\n"
+    "    return {'ok': True}\n"
+)
+
+
+def test_lockout_column_in_another_root_does_not_pass_sign_in(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    write(tmp_path, "api/app/routes/auth.py", LOGIN_ONLY)
+    write(tmp_path, "legacy/requirements.txt", "flask\n")
+    write(
+        tmp_path,
+        "legacy/models.py",
+        "class User(Base):\n    __tablename__ = 'users'\n    failed_login_attempts = Column(Integer)\n",
+    )
+    [finding] = findings_for(tmp_path, "auth", "AUTH-NO-LOCKOUT")
+    assert str(finding.locations[0]) == "api/app/routes/auth.py:7"
+
+
+def test_lockout_package_of_another_app_root_does_not_pass_sign_in(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    write(tmp_path, "api/app/routes/auth.py", LOGIN_ONLY)
+    write(tmp_path, "other/requirements.txt", "flask\nflask-limiter\n")
+    write(
+        tmp_path,
+        "other/app.py",
+        "from flask import Flask\napp = Flask(__name__)\n\n\n"
+        "@app.get('/health')\ndef health():\n    return 'ok'\n",
+    )
+    [finding] = findings_for(tmp_path, "auth", "AUTH-NO-LOCKOUT")
+    assert str(finding.locations[0]) == "api/app/routes/auth.py:7"
+    write(tmp_path, "requirements.txt", "flask-limiter\n")
+    assert findings_for(tmp_path, "auth", "AUTH-NO-LOCKOUT") == []
