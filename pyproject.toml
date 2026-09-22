@@ -1,9 +1,19 @@
 [project]
 name = "dpr"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Deterministic data protection review for JS/TS and Python repositories"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "LicenseRef-Proprietary"
+license-files = ["LICENSE"]
+authors = [{ name = "Gawie van Blerk" }]
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Security",
+]
 dependencies = [
     "tree-sitter>=0.25",
     "tree-sitter-javascript>=0.23",
@@ -22,8 +32,14 @@ dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6"]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+path = "src/dpr/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/dpr"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/dpr", "tests", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [tool.ruff]
 line-length = 100
