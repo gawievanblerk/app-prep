@@ -8,12 +8,8 @@ from dpr.discovery.approots import root_of
 from dpr.model import DataModel, Location
 from dpr.reviews.auth_flows import route_code
 from dpr.reviews.inventory_retention import iac_retention, readers, retention_text
-from dpr.reviews.inventory_sources import (
-    RUNTIME_SOURCE,
-    Collection,
-    collection_points,
-    sdk_receipts,
-)
+from dpr.reviews.inventory_sdks import sdk_receipts
+from dpr.reviews.inventory_sources import RUNTIME_SOURCE, Collection, collection_points
 from dpr.reviews.leaks import sentry_inits
 from dpr.reviews.leaks_logs import destinations, logged_locations, words
 from dpr.reviews.paths import is_test

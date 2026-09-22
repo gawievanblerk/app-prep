@@ -5,7 +5,7 @@ from __future__ import annotations
 import dpr.reviews.inventory_fields  # noqa: F401  (registers rules)
 import dpr.reviews.inventory_files  # noqa: F401  (registers rules)
 import dpr.reviews.inventory_retention  # noqa: F401  (registers rules)
-import dpr.reviews.inventory_sources  # noqa: F401  (registers rules)
+import dpr.reviews.inventory_sdks  # noqa: F401  (registers rules)
 from dpr.data import load
 from dpr.model import Finding, Part, ReviewSection
 from dpr.reviews.inventory_answers import answers

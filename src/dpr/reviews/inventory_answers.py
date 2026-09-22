@@ -8,7 +8,7 @@ from dpr.model import Answer, Finding
 from dpr.parsing import hcl
 from dpr.reviews.access import PUBLIC, access
 from dpr.reviews.inventory_retention import deletion_paths, iac_retention, soft_delete
-from dpr.reviews.inventory_sources import sdk_receipts
+from dpr.reviews.inventory_sdks import sdk_receipts
 from dpr.reviews.personal import personal_fields
 from dpr.rules import Context
 
