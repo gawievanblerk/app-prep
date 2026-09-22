@@ -16,8 +16,8 @@ SLUGS = {"inventory", "rls", "auth", "baseline", "owasp", "leaks", "abuse"}
 
 def test_catalogue_shape():
     questions = load_questions()
-    assert len(questions) == 22
-    assert len({q.id for q in questions}) == 22
+    assert len(questions) == 23
+    assert len({q.id for q in questions}) == 23
     for q in questions:
         assert set(q.reviews) <= SLUGS
         assert q.type in ("choice", "multi", "text")
@@ -31,6 +31,7 @@ def test_questions_for():
         "rls_via_dashboard",
         "tables_not_in_migrations",
         "buckets_public",
+        "db_runtime_role",
     ]
     assert [q.id for q in questions_for(["leaks"])] == [
         "hosting_env_not_in_repo",
@@ -95,7 +96,7 @@ def test_interactive_is_capped_at_eight():
     results, _ = resolve(load_questions(), Detection(), None, interactive=True, ask=ask)
     assert len(calls) == 8
     assert sum(r.source == "interactive" for r in results) == 8
-    assert sum(r.source == "none" for r in results) == 14
+    assert sum(r.source == "none" for r in results) == 15
 
 
 def test_answered_by_detection():

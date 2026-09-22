@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import re
 
+import dpr.reviews.abuse_bulk  # noqa: F401  (registers rules)
 import dpr.reviews.abuse_cors  # noqa: F401  (registers rules)
 import dpr.reviews.abuse_limits  # noqa: F401  (registers rules)
 import dpr.reviews.abuse_paid  # noqa: F401  (registers rules)
-from dpr.model import Finding, Part, ReviewSection
+import dpr.reviews.abuse_roles  # noqa: F401  (registers rules)
+from dpr.model import Finding, Part, ReviewSection, Route
 from dpr.reviews.abuse_paid import is_limited
 from dpr.reviews.access import PUBLIC, access
+from dpr.reviews.cost_trace import app_label, auth_label, cost_rows
 from dpr.reviews.paid import costs, paid_routes
 from dpr.rules import Context
 
@@ -62,52 +65,84 @@ def _flag(path: str) -> str:
     return (re.sub(r"[^A-Z0-9]+", "_", path.upper()).strip("_") or "PAID_ROUTE") + "_ENABLED"
 
 
-def _cost_rows(ctx: Context) -> tuple[tuple[str, ...], ...]:
-    rows = []
+def _form_kind(route) -> str:
+    return "login" if re.search(r"(?i)log-?in|sign-?in", route.path) else "form"
+
+
+def _surface(ctx: Context) -> list[tuple[str, Route, list[str], list[str]]]:
+    """(app, route, calls, cost categories) for traced routes, paid routes and public forms."""
+    rows: dict[tuple[str, str, str], tuple[str, Route, list[str], list[str]]] = {}
+    for row in cost_rows(ctx):
+        key = (row.app, row.route.method, row.route.path)
+        rows[key] = (row.app, row.route, list(row.calls), list(row.categories))
     for paid in paid_routes(ctx):
-        route = paid.route
-        cost = costs().get(paid.sdk.category, {"note": "provider pricing"})
-        rows.append(
-            (
-                f"{route.method} {route.path}",
-                paid.sdk.name,
-                cost["note"],
-                "no" if access(ctx, route).level == PUBLIC else "yes",
-                "yes" if is_limited(ctx, route) else "none found",
-            )
-        )
+        key = (app_label(ctx, paid.route.file), paid.route.method, paid.route.path)
+        entry = rows.setdefault(key, (key[0], paid.route, [], []))
+        if paid.sdk.name not in entry[2]:
+            entry[2].append(paid.sdk.name)
+            entry[3].append(paid.sdk.category)
     for route in ctx.detection.routes:
         if route.is_public_form and access(ctx, route).level == PUBLIC and route.method != "GET":
-            kind = "login" if re.search(r"(?i)log-?in|sign-?in", route.path) else "form"
-            limited = "yes" if is_limited(ctx, route) else "none found"
-            rows.append(
-                (
-                    f"{route.method} {route.path}",
-                    "public form",
-                    costs()[kind]["note"],
-                    "no",
-                    limited,
-                )
-            )
-    return tuple(rows)
+            key = (app_label(ctx, route.file), route.method, route.path)
+            entry = rows.setdefault(key, (key[0], route, [], []))
+            entry[2].append("public form")
+            entry[3].append(_form_kind(route))
+    return list(rows.values())
 
 
-def _limit_rows(rows: tuple[tuple[str, ...], ...], ctx: Context) -> tuple[tuple[str, ...], ...]:
-    by_route = {f"{p.route.method} {p.route.path}": p.sdk.category for p in paid_routes(ctx)}
+def _note(category: str) -> str:
+    return costs().get(category, {"note": "provider pricing"})["note"]
+
+
+def _cost_rows(ctx: Context) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
+    surface = _surface(ctx)
+    multi = len({app for app, _, _, _ in surface}) > 1
+    header = ("Route", "Calls", "Cost per call", "Auth required", "Current limit")
+    rows = []
+    for app, route, calls, categories in surface:
+        row = (
+            f"{route.method} {route.path}",
+            ", ".join(calls),
+            "; ".join(dict.fromkeys(_note(c) for c in categories)),
+            auth_label(ctx, route),
+            "yes" if is_limited(ctx, route) else "none found",
+        )
+        rows.append((app, *row) if multi else row)
+    return (("App", *header) if multi else header), tuple(rows)
+
+
+def _minutes(window: str) -> float:
+    amount, unit = window.split(" ", 1)
+    scale = {"min": 1, "h": 60, "day": 1440}
+    return float(amount) * scale.get(unit.rstrip("s"), 1)
+
+
+def _strictest(categories: list[str]) -> tuple[str, int, int, str]:
+    """Per-user and per-IP are the lowest across all categories; the note and window come from
+    whichever category gave the strictest per-user value. On a tie the longer window wins: the
+    same count over a longer window is the lower rate."""
+    scored = [costs().get(c, costs()["form"]) for c in categories]
+    per_user = min(cost["per_user"] for cost in scored)
+    per_ip = min(cost["per_ip"] for cost in scored)
+    strictest = max(
+        (c for c in categories if costs().get(c, costs()["form"])["per_user"] == per_user),
+        key=lambda c: _minutes(costs().get(c, costs()["form"])["window"]),
+    )
+    return strictest, per_user, per_ip, costs().get(strictest, costs()["form"])["window"]
+
+
+def _limit_rows(ctx: Context) -> tuple[tuple[str, ...], ...]:
     limits = []
-    for endpoint, _calls, note, _auth, _limited in rows:
-        if endpoint in by_route:
-            key = by_route[endpoint]
-        else:
-            key = "login" if re.search(r"(?i)log-?in|sign-?in", endpoint) else "form"
-        cost = costs().get(key, costs()["form"])
+    for app, route, _calls, categories in _surface(ctx):
+        category, per_user, per_ip, window = _strictest(categories)
+        endpoint = f"{route.method} {route.path}"
         limits.append(
             (
-                endpoint,
-                note,
-                str(cost["per_user"]),
-                str(cost["per_ip"]),
-                cost["window"],
+                endpoint if app == "." else f"{app}: {endpoint}",
+                _note(category),
+                str(per_user),
+                str(per_ip),
+                window,
                 "starting default, not measured traffic",
             )
         )
@@ -128,20 +163,15 @@ def run(ctx: Context) -> ReviewSection:
 
 
 def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None:
-    rows = _cost_rows(ctx)
+    header, rows = _cost_rows(ctx)
     position = next(i for i, p in enumerate(section.parts) if p.kind == "findings")
     added = [
-        Part(
-            "table",
-            "Cost surface",
-            ("Route", "Calls", "Cost per call", "Auth required", "Current limit"),
-            rows,
-        ),
+        Part("table", "Cost surface", header, rows),
         Part(
             "table",
             "Limits per endpoint",
             ("Endpoint", "Cost", "Per user", "Per IP", "Window", "Reasoning"),
-            _limit_rows(rows, ctx),
+            _limit_rows(ctx),
         ),
         Part("text", "Implementation for this stack", body=_snippet(ctx)),
     ]

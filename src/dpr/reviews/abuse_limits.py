@@ -6,20 +6,15 @@ import ast
 import re
 from collections.abc import Iterator
 
-from dpr.data import load
+from dpr.discovery.approots import root_of
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import imports, jsts, pyast
 from dpr.redact import snippet
-from dpr.reviews.baseline_accounts import START_FILES
+from dpr.reviews.abuse_workers import multi_process
+from dpr.reviews.deploy_env import applies
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 
-WORKERS = re.compile(
-    r"(?:--workers|-w)[ =](\d+)|WEB_CONCURRENCY=(\d+)|^\s*workers\s*=\s*(\d+)"
-    r"|replicas:\s*(\d+)|-i\s+(max|\d+)|instances:\s*(max|\d+)"
-)
-RUNNER_NAMES = re.compile(r"(?i)gunicorn|uvicorn|hypercorn|daphne|granian")
-PM2_NAME = re.compile(r"(?i)pm2")
 PROXY_TRUST = re.compile(
     r"forwarded-allow-ips|FORWARDED_ALLOW_IPS|ProxyHeadersMiddleware|ProxyFix|trust proxy"
     r"|trustProxy|get_ipaddr|x-forwarded-for",
@@ -33,120 +28,7 @@ STORAGE_ASSIGN = re.compile(r"""RATELIMIT_STORAGE_UR[IL]['"]?[ \t]{0,8}\]?[ \t]{
 STORAGE_SETTING = re.compile(
     r"""RATELIMIT_STORAGE_UR[IL]['"]?[ \t]{0,8}\]?[ \t]{0,8}[:=][ \t]{0,8}(['"])([^'"\n]*)\1"""
 )
-
-
-def _strip_comment(line: str) -> str:
-    """Drop text after an unquoted ' #', so a trailing comment is not read as evidence."""
-    quote = None
-    for index, char in enumerate(line[:-1]):
-        if quote:
-            if char == quote:
-                quote = None
-        elif char in "'\"":
-            quote = char
-        elif char == " " and line[index + 1] == "#":
-            return line[:index]
-    return line
-
-
-def _continues(line: str) -> bool:
-    return line.rstrip().endswith("\\")
-
-
-def _unwrap_continuation(line: str) -> str:
-    stripped = line.rstrip()
-    return stripped[:-1] if stripped.endswith("\\") else line
-
-
-def _logical_lines(text: str) -> Iterator[list[tuple[int, str]]]:
-    """Physical lines grouped by trailing-backslash continuation.
-
-    Blank and comment lines are dropped, and never joined into a continuation: a comment line
-    where a continued shell command expected its next line ends that continuation.
-    """
-    physical = text.splitlines()
-    index = 0
-    total = len(physical)
-    while index < total:
-        stripped = physical[index].strip()
-        if not stripped or stripped.startswith(("#", "//")):
-            index += 1
-            continue
-        group = [(index + 1, _strip_comment(physical[index]))]
-        index += 1
-        while _continues(group[-1][1]) and index < total:
-            next_stripped = physical[index].strip()
-            if not next_stripped or next_stripped.startswith(("#", "//")):
-                break
-            group.append((index + 1, _strip_comment(physical[index])))
-            index += 1
-        yield group
-
-
-def _worker_location(group: list[tuple[int, str]]) -> int | None:
-    """The physical line in a logical line whose worker flag or value is live evidence."""
-    whole = " ".join(_unwrap_continuation(text) for _, text in group)
-    for number, line in group:
-        match = WORKERS.search(line)
-        if match is None:
-            continue
-        groups = match.groups()
-        matched = next(i for i, g in enumerate(groups) if g is not None)
-        if matched == 0 and not RUNNER_NAMES.search(whole):
-            continue
-        if matched == 4 and not PM2_NAME.search(whole):
-            continue
-        value = groups[matched]
-        if value == "max" or int(value) > 1:
-            return number
-    return None
-
-
-def _hosting_file(ctx: Context, near: str) -> Location | None:
-    """The config file of the serverless host, closest to `near`."""
-    stack = load("stack.yaml")
-    patterns = [
-        pattern
-        for host in ctx.detection.hosting
-        if host in stack["serverless_hosting"]
-        for pattern in stack["hosting"].get(host, {}).get("files", [])
-    ]
-    files = [entry.rel for entry in ctx.index.named(*patterns)] if patterns else []
-    if not files:
-        return None
-    return Location(max(files, key=lambda rel: (len(_common(rel, near)), -len(rel))), 1)
-
-
-def multi_process(ctx: Context, near: str = "") -> Location | None:
-    """Evidence that more than one process or instance serves requests, closest to `near`.
-
-    For serverless hosting the evidence is the host's config file (for example vercel.json).
-    """
-    if ctx.detection.serverless:
-        hosting = _hosting_file(ctx, near)
-        if hosting is not None:
-            return hosting
-    names = (*START_FILES, "gunicorn.conf.py", "*.yaml", "*.yml", "ecosystem.config.js")
-    found = []
-    for entry in ctx.index.named(*names):
-        text = ctx.index.text(entry.rel)
-        for group in _logical_lines(text):
-            number = _worker_location(group)
-            if number is not None:
-                found.append(Location(entry.rel, number))
-                break
-    if not found:
-        return None
-    return max(found, key=lambda loc: len(_common(loc.file, near)))
-
-
-def _common(a: str, b: str) -> list[str]:
-    shared = []
-    for left, right in zip(a.split("/"), b.split("/"), strict=False):
-        if left != right:
-            break
-        shared.append(left)
-    return shared
+DOC_SUFFIXES = (".md", ".mdx", ".rst", ".adoc", ".txt")
 
 
 def _limiters(ctx: Context) -> Iterator[tuple[str, ast.Module, ast.Call]]:
@@ -159,13 +41,12 @@ def _limiters(ctx: Context) -> Iterator[tuple[str, ast.Module, ast.Call]]:
             yield entry.rel, tree, call
 
 
-def _configured_storage(ctx: Context) -> str | None:
-    """RATELIMIT_STORAGE_URI (Flask-Limiter) or RATELIMIT_STORAGE_URL (slowapi) set in non-test
-    code or config: 'memory' or 'shared' when every setting is that literal, 'mixed' when the
-    settings disagree or one is read at runtime, None when nothing sets it."""
-    key = ("limiter-storage-setting", "")
+def _storage_settings(ctx: Context) -> list[tuple[str, str]]:
+    """(file, kind) for each RATELIMIT_STORAGE_URI (Flask-Limiter) or RATELIMIT_STORAGE_URL
+    (slowapi) setting in non-test code or config: 'memory', 'shared' or 'runtime'."""
+    key = ("limiter-storage-settings", "")
     if key not in ctx.index.cache:
-        kinds = set()
+        found = []
         for entry in ctx.index.files:
             text = ctx.index.text(entry.rel)
             if is_test(entry.rel) or "RATELIMIT_STORAGE" not in text:
@@ -173,12 +54,36 @@ def _configured_storage(ctx: Context) -> str | None:
             for match in STORAGE_ASSIGN.finditer(text):
                 literal = STORAGE_SETTING.match(text, match.start())
                 if literal is None:
-                    kinds.add("runtime")
+                    found.append((entry.rel, "runtime"))
                 else:
-                    kinds.add("memory" if literal.group(2).startswith("memory://") else "shared")
-        single = len(kinds) == 1 and "runtime" not in kinds
-        ctx.index.cache[key] = kinds.pop() if single else ("mixed" if kinds else None)
+                    memory = literal.group(2).startswith("memory://")
+                    found.append((entry.rel, "memory" if memory else "shared"))
+        ctx.index.cache[key] = found
     return ctx.index.cache[key]
+
+
+def _configured_storage(ctx: Context, rel: str) -> str | None:
+    """The storage setting that applies to `rel`'s app root (its own root or shared config):
+    'memory' or 'shared' when every setting is that literal, 'mixed' when the settings disagree
+    or one is read at runtime, None when nothing sets it."""
+    kinds = {kind for file, kind in _storage_settings(ctx) if applies(ctx, file, rel)}
+    single = len(kinds) == 1 and "runtime" not in kinds
+    return kinds.pop() if single else ("mixed" if kinds else None)
+
+
+def _proxy_trusted(ctx: Context, rel: str) -> bool:
+    """Proxy trust is configured in code or config that applies to `rel`'s app root. Test files
+    and documents only mention the header, so they never count."""
+    key = ("proxy-trust-files", "")
+    if key not in ctx.index.cache:
+        ctx.index.cache[key] = [
+            entry.rel
+            for entry in ctx.index.files
+            if not is_test(entry.rel)
+            and not entry.rel.endswith(DOC_SUFFIXES)
+            and PROXY_TRUST.search(ctx.index.text(entry.rel))
+        ]
+    return any(applies(ctx, trusted, rel) for trusted in ctx.index.cache[key])
 
 
 def _memory_storage(tree: ast.Module, call: ast.Call, configured: str | None = None) -> str | None:
@@ -235,10 +140,11 @@ def express_limiter_names(ctx: Context, rel: str) -> set[str]:
 def inmemory_limiter(ctx: Context) -> Iterator[Finding]:
     if multi_process(ctx) is None:
         return
-    configured = _configured_storage(ctx)
     for rel, tree, call in _limiters(ctx):
         evidence = multi_process(ctx, rel)
-        kind = _memory_storage(tree, call, configured)
+        if evidence is None:
+            continue
+        kind = _memory_storage(tree, call, _configured_storage(ctx, rel))
         if kind == "always":
             what = "The limiter keeps its counters in process memory."
             yield _inmemory(ctx, rel, call.lineno, Tag.CONFIRMED, what, evidence)
@@ -263,20 +169,21 @@ def inmemory_limiter(ctx: Context) -> Iterator[Finding]:
         for tree in jsts.parse_file(ctx.index, entry.rel):
             for call in jsts.calls(tree, callee) if callee else []:
                 args = jsts.arguments(call)
-                if not args or "store" not in jsts.object_pairs(args[0]):
+                evidence = multi_process(ctx, entry.rel)
+                if evidence is not None and (not args or "store" not in jsts.object_pairs(args[0])):
                     what = "express-rate-limit has no store option, so it counts in process memory."
                     line = jsts.line(tree, call)
-                    evidence = multi_process(ctx, entry.rel)
                     yield _inmemory(ctx, entry.rel, line, Tag.CONFIRMED, what, evidence)
             for decl in jsts.walk(tree.root, {"variable_declarator"}):
                 name = jsts.node_text(decl.child_by_field_name("name"))
                 value = jsts.node_text(decl.child_by_field_name("value"))
                 top_level = jsts.enclosing_function(decl) is None
+                evidence = multi_process(ctx, entry.rel)
                 if top_level and value.startswith("new Map(") and COUNTER_NAME.search(name):
-                    what = f"The module-level Map {name} counts requests in process memory."
-                    line = jsts.line(tree, decl)
-                    evidence = multi_process(ctx, entry.rel)
-                    yield _inmemory(ctx, entry.rel, line, Tag.INFERRED, what, evidence)
+                    if evidence is not None:
+                        what = f"The module-level Map {name} counts requests in process memory."
+                        line = jsts.line(tree, decl)
+                        yield _inmemory(ctx, entry.rel, line, Tag.INFERRED, what, evidence)
 
 
 @rule(
@@ -314,9 +221,14 @@ def limiter_not_applied(ctx: Context) -> Iterator[Finding]:
 def limiter_proxy_ip(ctx: Context) -> Iterator[Finding]:
     if not ctx.detection.hosting:
         return
-    if any(PROXY_TRUST.search(ctx.index.text(f.rel)) for f in ctx.index.files):
-        return
+
+    def skipped(rel: str) -> bool:
+        home = root_of(ctx.detection.app_roots, rel)
+        return (home is not None and home.deployed is False) or _proxy_trusted(ctx, rel)
+
     for rel, _tree, call in _limiters(ctx):
+        if skipped(rel):
+            continue
         key = pyast.kwarg(call, "key_func")
         if key is not None and (pyast.dotted(key) or "").endswith("get_remote_address"):
             yield make_finding(
@@ -328,6 +240,8 @@ def limiter_proxy_ip(ctx: Context) -> Iterator[Finding]:
             )
     for entry in ctx.index.js_files:
         if is_test(entry.rel) or "rate-limit" not in ctx.index.text(entry.rel):
+            continue
+        if skipped(entry.rel):
             continue
         names = {
             local

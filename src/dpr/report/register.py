@@ -1,0 +1,180 @@
+"""The findings register: findings grouped into distinct issues, ranked, with stable ids."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from dpr.data import load
+from dpr.discovery.approots import root_of
+from dpr.model import AppRoot, Finding, Severity, Tag
+from dpr.rank import score
+from dpr.reviews import REVIEWS, number
+from dpr.rules import rule_text
+
+SEVERITY_ORDER = (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW)
+VARIABLE = re.compile(r"\$\{\w+\}")
+LISTED = 3
+
+
+@dataclass(frozen=True)
+class Issue:
+    id: str
+    title: str
+    severity: Severity
+    tags: str
+    reviews: tuple[int, ...]
+    findings: tuple[str, ...]  # rule ids, in rank order
+    count: int
+    first: str
+    effort_minutes: int
+
+
+def _chain_of(rule_id: str) -> tuple[int, dict] | None:
+    for position, chain in enumerate(load("register.yaml")["chains"]):
+        if rule_id in chain["rules"]:
+            return position, chain
+    return None
+
+
+def _app(finding: Finding, roots: list[AppRoot]) -> str:
+    home = root_of(roots, finding.locations[0].file) if finding.locations else None
+    return home.path if home is not None else ""
+
+
+def _linked_key(finding: Finding, spec: dict, position: int, findings: list[Finding]) -> tuple:
+    """Findings of the first rule are keyed by the file of their first site, so every literal
+    first hashed in one file is one issue; findings of the other rules join the first-rule
+    finding that shares a file with them."""
+    anchor = finding
+    if finding.rule_id != spec["rules"][0]:
+        files = {loc.file for loc in finding.locations[1:]}
+        anchor = next(
+            (
+                f
+                for f in findings
+                if f.rule_id == spec["rules"][0] and files & {loc.file for loc in f.locations}
+            ),
+            finding,
+        )
+    return ("chain", position, anchor.locations[0].file if anchor.locations else "")
+
+
+def _key(finding: Finding, roots: list[AppRoot], findings: list[Finding]) -> tuple:
+    chain = _chain_of(finding.rule_id)
+    if chain is not None:
+        position, spec = chain
+        if spec["scope"] == "linked":
+            return _linked_key(finding, spec, position, findings)
+        return ("chain", position, _app(finding, roots) if spec["scope"] == "app" else "")
+    return ("rule", finding.rule_id, _app(finding, roots))
+
+
+def _tags(findings: list[Finding]) -> str:
+    present = [
+        t.value
+        for t in (Tag.CONFIRMED, Tag.INFERRED, Tag.UNVERIFIED)
+        if any(f.tag is t for f in findings)
+    ]
+    return " and ".join(present)
+
+
+def build_register(findings: list[Finding], roots: list[AppRoot]) -> list[Issue]:
+    groups: dict[tuple, list[Finding]] = {}
+    for finding in findings:
+        groups.setdefault(_key(finding, roots, findings), []).append(finding)
+    ordered = sorted(
+        groups.items(),
+        key=lambda item: (-max(score(f) for f in item[1]), SEVERITY_ORDER.index(_worst(item[1]))),
+    )
+    issues = []
+    for position, (key, members) in enumerate(ordered, start=1):
+        members = sorted(members, key=lambda f: -score(f))
+        lead = members[0]
+        title = _title(key, members, lead)
+        apps = {_app(f, roots) for f in members}
+        siblings = [k for k in groups if k[:2] == key[:2]]
+        app = next(iter(apps)) if len(apps) == 1 else None
+        if len(siblings) > 1 and app is not None and (not app or app not in title):
+            title += f" ({app or 'repository root'})"
+        issues.append(
+            Issue(
+                id=f"F-{position:02d}",
+                title=title,
+                severity=_worst(members),
+                tags=_tags(members),
+                reviews=tuple(sorted({number(f.review) for f in members if f.review in REVIEWS})),
+                findings=tuple(dict.fromkeys(f.rule_id for f in members)),
+                count=len(members),
+                first=str(lead.locations[0]) if lead.locations else "not tied to a file",
+                effort_minutes=lead.effort_minutes,
+            )
+        )
+    return issues
+
+
+def _title_pattern(rule_id: str) -> re.Pattern[str] | None:
+    """The rule's title template as a pattern with one group per run of variables: variables
+    joined only by spaces or punctuation (`${method} ${path}`, `${model}.${field}`) are one run."""
+    try:
+        template = rule_text(rule_id).title
+    except KeyError:
+        return None
+    pattern, position, previous = "", 0, None
+    for match in VARIABLE.finditer(template):
+        gap = template[position : match.start()]
+        if previous is not None and not re.search(r"\w", gap):
+            position = match.end()
+            continue
+        pattern += re.escape(gap) + "(.+?)"
+        position, previous = match.end(), match
+    return re.compile(pattern + re.escape(template[position:]), re.S) if previous else None
+
+
+def _subjects(members: list[Finding]) -> list[str] | None:
+    """What sets each member apart, from the first variable run whose value differs, in member
+    order and without repeats; None when a title does not follow the rule's template."""
+    pattern = _title_pattern(members[0].rule_id)
+    matches = [pattern.fullmatch(f.title) for f in members] if pattern else []
+    if not matches or not all(matches):
+        return None
+    for group in range(1, pattern.groups + 1):
+        values = list(dict.fromkeys(m.group(group) for m in matches))
+        if len(values) > 1:
+            return values
+    return None
+
+
+def _joined(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _rule_title(members: list[Finding], lead: Finding) -> str:
+    """The lead's title, naming the other members when their titles differ from it."""
+    if all(f.title == lead.title for f in members):
+        return lead.title
+    subjects = _subjects(members)
+    if subjects is None:
+        count = sum(f.title != lead.title for f in members)
+        return f"{lead.title} (and {count} similar finding{'s' if count > 1 else ''})"
+    others = subjects[1:]
+    if len(others) > LISTED + 1:
+        others = [*others[:LISTED], f"{len(others) - LISTED} more"]
+    return f"{lead.title} (also {_joined(others)})"
+
+
+def _title(key: tuple, members: list[Finding], lead: Finding) -> str:
+    if key[0] != "chain":
+        return _rule_title(members, lead)
+    spec = load("register.yaml")["chains"][key[1]]
+    if spec["scope"] != "linked":
+        return spec["title"]
+    anchors = [f for f in members if f.rule_id == spec["rules"][0]]
+    title = anchors[0].title if anchors else lead.title
+    if anchors and len({f.rule_id for f in members}) > 1:
+        title += ", and a start command runs it"
+    return title
+
+
+def _worst(findings: list[Finding]) -> Severity:
+    return min((f.severity for f in findings), key=SEVERITY_ORDER.index)

@@ -16,7 +16,7 @@ from dpr.data import load
 from dpr.discovery.packages import (
     JS_IMPORT,
     PY_IMPORT,
-    _js_package,
+    js_package,
     normalise,
 )
 from dpr.model import Route, SdkUse
@@ -41,7 +41,7 @@ class PaidRoute:
     exact: bool = True
 
 
-def _names_from_import(text: str, python: bool) -> set[str]:
+def names_from_import(text: str, python: bool) -> set[str]:
     names: set[str] = set()
     match = PY_IMPORT_NAMES.match(text) if python else JS_IMPORT_NAMES.search(text)
     groups = match.groups() if match else ()
@@ -71,35 +71,35 @@ def sdk_names(ctx: Context) -> dict[str, dict[str, SdkUse]]:
             lines = text.splitlines()
             for match in (PY_IMPORT if python else JS_IMPORT).finditer(text):
                 module = match.group(1) or (match.group(2) if python else "")
-                sdk = packages.get(normalise(module if python else _js_package(module)))
+                sdk = packages.get(normalise(module if python else js_package(module)))
                 if sdk is not None:
                     line = lines[line_of(text, match.start(1 if match.group(1) else 2)) - 1]
-                    for name in _names_from_import(line, python):
+                    for name in names_from_import(line, python):
                         found.setdefault(entry.rel, {})[name] = sdk
         ctx.facts["paid_sdk_names"] = found
     return ctx.facts["paid_sdk_names"]
 
 
-def _uses(text: str, names: dict[str, SdkUse]) -> SdkUse | None:
+def uses(text: str, names: dict[str, SdkUse]) -> SdkUse | None:
     for name, sdk in names.items():
         if re.search(rf"(?<![\w.$]){re.escape(name)}\b\s*[.(]", text):
             return sdk
     return None
 
 
-def _tree_names(tree, names: dict[str, SdkUse]) -> dict[str, SdkUse]:
+def tree_names(tree, names: dict[str, SdkUse]) -> dict[str, SdkUse]:
     """Add module-level clients built from an SDK, such as `const ai = new OpenAI()`."""
     local = dict(names)
     if isinstance(tree, ast.Module):
         for name, value in pyast.assignments(tree.body).items():
-            sdk = _uses(ast.unparse(value), names)
+            sdk = uses(ast.unparse(value), names)
             if sdk:
                 local[name] = sdk
     elif tree is not None and hasattr(tree, "root"):
         for decl in jsts.walk(tree.root, {"variable_declarator"}):
             if jsts.enclosing_function(decl) is not None:
                 continue
-            sdk = _uses(jsts.node_text(decl.child_by_field_name("value")), names)
+            sdk = uses(jsts.node_text(decl.child_by_field_name("value")), names)
             target = decl.child_by_field_name("name")
             if sdk and target is not None and target.type == "identifier":
                 local[jsts.node_text(target)] = sdk
@@ -114,11 +114,11 @@ def _own_names(ctx: Context, rel: str | None) -> dict[str, SdkUse]:
     if key not in ctx.index.cache:
         base = sdk_names(ctx).get(rel, {})
         if rel.endswith(".py"):
-            names = _tree_names(pyast.parse_file(ctx.index, rel), base)
+            names = tree_names(pyast.parse_file(ctx.index, rel), base)
         else:
             names = dict(base)
             for tree in jsts.parse_file(ctx.index, rel):
-                names.update(_tree_names(tree, base))
+                names.update(tree_names(tree, base))
         ctx.index.cache[key] = names
     return ctx.index.cache[key]
 
@@ -159,7 +159,7 @@ def _js_function_index(ctx: Context) -> dict[str, list]:
 
 
 def _py_paid(ctx: Context, rel: str, fn: ast.AST, depth: int) -> tuple[SdkUse, str, bool] | None:
-    sdk = _uses(ast.unparse(fn), _file_names(ctx, rel))
+    sdk = uses(ast.unparse(fn), _file_names(ctx, rel))
     if sdk:
         return sdk, getattr(fn, "name", ""), True
     if depth >= MAX_DEPTH:
@@ -205,7 +205,7 @@ def _js_local_functions(ctx: Context, tree) -> dict[str, object]:
     return ctx.index.cache[key]
 
 
-def _js_target(ctx: Context, tree, call) -> tuple[object, object, bool] | None:
+def js_call_target(ctx: Context, tree, call) -> tuple[object, object, bool] | None:
     """(tree, function, exact) for a call that resolves through this file or its imports."""
     func = jsts.unwrap(call.child_by_field_name("function"))
     names = imports.js_imports(ctx.index, tree.rel)
@@ -234,13 +234,13 @@ def _js_target(ctx: Context, tree, call) -> tuple[object, object, bool] | None:
 
 
 def _js_paid(ctx: Context, tree, fn, depth: int) -> tuple[SdkUse, str, bool] | None:
-    sdk = _uses(jsts.node_text(fn), _file_names(ctx, tree.rel))
+    sdk = uses(jsts.node_text(fn), _file_names(ctx, tree.rel))
     if sdk:
         return sdk, "", True
     if depth >= MAX_DEPTH:
         return None
     for call in jsts.walk(fn, {"call_expression"}):
-        target = _js_target(ctx, tree, call)
+        target = js_call_target(ctx, tree, call)
         if target is None or target[1] is fn:
             continue
         found = _js_paid(ctx, target[0], target[1], depth + 1)

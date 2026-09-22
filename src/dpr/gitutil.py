@@ -17,7 +17,9 @@ from pathlib import Path
 from dpr.model import GitInfo
 
 
-def run_git(root: Path, *args: str, timeout: int = 30) -> str | None:
+def run_git(
+    root: Path, *args: str, timeout: int = 30, notes: list[str] | None = None
+) -> str | None:
     if shutil.which("git") is None:
         return None
     command = ["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", str(root), *args]
@@ -26,7 +28,14 @@ def run_git(root: Path, *args: str, timeout: int = 30) -> str | None:
         result = subprocess.run(
             command, capture_output=True, text=True, timeout=timeout, check=False, env=env
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
+        if notes is not None:
+            notes.append(
+                f"git {args[0]} timed out after {timeout} s, so the git-based checks that use "
+                "it are incomplete"
+            )
+        return None
+    except OSError:
         return None
     return result.stdout if result.returncode == 0 else None
 
@@ -43,8 +52,8 @@ def git_info(root: Path) -> GitInfo:
     return GitInfo(True, sha.strip() + suffix)
 
 
-def tracked_files(root: Path) -> list[str] | None:
-    output = run_git(root, "ls-files", "-z")
+def tracked_files(root: Path, notes: list[str] | None = None) -> list[str] | None:
+    output = run_git(root, "ls-files", "-z", notes=notes)
     if output is None:
         return None
     return [name for name in output.split("\0") if name]

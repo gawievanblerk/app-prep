@@ -1,0 +1,17 @@
+ABUSE-BULK-UNBOUNDED:
+  title: ${method} ${path} does one render or send per item, ${cap}
+  effort_minutes: 30
+  detail: '${field} accepts a list ${cap}, and the handler loops over it calling ${calls} once per item inside the request.'
+  attack: Send one request with the largest list allowed, then repeat it in parallel.
+  blast: Worker time, memory and any per-call provider cost for every item, which slows or stops the API for everyone.
+  fix: Cap the list at about ${limit} items, or move the work to a background job with its own queue and per-user limits.
+  verify: Send a list one item over the new cap and expect 422 before any work starts.
+LEAK-COMMITTED-DATA-FILE:
+  title: Committed ${what} may hold real people's data
+  effort_minutes: 60
+  detail: ${detail_text}
+  proof_needed: Open the files and check whether they name real people, customers or their records.
+  attack: Anyone with read access to the repository, any fork or any old clone, now or later, reads the files.
+  blast: Every person named in the files, kept in git history until the history is rewritten.
+  fix: Replace real records with generated data, remove the files, and purge them from git history if they held real data.
+  verify: Search the tracked files again and confirm no real names, emails or records remain.

@@ -1,0 +1,15 @@
+INV-UNUSED-FIELD:
+  title: Personal fields of ${model} that no code reads
+  effort_minutes: 30
+  detail: 'These personal fields of ${model} are declared and written but no code, template or screen reads them: ${fields}. Data that nothing uses is the cheapest privacy fix: stop collecting it.'
+  proof_needed: Search reports, exports and database views outside the repository for these columns before removing them.
+  blast: The values stored in these columns for every record.
+  fix: Stop writing the fields, drop the columns in a migration after a backup review, and remove them from request schemas.
+  verify: Remove the fields in a branch and run the test suite and main screens.
+INV-PII-FILE-IN-REPO:
+  title: Personal data file committed to the repository
+  effort_minutes: 30
+  detail: ${file} is committed and its columns or keys look like personal data (${columns});${size} every clone and fork holds a copy, and git history keeps it after deletion.
+  blast: Every person listed in the file, exposed to anyone with repository access.
+  fix: Confirm whether the records are real. If they are, remove the file, rewrite history, ask everyone to re-clone, and replace it with synthetic data.
+  verify: Run git log --all -- the file path and confirm it no longer appears after the history rewrite.

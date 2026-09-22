@@ -1,0 +1,33 @@
+AUTH-ENUM-SIGNUP-MESSAGE:
+  title: Signup tells the caller an address is already registered
+  effort_minutes: 20
+  detail: ${route} answers with a distinct message when the email already has an account (first location), so anyone can test which addresses are customers.
+  attack: Submit a list of email addresses to the signup endpoint and keep the ones that return the already-registered message; use them for credential stuffing or phishing.
+  blast: The list of every registered email address.
+  fix: Return the same "check your email to continue" response for new and existing addresses, and email the existing owner that someone tried to sign up.
+  verify: Sign up twice with the same address and confirm both responses are identical.
+AUTH-ENUM-RESET-MESSAGE:
+  title: Reset request tells the caller an address is not registered
+  effort_minutes: 15
+  detail: ${route} answers with a distinct message when no account matches the address (first location).
+  attack: Request resets for a list of addresses and keep the ones that do not return the not-found message.
+  blast: The list of every registered email address.
+  fix: Return one generic message ("if the address has an account, a link is on its way") whether or not the account exists.
+  verify: Request a reset for a registered and an unregistered address and confirm the responses are identical.
+AUTH-ENUM-LOCKOUT-STATUS:
+  title: Locked accounts get a different sign-in response
+  effort_minutes: 20
+  detail: ${route} returns a distinct status code or message when an account is locked (first location). Only real accounts can be locked, so the response confirms the account exists, and repeating failures keeps a known account locked.
+  attack: Fail sign-in on an address until the locked response appears to confirm it exists, then keep failing on schedule to lock the owner out.
+  blast: Account enumeration for every address, and a denial of service against any known account.
+  fix: Return the same 401 and message for wrong passwords, unknown accounts and locked accounts; record the lock server side and tell the owner by email.
+  verify: Lock a test account and confirm the response matches a wrong password on an unknown address.
+AUTH-ENUM-TIMING:
+  title: ${flow} response time reveals whether an account exists
+  effort_minutes: 30
+  detail: ${what} Route ${route}.
+  proof_needed: Time twenty requests for a registered and an unregistered address against a local stack and compare the distributions.
+  attack: Measure response times for candidate addresses and keep the slower ones.
+  blast: The list of registered email addresses.
+  fix: On sign-in, verify the password against a fixed dummy hash when no account matches. On reset, send the email from a background task or queue so both paths return in the same time.
+  verify: Compare median latency for known and unknown addresses; they should be within noise.

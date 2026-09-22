@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
+from dataclasses import dataclass
+from pathlib import PurePosixPath
 
 import dpr.reviews.leaks_creds  # noqa: F401  (registers rules)
+import dpr.reviews.leaks_files  # noqa: F401  (registers rules)
+import dpr.reviews.leaks_logs  # noqa: F401  (registers rules)
+from dpr.facts import fact
 from dpr.model import Finding, Location, Part, ReviewSection, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import find_keys, is_secret_name, public_prefix, snippet
 from dpr.reviews import leaks_code  # noqa: F401  (registers the leaks_code rules)
+from dpr.reviews.leaks_summary import summary_parts
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
 
@@ -18,6 +24,10 @@ ROTATE = (
     "removing it from the next build does not undo that."
 )
 NEXT_SOURCEMAPS = re.compile(r"productionBrowserSourceMaps\s*:\s*true")
+LOAD_ORDER = {
+    "vite": [".js", ".mjs", ".ts", ".cjs", ".mts", ".cts"],
+    "next": [".js", ".mjs", ".ts", ".cjs", ".mts", ".cts"],
+}
 VITE_SOURCEMAPS = re.compile(r"\bsourcemap\s*:\s*(?:true|['\"](?:inline|hidden)['\"])")
 
 
@@ -75,18 +85,38 @@ def sourcemaps(ctx: Context) -> Iterator[Finding]:
             locations=[Location(f.rel, 1) for f in maps[:5]],
             what=f"{len(maps)} source map file(s) are in the build output.",
         )
+    groups: dict[tuple[str, str], list[Location]] = {}
     for entry in ctx.index.named("next.config.*", "vite.config.*"):
+        if entry.name.endswith((".d.ts", ".d.mts", ".d.cts")):
+            continue
+        tool = "next" if entry.name.startswith("next.") else "vite"
+        if PurePosixPath(entry.rel).suffix not in LOAD_ORDER[tool]:
+            continue
         text = ctx.index.text(entry.rel)
-        pattern = NEXT_SOURCEMAPS if entry.name.startswith("next.") else VITE_SOURCEMAPS
+        pattern = NEXT_SOURCEMAPS if tool == "next" else VITE_SOURCEMAPS
+        folder = str(PurePosixPath(entry.rel).parent)
         for match in pattern.finditer(text):
-            line = line_of(text, match.start())
-            yield make_finding(
-                "LEAK-SOURCEMAP",
-                tag=Tag.CONFIRMED,
-                locations=[Location(entry.rel, line)],
-                snippet=snippet(text, line),
-                what=f"{entry.name} turns on source maps for the production build.",
+            groups.setdefault((folder, tool), []).append(
+                Location(entry.rel, line_of(text, match.start()))
             )
+    for (_folder, tool), found in sorted(groups.items()):
+        order = LOAD_ORDER[tool]
+        found.sort(key=lambda loc: (order.index(PurePosixPath(loc.file).suffix), loc.line))
+        loaded = PurePosixPath(found[0].file).name
+        twins = sorted({PurePosixPath(loc.file).name for loc in found[1:]} - {loaded})
+        extra = (
+            f" The same setting is in {', '.join(twins)}, which {tool} does not load when "
+            f"{loaded} exists."
+            if twins
+            else ""
+        )
+        yield make_finding(
+            "LEAK-SOURCEMAP",
+            tag=Tag.CONFIRMED,
+            locations=found,
+            snippet=snippet(ctx.index.text(found[0].file), found[0].line),
+            what=f"{loaded} turns on source maps for the production build.{extra}",
+        )
 
 
 def _sentry_detail(sends_pii: bool, scrubs: bool) -> str:
@@ -96,10 +126,17 @@ def _sentry_detail(sends_pii: bool, scrubs: bool) -> str:
     return "The error tracker is initialised without a beforeSend hook, so events are not scrubbed."
 
 
-def _js_sentry(ctx: Context) -> Iterator[Finding]:
+@dataclass(frozen=True)
+class SentryInit:
+    location: Location
+    line: int
+    sends_pii: bool
+    scrubs: bool
+
+
+def _js_sentry(ctx: Context) -> Iterator[SentryInit]:
     for entry in ctx.index.js_files:
-        text = ctx.index.text(entry.rel)
-        if "sentry" not in text.lower():
+        if "sentry" not in ctx.index.text(entry.rel).lower():
             continue
         for tree in jsts.parse_file(ctx.index, entry.rel):
             for call in jsts.calls(tree, r"(?:\w+\.)?init"):
@@ -107,52 +144,44 @@ def _js_sentry(ctx: Context) -> Iterator[Finding]:
                 pairs = jsts.object_pairs(args[0]) if args else {}
                 if "dsn" not in pairs:
                     continue
-                init_line = jsts.line(tree, call)
-                ctx.facts.setdefault("sentry", []).append(Location(entry.rel, init_line))
                 pii = pairs.get("sendDefaultPii")
                 sends_pii = pii is not None and jsts.node_text(pii) == "true"
-                scrubs = "beforeSend" in pairs
-                if not sends_pii and scrubs:
-                    continue
                 line = jsts.line(tree, pii if sends_pii else call)
-                yield make_finding(
-                    "LEAK-SENTRY-PII",
-                    tag=Tag.CONFIRMED,
-                    locations=[Location(entry.rel, line)],
-                    snippet=snippet(text, line),
-                    what=_sentry_detail(sends_pii, scrubs),
-                )
+                location = Location(entry.rel, jsts.line(tree, call))
+                yield SentryInit(location, line, sends_pii, "beforeSend" in pairs)
 
 
-def _py_sentry(ctx: Context) -> Iterator[Finding]:
+def _py_sentry(ctx: Context) -> Iterator[SentryInit]:
     for entry in ctx.index.py_files:
-        text = ctx.index.text(entry.rel)
-        if "sentry_sdk" not in text:
+        if "sentry_sdk" not in ctx.index.text(entry.rel):
             continue
         tree = pyast.parse_file(ctx.index, entry.rel)
-        if tree is None:
-            continue
-        for call in pyast.calls(tree, r"sentry_sdk\.init"):
-            ctx.facts.setdefault("sentry", []).append(Location(entry.rel, call.lineno))
+        for call in pyast.calls(tree, r"sentry_sdk\.init") if tree else []:
             pii = pyast.kwarg(call, "send_default_pii")
             sends_pii = pyast.constant(pii) is True
-            scrubs = pyast.kwarg(call, "before_send") is not None
-            if not sends_pii and scrubs:
-                continue
             line = pii.lineno if sends_pii else call.lineno
-            yield make_finding(
-                "LEAK-SENTRY-PII",
-                tag=Tag.CONFIRMED,
-                locations=[Location(entry.rel, line)],
-                snippet=snippet(text, line),
-                what=_sentry_detail(sends_pii, scrubs),
-            )
+            scrubs = pyast.kwarg(call, "before_send") is not None
+            yield SentryInit(Location(entry.rel, call.lineno), line, sends_pii, scrubs)
+
+
+def sentry_inits(ctx: Context) -> list[SentryInit]:
+    """Error tracker init calls. Shared with the inventory review."""
+    return fact(ctx, "sentry_inits", lambda c: [*_js_sentry(c), *_py_sentry(c)])
 
 
 @rule("LEAK-SENTRY-PII", review="leaks", severity="medium", exploitability="low")
 def sentry_pii(ctx: Context) -> Iterator[Finding]:
-    yield from _js_sentry(ctx)
-    yield from _py_sentry(ctx)
+    for init in sentry_inits(ctx):
+        if not init.sends_pii and init.scrubs:
+            continue
+        text = ctx.index.text(init.location.file)
+        yield make_finding(
+            "LEAK-SENTRY-PII",
+            tag=Tag.CONFIRMED,
+            locations=[Location(init.location.file, init.line)],
+            snippet=snippet(text, init.line),
+            what=_sentry_detail(init.sends_pii, init.scrubs),
+        )
 
 
 def run(ctx: Context) -> ReviewSection:
@@ -164,3 +193,8 @@ def run(ctx: Context) -> ReviewSection:
         "leaks",
         [Part("text", "What this review never prints", body=note), Part("findings", "Leaks")],
     )
+
+
+def finish(ctx: Context, section: ReviewSection, findings: list[Finding]) -> None:
+    position = next(i for i, p in enumerate(section.parts) if p.kind == "findings")
+    section.parts[position:position] = summary_parts(ctx, findings)

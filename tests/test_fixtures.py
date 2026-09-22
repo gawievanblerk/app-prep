@@ -4,17 +4,19 @@ import yaml
 from dpr.api import review
 from tests.fixture_builder import FIXTURES, build
 
-BAD = ("next-supabase-bad", "django-bad", "fastapi-bad")
+BAD = ("next-supabase-bad", "django-bad", "fastapi-bad", "express-prisma")
 GOOD = {
-    "next-supabase-good": {"leaks", "rls", "baseline", "owasp", "abuse"},
-    "fastapi-good": {"leaks", "baseline", "owasp", "abuse"},
+    "next-supabase-good": {"inventory", "leaks", "rls", "auth", "baseline", "owasp", "abuse"},
+    "fastapi-good": {"inventory", "leaks", "rls", "auth", "baseline", "owasp", "abuse"},
 }
 
 
+def first(finding):
+    return (finding.locations[0].file, finding.locations[0].line) if finding.locations else ("", 0)
+
+
 def found(report):
-    return {
-        (f.rule_id, f.locations[0].file, f.locations[0].line, f.tag.value) for f in report.findings
-    }
+    return {(f.rule_id, *first(f), f.tag.value) for f in report.findings}
 
 
 @pytest.mark.parametrize("name", BAD)

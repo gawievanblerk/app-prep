@@ -1,0 +1,8 @@
+INV-NO-DELETION-PATH:
+  title: Personal data in ${app} has no deletion path
+  effort_minutes: 120
+  detail: ${what} Without a deletion path, erasure requests and retention limits cannot be met from the application.
+  proof_needed: Check for deletion outside the repository, such as database jobs, manual scripts or a provider retention setting.
+  blast: Every personal record ever stored in these tables, kept for as long as the database exists.
+  fix: Decide a retention period per table with the data owner, then add a scheduled purge or anonymisation job and a hard-delete path for erasure requests. Record the periods for the data protection lawyer.
+  verify: Run the purge job against a test database with old rows and confirm they are removed or anonymised.

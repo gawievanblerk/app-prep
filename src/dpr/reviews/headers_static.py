@@ -31,6 +31,11 @@ HEADER_LITERAL = re.compile(
 )
 STRING_LITERAL = re.compile(r""""(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`""")
 PLATFORM_HSTS = {"vercel.json", "netlify.toml"}
+API_KINDS = ("FastAPI app", "Starlette app", "Flask app", "Express app")
+RENDERS_HTML = re.compile(
+    r"render_template|TemplateResponse|HTMLResponse|Jinja2Templates|res\.render\(|express\.static"
+    r"|sendFile\(|StaticFiles\("
+)
 # A string literal, kept verbatim so a header name or CSP value inside one is never lost. Tried
 # first in every mask below, so a comment marker inside a real string (a URL's //, for example)
 # is consumed as part of the string and never misread as the start of a comment.
@@ -224,6 +229,18 @@ def surfaces(ctx: Context) -> list[Surface]:
             [*_static_surfaces(ctx), *_app_surfaces(ctx)], key=lambda s: s.name
         )
     return ctx.facts["header_surfaces"]
+
+
+def api_only(ctx: Context, surface: Surface) -> bool:
+    """A server app surface whose code renders no HTML pages and serves no static files."""
+    if surface.kind not in API_KINDS:
+        return False
+    for entry in [*ctx.index.js_files, *ctx.index.py_files]:
+        if app_root(ctx, entry.rel) == surface.root and RENDERS_HTML.search(
+            ctx.index.text(entry.rel)
+        ):
+            return False
+    return True
 
 
 def csp_values(ctx: Context) -> list[tuple[str, Location]]:

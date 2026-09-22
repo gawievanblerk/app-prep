@@ -5,6 +5,8 @@ findings:
   - {rule: ABUSE-NO-KILL-SWITCH, file: app/api/generate/route.ts, line: 6, tag: INFERRED}
   - {rule: ABUSE-PAID-UNAUTH, file: app/api/generate/route.ts, line: 6, tag: CONFIRMED}
   - {rule: ABUSE-PAID-UNLIMITED, file: app/api/generate/route.ts, line: 6, tag: INFERRED}
+  - {rule: AUTH-ENUM-SIGNUP-MESSAGE, file: app/api/signup/route.ts, line: 12, tag: CONFIRMED}
+  - {rule: AUTH-SIGNUP-NO-UI, file: app/api/signup/route.ts, line: 5, tag: INFERRED}
   - {rule: BASE-COOKIE-HTTPONLY, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
   - {rule: BASE-COOKIE-SAMESITE, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
   - {rule: BASE-COOKIE-SECURE, file: app/api/signup/route.ts, line: 9, tag: CONFIRMED}
@@ -15,6 +17,13 @@ findings:
   - {rule: BASE-HEADER-MISSING-REFERRER, file: next.config.js, line: 1, tag: UNVERIFIED}
   - {rule: BASE-HEADER-MISSING-XCTO, file: next.config.js, line: 1, tag: UNVERIFIED}
   - {rule: BASE-VERSION-DISCLOSURE, file: next.config.js, line: 1, tag: INFERRED}
+  - {rule: INV-CATCHALL-JSON, file: prisma/schema.prisma, line: 6, tag: CONFIRMED}
+  - {rule: INV-CATCHALL-JSON, file: supabase/migrations/20240101000000_init.sql, line: 5, tag: CONFIRMED}
+  - {rule: INV-NO-DELETION-PATH, file: prisma/schema.prisma, line: 1, tag: INFERRED}
+  - {rule: INV-SDK-RECEIVES-PII, file: app/api/generate/route.ts, line: 8, tag: INFERRED}
+  - {rule: INV-SPECIAL-CATEGORY, file: prisma/schema.prisma, line: 7, tag: CONFIRMED}
+  - {rule: INV-UNUSED-FIELD, file: prisma/schema.prisma, line: 7, tag: INFERRED}
+  - {rule: INV-UNUSED-FIELD, file: supabase/migrations/20240101000000_init.sql, line: 1, tag: INFERRED}
   - {rule: LEAK-BROAD-RESPONSE, file: "app/api/users/[id]/route.ts", line: 6, tag: INFERRED}
   - {rule: LEAK-ENV-IN-HISTORY, file: .env.production, line: 1, tag: CONFIRMED}
   - {rule: LEAK-ENV-TRACKED, file: .env, line: 1, tag: CONFIRMED}

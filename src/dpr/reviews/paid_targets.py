@@ -7,7 +7,7 @@ from __future__ import annotations
 import ast
 import sys
 
-from dpr.discovery.packages import _manifest_packages, normalise
+from dpr.discovery.packages import manifest_packages, normalise
 from dpr.parsing import imports, pyast
 from dpr.reviews.lookups import helper_index
 from dpr.rules import Context
@@ -26,7 +26,7 @@ def declared_package(ctx: Context, name: str) -> bool:
     provides the module or package name."""
     key = ("manifest-packages", "")
     if key not in ctx.index.cache:
-        ctx.index.cache[key] = _manifest_packages(ctx.index)
+        ctx.index.cache[key] = manifest_packages(ctx.index)
     parts = name.split("/")
     root = "/".join(parts[:2] if name.startswith("@") else parts[:1]).split(".")[0]
     return normalise(root) in ctx.index.cache[key] or root in sys.stdlib_module_names

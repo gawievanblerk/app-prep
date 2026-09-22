@@ -160,7 +160,9 @@ def _is_method(fn: ast.AST) -> bool:
     return bool(args) and args[0].arg in ("self", "cls")
 
 
-def _helper(ctx: Context, rel: str, call: ast.Call, caller: ast.AST) -> tuple[str, ast.AST] | None:
+def resolve_helper(
+    ctx: Context, rel: str, call: ast.Call, caller: ast.AST
+) -> tuple[str, ast.AST] | None:
     """The one definition of the called name, preferring the closest file when names repeat."""
     name = (pyast.dotted(call.func) or "").split(".")[-1]
     method = isinstance(call.func, ast.Attribute)
@@ -227,7 +229,7 @@ def py_lookups(
                 continue
             if not pyast.names_in(call) & keys:
                 continue
-            helper = _helper(ctx, rel, call, fn)
+            helper = resolve_helper(ctx, rel, call, fn)
             if helper is None:
                 continue
             helper_rel, helper_fn = helper
@@ -284,12 +286,15 @@ def py_checked_after(fn: ast.AST, lookup: Lookup, subjects: tuple[str, ...]) -> 
     return result
 
 
+ONE_TIME_KEYS = re.compile(r"(?i)token|code|otp|nonce|signature|secret")
+
+
 def js_keys(handler) -> set[str]:
     text = jsts.node_text(handler)
     keys = {next(g for g in m.groups() if g) for m in JS_KEY.finditer(text)}
     for match in re.finditer(r"\{\s*([\w\s,:]+)\}\s*=\s*(?:await\s+)?(?:\w+\.)?params\b", text):
         keys.update(n.strip().split(":")[-1].strip() for n in match.group(1).split(","))
-    return {k for k in keys if k}
+    return {k for k in keys if k and not ONE_TIME_KEYS.search(k)}
 
 
 def js_lookups(route: Route, subjects: tuple[str, ...]) -> list[Lookup]:

@@ -11,7 +11,11 @@ findings:
   - {rule: BASE-HEADER-MISSING-REFERRER, file: shop/settings.py, line: 1, tag: UNVERIFIED}
   - {rule: BASE-HEADER-MISSING-XCTO, file: shop/settings.py, line: 1, tag: UNVERIFIED}
   - {rule: BASE-WEAK-HASH, file: shop/settings.py, line: 12, tag: CONFIRMED}
+  - {rule: INV-NO-DELETION-PATH, file: shop/models.py, line: 5, tag: INFERRED}
+  - {rule: INV-PII-FILE-IN-REPO, file: exports/customers.csv, line: 1, tag: CONFIRMED}
   - {rule: LEAK-BROAD-RESPONSE, file: shop/serializers.py, line: 9, tag: INFERRED}
+  - {rule: LEAK-COMMITTED-DATA-FILE, file: docs/uat/order_report.pdf, line: 1, tag: INFERRED}
+  - {rule: LEAK-COMMITTED-DATA-FILE, file: shop/tests/orders_cases.py, line: 5, tag: INFERRED}
   - {rule: LEAK-SENTRY-PII, file: shop/settings.py, line: 20, tag: CONFIRMED}
   - {rule: OWASP-A01-GUESSABLE-ID, file: shop/views.py, line: 14, tag: CONFIRMED}
   - {rule: OWASP-A01-UNSCOPED-QUERY, file: shop/views.py, line: 14, tag: CONFIRMED}

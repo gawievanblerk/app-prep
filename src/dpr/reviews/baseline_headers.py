@@ -6,11 +6,14 @@ import re
 from collections.abc import Iterator
 
 from dpr.adapters.headers import HeaderRead, read_headers
+from dpr.discovery.approots import same_root
 from dpr.model import Finding, Location, Tag
-from dpr.reviews.headers_static import HEADERS, csp_values, surfaces
+from dpr.reviews.baseline_config import cookie_findings
+from dpr.reviews.headers_static import HEADERS, Surface, api_only, app_root, csp_values, surfaces
 from dpr.rules import Context, make_finding, rule
 
-SEVERITY = {"HSTS": "high", "CSP": "medium"}
+SEVERITY = {"HSTS": "low", "CSP": "medium"}
+DOCUMENT_HEADERS = ("CSP", "FRAME", "REFERRER", "PERMISSIONS")
 LOGIN_PATH = re.compile(r"(?i)/(?:log-?in|sign-?in)$")
 VERSION = re.compile(r"\d")
 
@@ -44,6 +47,24 @@ def _read(ctx: Context, label: str) -> HeaderRead | None:
     return None
 
 
+def _severity(ctx: Context, key: str, lacking: list[Surface] | None = None) -> str:
+    """Header gaps rank below access control: at most medium, HSTS medium only with weak cookies.
+
+    Evidence never crosses app roots: for a grouped, surface-based finding (`lacking` given), an
+    insecure cookie only raises the severity when it shares an app root with one of the lacking
+    surfaces. For a single live read (`lacking` is None) any insecure cookie counts.
+    """
+    if key != "HSTS":
+        return SEVERITY.get(key, "low")
+    roots = {s.root for s in lacking} if lacking is not None else None
+    for finding in cookie_findings(ctx):
+        if finding.rule_id != "BASE-COOKIE-SECURE":
+            continue
+        if roots is None or any(app_root(ctx, loc.file) in roots for loc in finding.locations):
+            return "medium"
+    return SEVERITY.get(key, "low")
+
+
 def _missing(ctx: Context, key: str) -> Iterator[Finding]:
     header = HEADERS[key]
     root = _read(ctx, "https root")
@@ -56,19 +77,23 @@ def _missing(ctx: Context, key: str) -> Iterator[Finding]:
                 f"BASE-HEADER-MISSING-{key}",
                 tag=Tag.CONFIRMED,
                 locations=[Location(root.url, 1)],
-                severity=SEVERITY.get(key, "low"),
+                severity=_severity(ctx, key),
                 header=header,
                 where=f"the live response from {root.url}",
             )
         return
-    lacking = [s for s in surfaces(ctx) if header not in s.headers]
+    lacking = [
+        s
+        for s in surfaces(ctx)
+        if header not in s.headers and not (key in DOCUMENT_HEADERS and api_only(ctx, s))
+    ]
     if lacking:
         where = "; ".join(f"{s.name} ({s.kind})" for s in lacking)
         yield make_finding(
             f"BASE-HEADER-MISSING-{key}",
             tag=Tag.UNVERIFIED,
             locations=[s.location for s in lacking][:10],
-            severity=SEVERITY.get(key, "low"),
+            severity=_severity(ctx, key, lacking),
             header=header,
             where=where,
         )
@@ -155,7 +180,7 @@ def version_disclosure(ctx: Context) -> Iterator[Finding]:
             what = (
                 "next.config does not set poweredByHeader: false, so X-Powered-By: Next.js is sent."
             )
-        elif surface.kind == "Express app" and not _express_hides(ctx, surface.root):
+        elif surface.kind == "Express app" and not _express_hides(ctx, surface.location.file):
             what = "The Express app neither calls app.disable('x-powered-by') nor uses helmet."
         else:
             continue
@@ -167,9 +192,9 @@ def version_disclosure(ctx: Context) -> Iterator[Finding]:
         )
 
 
-def _express_hides(ctx: Context, root: str) -> bool:
+def _express_hides(ctx: Context, rel: str) -> bool:
     for entry in ctx.index.js_files:
-        if root and not entry.rel.startswith(root + "/"):
+        if not same_root(ctx.detection.app_roots, entry.rel, rel):
             continue
         text = ctx.index.text(entry.rel)
         if re.search(r"disable\(\s*['\"]x-powered-by['\"]", text) or "helmet(" in text:

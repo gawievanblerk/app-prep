@@ -1,5 +1,6 @@
 from dpr.parsing.sql import split_sql
-from dpr.parsing.sqlschema import SchemaState, apply_dump, load_schema
+from dpr.parsing.sqldump import apply_dump
+from dpr.parsing.sqlschema import SchemaState, load_schema
 from dpr.walk import RepoIndex
 
 MIGRATION = """

@@ -1,0 +1,94 @@
+# Review 3 case templates. Rules list the rule ids that decide a case; kinds list the flows it needs.
+cases:
+  - number: 1
+    title: Wrong password five times in a row
+    kinds: [login]
+    rules: [AUTH-NO-LOCKOUT, AUTH-ENUM-LOCKOUT-STATUS, "AUTH-ENUM-TIMING|sign-in"]
+    expected: Attempts are throttled per account and per IP, the response and its timing are the same for a wrong password, an unknown account and a locked account, lockout cannot be used to deny the owner indefinitely, and the event is logged.
+    risk: Password guessing without a throttle, or an oracle that confirms which accounts exist and lets anyone keep a known account locked.
+    test: Send eleven wrong passwords for a real account and eleven for an unknown address; the status, body and median latency must match, and requests after the limit must be refused.
+  - number: 2
+    title: Reset requested for an email that was never registered
+    kinds: [forgot]
+    rules: [AUTH-ENUM-RESET-MESSAGE, "AUTH-ENUM-TIMING|reset"]
+    expected: The same response and the same timing as for a registered address, and no email to the unregistered address.
+    risk: A free account enumeration oracle.
+    test: Time twenty reset requests for a known and an unknown address against a local stack; the responses and latency distributions must match.
+  - number: 3
+    title: Verification link clicked twice
+    kinds: [verify]
+    rules: [AUTH-VERIFY-REUSABLE, AUTH-VERIFY-NO-EXPIRY, "AUTH-TOKEN-PLAINTEXT|verification"]
+    expected: The first click verifies and consumes the token, the second lands on an already-verified state, the token expires, and the stored value is a hash.
+    risk: A link left in an old mailbox or read by a mail-scanning proxy stays usable.
+    test: Verify an account, replay the same link, and replay a link older than the intended lifetime; both replays must be refused without an error page.
+  - number: 4
+    title: Signup with an address that already has an account
+    kinds: [register]
+    rules: [AUTH-ENUM-SIGNUP-MESSAGE]
+    expected: A generic check-your-email response and a notice to the existing owner; nothing in the response differs from a new address.
+    risk: The cleanest enumeration oracle in the product, used to validate credential stuffing lists.
+    test: Sign up twice with the same address; the second response must match the first.
+  - number: 5
+    title: Session left open for a week
+    kinds: [login, refresh, logout]
+    rules: [AUTH-REFRESH-NO-ABSOLUTE-CAP, AUTH-LOGOUT-NO-REVOKE]
+    expected: An absolute session lifetime that activity cannot extend, refresh that rotates and revokes the previous token, logout and password change that end every session, and HttpOnly, Secure, SameSite cookies.
+    risk: A stolen token or refresh token keeps working indefinitely and survives logout.
+    test: Log out, then call the refresh endpoint with the refresh token issued before logout; expect 401.
+  - number: 6
+    title: Reset link opened after it expired
+    kinds: [reset]
+    rules: [AUTH-RESET-NO-EXPIRY, "AUTH-TOKEN-PLAINTEXT|reset"]
+    expected: Expiry is enforced on the server, the token is single use, a new request invalidates the previous token, and the stored token is a hash.
+    risk: Old reset links in mailboxes, logs or browser history reset the password at any time.
+    test: Request a reset, age the token past its lifetime in the database, and submit it; expect a clear expiry message and no password change.
+  - number: 7
+    title: Reset token that belongs to someone else
+    kinds: [reset]
+    rules: [AUTH-RESET-TRUSTS-EMAIL]
+    expected: The token alone identifies the account on the server; an email field on the reset form is ignored.
+    risk: Setting a password on any account whose email the attacker knows.
+    test: Submit a valid token for account A together with the email of account B; only account A may change.
+  - number: 8
+    title: Concurrent and out-of-order operations
+    kinds: [register]
+    rules: [AUTH-EMAIL-NOT-UNIQUE]
+    expected: Two simultaneous signups for one email produce one account because the database enforces uniqueness, and a completed reset invalidates any other pending reset.
+    risk: Two rows for one address and undefined sign-in behaviour.
+    test: Fire two signup requests for the same address in parallel; exactly one account must exist.
+  - number: 9
+    title: Email change
+    kinds: [update_self]
+    rules: [AUTH-EMAIL-CHANGE-UNVERIFIED]
+    expected: The change commits only after the new address is verified, both addresses are told, the old address can revoke, and the current password is asked for.
+    risk: A hijacked session becomes a permanent takeover by moving the account to the attacker's address.
+    test: As a signed-in user, change the email through the API; expect a pending state until the new address confirms.
+  - number: 10
+    title: Logout and back button
+    kinds: [logout]
+    rules: [AUTH-LOGOUT-NO-REVOKE]
+    expected: The server-side session or token is revoked, authenticated responses carry Cache-Control no-store, and cached pages cannot be restored from history.
+    risk: Tokens keep working after logout, and shared browsers show the previous user's data.
+    test: Log out, press back, and replay an authenticated request with the old token; expect a sign-in prompt and 401.
+extra:
+  - key: signup-no-ui
+    title: Public signup that no screen uses
+    kinds: [register]
+    rules: [AUTH-SIGNUP-NO-UI]
+    expected: Endpoints that no product flow uses are not reachable.
+    risk: A foothold for account-based attacks, free sends from the company's email domain, and an enumeration surface.
+    test: POST to the signup route against a local stack; expect 404 when public signup is not a product feature.
+  - key: mfa
+    title: Second factor for staff and admin accounts
+    kinds: [login]
+    rules: [AUTH-NO-MFA]
+    expected: Accounts that can read every customer's data sign in with a second factor.
+    risk: One reused or phished password opens every record the account can reach.
+    test: Sign in as an admin with the correct password only; expect a second-factor challenge.
+  - key: committed-passwords
+    title: Accounts created with passwords written in the repository
+    kinds: []
+    rules: [BASE-LITERAL-PASSWORD-HASH, BASE-SEED-ON-START]
+    expected: No account can be signed in to with a password that appears in the repository, documentation or seed data.
+    risk: Anyone with repository access, or a leaked clone, signs in to those accounts.
+    test: Run a query that counts accounts whose password hash still verifies against the committed text, without printing it; expect zero.

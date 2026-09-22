@@ -1,0 +1,8 @@
+INV-SDK-RECEIVES-PII:
+  title: ${sdk} receives personal data
+  effort_minutes: 30
+  detail: 'Calls to ${sdk} (${category}) pass ${what}. ${sdk} holds a copy under its own retention and location.'
+  proof_needed: Trace which values reach these arguments at runtime, for example by logging the keys (not the values) in a test.
+  blast: Every person whose data reaches these calls, held by a third party.
+  fix: Send only the fields the provider needs, strip or pseudonymise the rest, and list the provider, its region and its agreement for the data protection lawyer.
+  verify: Capture one request to the provider in a test and confirm it carries only the intended fields.

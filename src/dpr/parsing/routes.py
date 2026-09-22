@@ -7,6 +7,7 @@ from dataclasses import replace
 
 from dpr.model import Route
 from dpr.parsing import routes_js, routes_py
+from dpr.parsing.mounts import apply_mounts
 from dpr.walk import RepoIndex
 
 PUBLIC_FORM = re.compile(
@@ -26,7 +27,7 @@ def extract_routes(index: RepoIndex) -> list[Route]:
         + routes_py.django_routes(index)
     )
     routes = []
-    for route in found:
+    for route in apply_mounts(index, found):
         name = getattr(route.handler, "name", None)
         name = name if isinstance(name, str) else ""
         public = bool(PUBLIC_FORM.search(route.path) or PUBLIC_FORM.search(name))

@@ -7,7 +7,8 @@ from collections.abc import Iterator
 
 from dpr.model import Finding, Location, Part, ReviewSection, Tag
 from dpr.parsing import jsts
-from dpr.parsing.sqlschema import TableDef
+from dpr.parsing.pymigrations import migration_folders
+from dpr.parsing.sqlobjects import TableDef
 from dpr.reviews import rls_policies  # noqa: F401  (registers the rls_policies rules)
 from dpr.reviews.rls_common import (
     DASHBOARD_QUERIES,
@@ -20,6 +21,7 @@ from dpr.reviews.rls_common import (
     state_for,
     table_location,
 )
+from dpr.reviews.rls_server import reduced_section
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
 
@@ -28,11 +30,6 @@ CONFIRM_IN_DATABASE = (
     "Run these queries in the database SQL editor and compare the result with the table "
     "above. Save the output to a file and pass it with `--db-dump` to make it the source "
     "of truth.\n\n"
-)
-SERVER_ONLY = (
-    "No public database key or Supabase client was found. The database appears to be "
-    "reachable only from the server, so row level security matters less here. "
-    "No RLS findings are reported."
 )
 
 
@@ -196,13 +193,15 @@ def _status_row(ctx: Context, table: TableDef) -> tuple[str, ...]:
 
 def run(ctx: Context) -> ReviewSection | None:
     state = state_for(ctx)
-    if not state.tables and not client_facing(ctx):
+    server_layer = bool(ctx.detection.models or migration_folders(ctx.index))
+    if not state.tables and not client_facing(ctx) and not server_layer:
         ctx.not_covered.append(
-            "Review 2 (rls): not applicable, no SQL tables, Supabase client or database dump found"
+            "Review 2 (rls): not applicable, no SQL tables, ORM models, migrations, Supabase "
+            "client or database dump found"
         )
         return None
     if not client_facing(ctx):
-        return ReviewSection("rls", [Part("text", "Relevance", body=SERVER_ONLY)])
+        return reduced_section(ctx)
     tables = public_tables(ctx)
     parts = [
         Part(

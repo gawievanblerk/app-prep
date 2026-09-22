@@ -34,14 +34,14 @@ def test_full_run(tmp_path):
     before = files(root)
     report = review(root, today=datetime.date(2026, 9, 16))
     assert files(root) == before
-    assert set(report.sections) == {"leaks", "rls", "baseline", "owasp", "abuse"}
-    assert report.meta.reviews_run == ("rls", "baseline", "owasp", "leaks", "abuse")
+    assert set(report.sections) == {"inventory", "leaks", "rls", "baseline", "owasp", "abuse"}
+    assert report.meta.reviews_run == ("inventory", "rls", "baseline", "owasp", "leaks", "abuse")
     assert report.meta.date == "2026-09-16"
     assert report.meta.project == root.name
     assert dict(report.meta.applicability) == {
-        "inventory": "not available in this version",
+        "inventory": "runs",
         "rls": "runs",
-        "auth": "not available in this version",
+        "auth": "not applicable, no sign-in, signup or reset routes and no auth provider found",
         "baseline": "runs",
         "owasp": "runs",
         "leaks": "runs",
@@ -60,8 +60,9 @@ def test_full_run(tmp_path):
     assert {"LEAK-PUBLIC-SECRET", "RLS-TABLE-OFF"} <= rule_ids
     scores = [score(f) for f in report.findings]
     assert scores == sorted(scores, reverse=True)
-    assert "Review 1 (inventory): not available in this version" in report.not_covered
-    assert len(report.questions) == 22
+    assert not any("not available in this version" in item for item in report.not_covered)
+    assert len(report.questions) == 17
+    assert "provider_session_lifetimes" not in {q.question.id for q in report.questions}
     assert all(q.open for q in report.questions)
 
 
@@ -80,9 +81,9 @@ def test_not_applicable_reason(tmp_path):
     write(tmp_path, "a.py", "x = 1\n")
     report = review(tmp_path, reviews=[2])
     assert report.sections == {}
-    assert (
-        dict(report.meta.applicability)["rls"]
-        == "not applicable, no SQL tables, Supabase client or database dump found"
+    assert dict(report.meta.applicability)["rls"] == (
+        "not applicable, no SQL tables, ORM models, migrations, Supabase client or database "
+        "dump found"
     )
 
 
@@ -144,7 +145,7 @@ def test_failing_review_module_is_recorded_when_not_strict(tmp_path, monkeypatch
     monkeypatch.delenv("DPR_STRICT")
     report = review(root)
     assert "review leaks failed: RuntimeError" in report.not_covered
-    assert set(report.sections) == {"rls", "baseline", "owasp", "abuse"}
+    assert set(report.sections) == {"inventory", "rls", "baseline", "owasp", "abuse"}
     assert not any(f.review == "leaks" for f in report.findings)
     assert dict(report.meta.applicability)["leaks"] == "failed: RuntimeError"
     monkeypatch.setenv("DPR_STRICT", "1")

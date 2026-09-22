@@ -30,6 +30,9 @@ class Exploitability(StrEnum):
     LOW = "low"
 
 
+EXPLOIT_ORDER = ("high", "medium", "low")
+
+
 NO_JSON = {"json": False}
 
 
@@ -129,6 +132,14 @@ class SdkUse:
 
 
 @dataclass(frozen=True)
+class AppRoot:
+    path: str  # "" for the repository root
+    kind: str  # "server" | "web" | "library"
+    deployed: bool | None  # None when no deploy or CI configuration says either way
+    evidence: str = ""
+
+
+@dataclass(frozen=True)
 class GitInfo:
     is_repo: bool
     revision: str
@@ -154,6 +165,7 @@ class Detection:
     git: GitInfo = field(default_factory=lambda: GitInfo(False, "uncommitted working tree"))
     serverless: bool = False
     public_supabase_key: bool = False
+    app_roots: list[AppRoot] = field(default_factory=list)
     packages: set[str] = field(default_factory=set, metadata=NO_JSON)
     schema: object = field(default=None, metadata=NO_JSON)
 
@@ -171,6 +183,7 @@ class Question:
     honest_out: tuple[str, ...] = ("Not sure",)
     answered_by: str | None = None
     lawyer: bool = False
+    when: str | None = None  # detection condition that makes the question relevant
 
 
 @dataclass(frozen=True)
@@ -183,7 +196,7 @@ class QuestionResult:
 
 @dataclass(frozen=True)
 class Part:
-    kind: str  # "table" | "text" | "findings"
+    kind: str  # "table" | "text" | "findings" | "refs" (columns hold rule ids)
     title: str
     columns: tuple[str, ...] = ()
     rows: tuple[tuple[str, ...], ...] = ()
@@ -207,6 +220,13 @@ class ReportMeta:
     applicability: tuple[tuple[str, str], ...]
 
 
+@dataclass(frozen=True)
+class Answer:
+    question: str
+    answer: str
+    evidence: str
+
+
 @dataclass
 class Report:
     meta: ReportMeta
@@ -215,3 +235,5 @@ class Report:
     sections: dict[str, ReviewSection]
     questions: list[QuestionResult]
     not_covered: list[str]
+    answered: list[Answer] = field(default_factory=list)
+    register: list = field(default_factory=list)  # list[dpr.report.register.Issue]

@@ -8,11 +8,14 @@ import sys
 from collections.abc import Iterable
 from pathlib import Path
 
+from dpr.discovery.approots import lower_undeployed, undeployed
 from dpr.discovery.detect import detect
 from dpr.model import Detection, Finding, Report, ReportMeta, ReviewSection, ScanError
 from dpr.questions.catalogue import questions_for, resolve
 from dpr.questions.prompt import ask_on_terminal
 from dpr.rank import dedupe, rank
+from dpr.report.coverage import coverage_notes
+from dpr.report.register import build_register
 from dpr.reviews import REVIEWS, RUN_ORDER, available, number, resolve_reviews
 from dpr.rules import Context, Options, run_checks
 from dpr.walk import RepoIndex
@@ -87,7 +90,9 @@ def review(
         db_dump=db_dump,
     )
     ask = ask_on_terminal if interactive and sys.stdin.isatty() else None
-    results, warnings = resolve(questions_for(selected), detection, answers, interactive, ask)
+    results, warnings = resolve(
+        questions_for(selected, detection), detection, answers, interactive, ask
+    )
     ctx = Context(
         index=index,
         detection=detection,
@@ -119,12 +124,22 @@ def review(
         findings.extend(found)
         finish = getattr(modules[slug], "finish", None)
         if finish is not None:
+            ctx.run_findings = tuple(findings)
             try:
                 finish(ctx, section, found)
             except Exception as exc:
                 if os.environ.get("DPR_STRICT") == "1":
                     raise
                 ctx.not_covered.append(f"review {slug} failed: {type(exc).__name__}")
+
+    findings = lower_undeployed(findings, detection.app_roots)
+    for root in undeployed(detection.app_roots):
+        ctx.not_covered.append(
+            f"App root {root.path} is not named by any deploy or CI configuration; its findings "
+            "are listed one severity step lower"
+        )
+
+    ctx.not_covered.extend(coverage_notes(index.root, detection, options, set(sections)))
 
     for option, owner, note in SKIPPED_OPTIONS:
         if getattr(options, option) and owner not in sections:
@@ -143,11 +158,14 @@ def review(
         applicability=applicability,
     )
     not_covered = list(dict.fromkeys([*index.skipped, *ctx.not_covered]))
+    ranked = rank(dedupe(findings))
     return Report(
         meta=meta,
         detection=detection,
-        findings=rank(dedupe(findings)),
+        findings=ranked,
         sections=sections,
         questions=results,
         not_covered=not_covered,
+        answered=list(ctx.facts.get("answered", [])),
+        register=build_register(ranked, detection.app_roots),
     )

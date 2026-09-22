@@ -74,15 +74,43 @@ def test_surfaces_collect_headers_per_app(tmp_path):
 def test_missing_headers_are_unverified_without_url(tmp_path):
     root = repo(tmp_path)
     [hsts] = findings_for(root, "baseline", "BASE-HEADER-MISSING-HSTS")
-    assert hsts.tag.value == "UNVERIFIED" and hsts.severity.value == "high"
+    assert hsts.tag.value == "UNVERIFIED" and hsts.severity.value == "low"
     assert [str(loc) for loc in hsts.locations] == [
         "site/next.config.js:1",
         "web/staticwebapp.config.json:2",
     ]
     assert "web/staticwebapp.config.json (static host config)" in hsts.detail
     [csp] = findings_for(root, "baseline", "BASE-HEADER-MISSING-CSP")
-    assert len(csp.locations) == 4 and csp.severity.value == "medium"
+    assert len(csp.locations) == 3 and csp.severity.value == "medium"
     assert findings_for(root, "baseline", "BASE-HEADER-MISSING-FRAME")[0].severity.value == "low"
+
+
+def test_hsts_severity_ignores_a_cookie_in_a_different_app_root(tmp_path):
+    """api/app/main.py already sets its own HSTS header, so its root is not in the lacking
+    group; an insecure cookie planted there must not raise severity for site/ or the static
+    host config, which have no HSTS and are in different app roots."""
+    root = repo(tmp_path)
+    write(
+        root,
+        "api/app/auth.py",
+        "def login(response):\n"
+        "    response.set_cookie('session', 'x', httponly=True, secure=False, samesite='lax')\n",
+    )
+    [hsts] = findings_for(root, "baseline", "BASE-HEADER-MISSING-HSTS")
+    assert hsts.severity.value == "low"
+
+
+def test_hsts_severity_is_medium_for_a_cookie_sharing_a_lacking_surfaces_root(tmp_path):
+    """site/next.config.js lacks HSTS; an insecure cookie set under site/ (the same app root)
+    must raise the grouped HSTS finding to medium."""
+    root = repo(tmp_path)
+    write(
+        root,
+        "site/src/auth.ts",
+        "cookies().set('session', 'x', { httpOnly: true, secure: false, sameSite: 'lax' })\n",
+    )
+    [hsts] = findings_for(root, "baseline", "BASE-HEADER-MISSING-HSTS")
+    assert hsts.severity.value == "medium"
 
 
 def test_django_settings_surface(tmp_path):
@@ -128,6 +156,20 @@ def test_csp_weak_and_version_disclosure_from_config(tmp_path):
     assert [
         str(f.locations[0]) for f in findings_for(root, "baseline", "BASE-VERSION-DISCLOSURE")
     ] == ["other/app.js:2"]
+
+
+def test_helmet_in_a_sibling_root_does_not_hide_disclosure_for_a_repository_root_app(tmp_path):
+    root = tmp_path
+    write(root, "package.json", "{}")
+    write(root, "app.js", "const express = require('express')\nconst app = express()\n")
+    write(root, "admin/package.json", "{}")
+    write(
+        root,
+        "admin/server.js",
+        "const express = require('express')\nconst app = express()\napp.use(helmet())\n",
+    )
+    found = findings_for(root, "baseline", "BASE-VERSION-DISCLOSURE")
+    assert [str(f.locations[0]) for f in found] == ["app.js:2"]
 
 
 READS = [

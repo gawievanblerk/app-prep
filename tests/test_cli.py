@@ -47,7 +47,7 @@ def test_scan_writes_reports_and_summary(tmp_path, capsys):
     assert json.loads(js.read_text())["schema_version"] == 1
     lines = capsys.readouterr().out.strip().splitlines()
     assert lines[0].startswith(
-        "dpr: 2 findings (critical 2, high 0, medium 0, low 0), 22 open questions"
+        "dpr: 2 findings (critical 2, high 0, medium 0, low 0), 17 open questions"
     )
     assert lines[1] == "Top fixes:"
     assert any(line.startswith("Wrote ") and line.endswith(".md") for line in lines)
@@ -94,7 +94,7 @@ def test_questions_command(tmp_path, capsys):
     root = app(tmp_path)
     assert main(["questions", str(root)]) == 0
     target = root / "dpr-answers.yaml"
-    assert set(yaml.safe_load(target.read_text())) and len(yaml.safe_load(target.read_text())) == 22
+    assert set(yaml.safe_load(target.read_text())) and len(yaml.safe_load(target.read_text())) == 17
     assert main(["questions", str(root)]) == 2
     assert "already exists" in capsys.readouterr().err
 

@@ -114,7 +114,10 @@ def test_header_summary_and_top_fixes():
         and "| High | 1 |" in text
         and "| Open questions (UNKNOWN) | 1 |" in text
     )
-    assert "1. RLS off on public.notes (`a.ts:3`, about 5 min)" in text
+    assert "1. RLS off on public.notes (`a.ts:3`, about 5 min, F-01)" in text
+    assert (
+        "| F-01 | Critical | CONFIRMED | RLS off on public.notes | 2 | 1 (RLS-TABLE-OFF) |" in text
+    )
     assert "not legal advice" in text
 
 

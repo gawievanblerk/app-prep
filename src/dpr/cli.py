@@ -11,7 +11,7 @@ from dpr import __version__
 from dpr.api import discover, review
 from dpr.gitutil import run_git
 from dpr.model import Report, ScanError
-from dpr.questions.catalogue import answers_template, load_questions
+from dpr.questions.catalogue import answers_template, questions_for
 from dpr.report.json_out import render_json
 from dpr.report.markdown import render_markdown
 from dpr.report.sarif import render_sarif
@@ -88,11 +88,12 @@ def summary_lines(report: Report, written: list[Path], tip: str | None) -> list[
         f"high {counts['high']}, medium {counts['medium']}, low {counts['low']}), "
         f"{open_count} open questions"
     ]
-    if report.findings:
+    if report.register:
+        lines[0] += f", {len(report.register)} distinct issues"
         lines.append("Top fixes:")
         lines += [
-            f"  {i}. {f.title} ({f.locations[0] if f.locations else 'no file'})"
-            for i, f in enumerate(report.findings[:3], start=1)
+            f"  {i}. {issue.id} {issue.title} ({issue.first})"
+            for i, issue in enumerate(report.register[:3], start=1)
         ]
     lines += [f"Wrote {path}" for path in written]
     if tip:
@@ -145,7 +146,8 @@ def _questions(args: argparse.Namespace) -> int:
     target = Path(args.out) if args.out else Path(args.path) / "dpr-answers.yaml"
     if target.exists():
         raise ScanError(f"{target} already exists; remove it or pass --out")
-    target.write_text(answers_template(load_questions(), detection), encoding="utf-8")
+    questions = questions_for(REVIEWS, detection)
+    target.write_text(answers_template(questions, detection), encoding="utf-8")
     print(f"Wrote {target}")
     return 0
 

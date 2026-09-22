@@ -105,6 +105,7 @@ EXTRAS = {
     "django-bad": _commit,
     "fastapi-bad": _fastapi_bad_extras,
     "fastapi-good": _fastapi_good_extras,
+    "express-prisma": _commit,
 }
 
 

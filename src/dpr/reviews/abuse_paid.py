@@ -6,8 +6,10 @@ import ast
 import re
 from collections.abc import Iterator
 
+from dpr.discovery.approots import root_of
 from dpr.model import Finding, Location, Route, Tag
 from dpr.parsing import jsts
+from dpr.parsing.mounts import limiter_mounts
 from dpr.redact import snippet
 from dpr.reviews.access import PUBLIC, access, unread_guard
 from dpr.reviews.paid import PaidRoute, costs, paid_routes
@@ -53,6 +55,11 @@ def is_limited(ctx: Context, route: Route) -> bool:
                 and jsts.line(route.tree, call) < route.line
             ):
                 return True
+        home = root_of(ctx.detection.app_roots, route.file)
+        for rel, prefix in limiter_mounts(ctx.index):
+            same_app = root_of(ctx.detection.app_roots, rel) == home
+            if same_app and (route.path == prefix or route.path.startswith(prefix + "/")):
+                return True
     if route.framework.startswith("next"):
         for entry in ctx.index.named("middleware.ts", "middleware.js"):
             if LIMITER_WORD.search(ctx.index.text(entry.rel)):
@@ -76,6 +83,8 @@ def _paid_detail(paid: PaidRoute) -> dict[str, object]:
 def paid_unauth(ctx: Context) -> Iterator[Finding]:
     for paid in paid_routes(ctx):
         route = paid.route
+        if route.is_public_form and paid.sdk.category in ("email", "sms"):
+            continue
         level = access(ctx, route)
         if level.level == PUBLIC and not is_test(route.file):
             proofs = [unread_guard(level)]
@@ -149,10 +158,14 @@ def form_no_challenge(ctx: Context) -> Iterator[Finding]:
     for rel, routes in sorted(by_file.items()):
         if CHALLENGE.search(ctx.index.text(rel)):
             continue
+        limited = all(is_limited(ctx, r) for r in routes)
         yield make_finding(
             "ABUSE-FORM-NO-CHALLENGE",
             tag=Tag.INFERRED,
             locations=[Location(r.file, r.line) for r in routes],
             snippet=snippet(ctx.index.text(rel), routes[0].line),
             routes=", ".join(f"{r.method} {r.path}" for r in routes),
+            summary="have rate limits but no bot challenge"
+            if limited
+            else "accept unlimited automated submissions",
         )

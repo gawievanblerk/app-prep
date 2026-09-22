@@ -40,6 +40,9 @@ class Context:
     options: Options = field(default_factory=Options)
     facts: dict[str, object] = field(default_factory=dict)
     not_covered: list[str] = field(default_factory=list)
+    # Findings of every review run so far, set by the pipeline before each finish. Only section
+    # builders read it; rules never do, so selecting a review never changes another's findings.
+    run_findings: tuple[Finding, ...] = ()
 
 
 CheckFn = Callable[[Context], Iterable[Finding]]

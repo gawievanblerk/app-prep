@@ -59,7 +59,7 @@ def test_python_paid_route_through_helper(tmp_path):
     write(
         tmp_path,
         "app/chat.py",
-        "async def stream_chat(messages):\n    import anthropic\n"
+        "async def relay_chat(messages):\n    import anthropic\n"
         "    client = anthropic.Anthropic()\n    return client.messages.create(messages=messages)\n",
     )
     write(
@@ -67,9 +67,9 @@ def test_python_paid_route_through_helper(tmp_path):
         "app/routes.py",
         "from fastapi import APIRouter, Depends\nrouter = APIRouter()\n"
         "@router.post('/chat')\nasync def chat(user=Depends(get_current_user)):\n"
-        "    from app.chat import stream_chat\n    return await stream_chat([])\n"
+        "    from app.chat import relay_chat\n    return await relay_chat([])\n"
         "@router.post('/limited')\n@limiter.limit('5/minute')\nasync def limited(user=Depends(get_current_user)):\n"
-        "    return await stream_chat([])\n",
+        "    return await relay_chat([])\n",
     )
     assert findings_for(tmp_path, "abuse", "ABUSE-PAID-UNAUTH") == []
     assert locs(findings_for(tmp_path, "abuse", "ABUSE-PAID-UNLIMITED")) == ["app/routes.py:4"]
@@ -196,7 +196,7 @@ def test_helpers_are_followed_only_through_the_callers_imports(tmp_path):
         "app/notify.py",
         "from fastapi import APIRouter\nfrom app import mailer\nfrom app.mailer import send\n"
         "router = APIRouter()\n"
-        "@router.post('/invite')\nasync def invite(email: str):\n    send(email, 'hi')\n"
+        "@router.post('/announce')\nasync def announce(email: str):\n    send(email, 'hi')\n"
         "@router.post('/remind')\nasync def remind(email: str):\n    mailer.send(email, 'hi')\n",
     )
     found = findings_for(tmp_path, "abuse", "ABUSE-PAID-UNAUTH")

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String
+from sqlalchemy import Column, DateTime, Integer, String
 
 from app.db.base import Base
 
@@ -8,6 +8,10 @@ class User(Base):
     id = Column(String, primary_key=True)
     email = Column(String, unique=True)
     password_hash = Column(String)
+    reset_token = Column(String)
+    verify_token = Column(String)
+    locked_until = Column(DateTime)
+    failed_logins = Column(Integer)
 
 
 class Client(Base):

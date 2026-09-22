@@ -69,7 +69,14 @@ def test_server_only_data_layer_reports_nothing(tmp_path):
     index = RepoIndex(root)
     ctx = rules.Context(index=index, detection=detect(index))
     section = reviews.available()["rls"].run(ctx)
-    assert [p.title for p in section.parts] == ["Relevance"]
+    assert [p.title for p in section.parts] == [
+        "Relevance",
+        "Table protection status",
+        "Policy defects",
+        "Database exposure and privilege",
+        "Missing policies (runnable SQL)",
+        "How to confirm from outside the app",
+    ]
 
 
 def test_not_applicable(tmp_path):
@@ -78,7 +85,8 @@ def test_not_applicable(tmp_path):
     ctx = rules.Context(index=index, detection=detect(index))
     assert reviews.available()["rls"].run(ctx) is None
     assert ctx.not_covered == [
-        "Review 2 (rls): not applicable, no SQL tables, Supabase client or database dump found"
+        "Review 2 (rls): not applicable, no SQL tables, ORM models, migrations, Supabase "
+        "client or database dump found"
     ]
 
 

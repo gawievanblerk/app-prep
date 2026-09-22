@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import ast
-import hashlib
-import json
+import posixpath
 import re
 from collections.abc import Iterator
 from pathlib import PurePosixPath
 
+from dpr.discovery.approots import root_of, same_root
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast, pyvalues
-from dpr.redact import redact, snippet
+from dpr.redact import snippet
+from dpr.reviews.deploy_env import (
+    compose_build_dir,
+    non_production,
+    secret_reference,
+    service_root_dir,
+    start_stage,
+)
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
@@ -41,6 +48,7 @@ START_FILES = (
     "docker-compose.yml",
     "docker-compose.yaml",
 )
+CD_PREFIX = re.compile(r"""(?:^|[\s;&("'])cd\s+["']?([^\s;&|"')]+)["']?\s*(?:&&|;)""")
 SEED_COMMAND = re.compile(
     r"(?i)(?:^|[\s/.:_-])seed(?:s|_\w+|\.py|\.js|\.ts)?(?=$|[\s.:_)\"'-])|\bloaddata\b"
 )
@@ -48,7 +56,6 @@ START_LINE = re.compile(
     r"(?i)^\s*(?:-\s*)?(?:CMD|ENTRYPOINT|startCommand|releaseCommand|release_command|command|cmd"
     r"|\"(?:start|prestart|poststart|predeploy|postdeploy)\")\b"
 )
-TOKEN = re.compile(r"[^\s\"'`,;()\[\]{}<>]+")
 SAMESITE_NONE = re.compile(r"""(?i)\b\w*same_?site\w*["']?\s*[:=]\s*["']none["']""")
 CSRF_PACKAGES = {
     "fastapi-csrf-protect",
@@ -60,10 +67,6 @@ CSRF_PACKAGES = {
     "@edge-csrf/nextjs",
 }
 CONFIG_SUFFIXES = (".tf", ".yaml", ".yml", ".json", ".toml", ".py", ".ts", ".js", ".mjs", ".cjs")
-
-
-def _digest(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _py_hash_sites(tree: ast.Module) -> Iterator[tuple[ast.Call, pyvalues.Literal]]:
@@ -112,118 +115,48 @@ def literal_password_sites(ctx: Context) -> dict[str, list[tuple[int, pyvalues.L
     return sites
 
 
-def _copies(ctx: Context, owner: str, literals: list[pyvalues.Literal]) -> list[Location]:
-    digests = {_digest(lit.value) for lit in literals}
-    lengths = {len(lit.value) for lit in literals}
-    found = []
-    for entry in ctx.index.files:
-        if entry.rel == owner:
-            continue
-        text = ctx.index.text(entry.rel)
-        for match in TOKEN.finditer(text):
-            token = match.group(0)
-            if len(token) in lengths and _digest(token) in digests:
-                found.append(Location(entry.rel, line_of(text, match.start())))
-    return found
+def _named_dir(ctx: Context, start: str, number: int, line: str, at: int) -> str | None:
+    """The folder a start command runs in when it names one: a Render rootDir, a compose build
+    context, then a `cd <dir>` before the seed command. None when nothing names a folder."""
+    base = service_root_dir(ctx, start, number)
+    if base is None:
+        base = compose_build_dir(ctx, start, number)
+    moves = [m.group(1) for m in CD_PREFIX.finditer(line[:at]) if not m.group(1).startswith("/")]
+    if base is None and not moves:
+        return None
+    folder = base if base is not None else str(PurePosixPath(start).parent)
+    if moves:
+        folder = posixpath.normpath(posixpath.join(folder, moves[-1]))
+    return "" if folder == "." else folder
 
 
-def _char_column(source_line: str, byte_column: int) -> int:
-    return len(source_line.encode("utf-8")[:byte_column].decode("utf-8", errors="ignore"))
+def _seed_target(ctx: Context, start: str, number: int, line: str) -> tuple[list[str], list[str]]:
+    """(seed files the start command runs, files with the same name that it does not run).
 
-
-def _literal_spans(text: str, line: int, values: set[str]) -> list[tuple[int, int]]:
-    """Character ranges on `line` covered by Python string literals whose value is one of
-    `values`, however the literal is spelled (adjacent parts, escapes, triple quotes)."""
-    try:
-        tree = ast.parse(text)
-    except (SyntaxError, ValueError, RecursionError, MemoryError):
-        return []
-    lines = text.split("\n")
-    spans = []
-    for node in ast.walk(tree):
-        if not (isinstance(node, ast.Constant) and node.value in values):
-            continue
-        end_line = node.end_lineno or node.lineno
-        if not node.lineno <= line <= end_line or node.end_col_offset is None:
-            continue
-        source = lines[line - 1]
-        start = _char_column(source, node.col_offset) if node.lineno == line else 0
-        end = _char_column(source, node.end_col_offset) if end_line == line else len(source)
-        spans.append((start, end))
-    return spans
-
-
-def _masked(text: str, line: int, literals: list[pyvalues.Literal]) -> str:
-    """The snippet of `line` with every literal masked on the whole line before it is cut.
-
-    Python literals are masked by their source range, so a value spelled differently in the
-    source (adjacent parts, escaped quotes, a triple-quoted block) never survives; other files
-    fall back to the value's text forms."""
-    lines = text.split("\n")
-    full = lines[line - 1].removesuffix("\r") if 0 < line <= len(lines) else ""
-    values = {lit.value for lit in literals}
-    for start, end in sorted(_literal_spans(text, line, values), reverse=True):
-        full = full[:start] + "<redacted:password>" + full[end:]
-    forms = {f for v in values for f in (v, repr(v)[1:-1], json.dumps(v)[1:-1])}
-    forms |= {part for form in forms for part in form.split("\n") if len(part) >= 4}
-    for form in sorted(forms, key=len, reverse=True):
-        full = full.replace(form, "<redacted:password>")
-    value = snippet(full, 1)
-    if len(value) < len(redact(full)):
-        for form in forms:
-            for size in range(len(form) - 1, 0, -1):
-                if value.endswith(form[:size]):
-                    return value[: len(value) - size] + "<redacted:password>"
-    return value
-
-
-@rule(
-    "BASE-LITERAL-PASSWORD-HASH",
-    review="baseline",
-    severity="critical",
-    exploitability="high",
-    owasp="A07",
-)
-def literal_password_hash(ctx: Context) -> Iterator[Finding]:
-    for rel, sites in sorted(literal_password_sites(ctx).items()):
-        literals = [lit for _, lit in sites]
-        direct = [line for line, lit in sites if not lit.env_fallback]
-        copies = _copies(ctx, rel, literals)
-        lines = sorted({line for line, _ in sites})
-        text = ctx.index.text(rel)
-        shared = ""
-        if rel.endswith(".py"):
-            tree = pyast.parse_file(ctx.index, rel)
-            if any(pyast.function_at(tree, line) is None for line in lines):
-                shared = " The hash is computed once at module level and reused for every account."
-        where = f" The same text also appears in {len(copies)} other place(s)." if copies else ""
-        yield make_finding(
-            "BASE-LITERAL-PASSWORD-HASH",
-            tag=Tag.CONFIRMED if direct else Tag.INFERRED,
-            locations=[*(Location(rel, n) for n in lines), *copies][:10],
-            severity="critical" if direct else "high",
-            snippet=_masked(text, lines[0], literals),
-            proof_needed=None
-            if direct
-            else "Check that the environment variable is set in every deployed environment.",
-            file=rel,
-            count=len(lines),
-            extra=shared + where,
-        )
-
-
-def _seed_target(ctx: Context, start: str, line: str) -> list[str]:
+    The name resolves under the folder the command names (Render rootDir, compose build
+    context, `cd <dir>`), or else next to the start file; a file at that exact path wins, then
+    any file in the same app root. A shared start file (outside every app root, in the
+    repository-root entry or in a library root) that names no folder runs the seed of the one
+    app root that has it. A start file in any other app root never runs another root's seed."""
     module = re.search(r"-m\s+([\w.]*seed\w*)", line)
     script = re.search(r"([\w./-]*seed\w*\.(?:py|js|ts|mjs))", line)
-    suffix = (
-        module.group(1).replace(".", "/") + ".py" if module else (script.group(1) if script else "")
-    )
-    if not suffix:
-        return []
-    matches = [f.rel for f in ctx.index.files if f.rel.endswith(suffix.lstrip("./"))]
-    folder = str(PurePosixPath(start).parent)
-    local = [m for m in matches if folder == "." or m.startswith(folder + "/")]
-    return local or matches
+    found = module or script
+    if found is None:
+        return [], []
+    suffix = (module.group(1).replace(".", "/") + ".py" if module else script.group(1)).lstrip("./")
+    matches = [f.rel for f in ctx.index.files if f.rel == suffix or f.rel.endswith("/" + suffix)]
+    roots = ctx.detection.app_roots
+    own = root_of(roots, start)
+    shared = own is None or not own.path or own.kind == "library"
+    pool = matches if shared else [m for m in matches if same_root(roots, m, start)]
+    folder = _named_dir(ctx, start, number, line, found.start())
+    base = folder if folder is not None else str(PurePosixPath(start).parent)
+    anchor = str(PurePosixPath(base) / suffix) if base not in ("", ".") else suffix
+    local = [m for m in pool if m == anchor] or [m for m in pool if same_root(roots, m, anchor)]
+    if not local and shared and folder is None:
+        homes = {getattr(root_of(roots, m), "path", None) for m in pool}
+        local = pool if len(homes) == 1 else []
+    return local, [m for m in matches if m not in local]
 
 
 @rule("BASE-SEED-ON-START", review="baseline", severity="high", exploitability="high", owasp="A05")
@@ -240,25 +173,51 @@ def seed_on_start(ctx: Context) -> Iterator[Finding]:
                 continue
             if not SEED_COMMAND.search(stripped):
                 continue
-            targets = _seed_target(ctx, entry.rel, stripped)
-            with_passwords = [
-                t for t in targets if any(not lit.env_fallback for _, lit in sites.get(t, []))
-            ]
+            yield _seed_finding(ctx, entry.rel, number, text, sites)
+
+
+def _seed_finding(ctx: Context, rel: str, number: int, text: str, sites: dict) -> Finding:
+    targets, elsewhere = _seed_target(ctx, rel, number, text.splitlines()[number - 1].strip())
+    direct = [t for t in targets if any(not lit.env_fallback for _, lit in sites.get(t, []))]
+    other = [t for t in elsewhere if any(not lit.env_fallback for _, lit in sites.get(t, []))]
+    fallback = [lit for t in targets for _, lit in sites.get(t, []) if lit.env_fallback]
+    stage = start_stage(ctx, rel, number)
+    severity, detail, proof, locations = "high", "", None, [Location(rel, number)]
+    if direct:
+        severity = "high" if non_production(stage) else "critical"
+        detail = f" The seed file {direct[0]} hashes passwords written in the repository."
+        locations.append(Location(direct[0], sites[direct[0]][0][0]))
+    elif fallback and fallback[0].env_name:
+        target = next(t for t in targets if any(lit.env_fallback for _, lit in sites.get(t, [])))
+        locations.append(Location(target, sites[target][0][0]))
+        secret = secret_reference(ctx, fallback[0].env_name, rel)
+        if secret is not None:
+            severity = "medium"
+            locations.append(secret)
             detail = (
-                f" The seed file {with_passwords[0]} hashes passwords written in the repository."
-                if with_passwords
-                else ""
+                f" The seed falls back to a committed password only when "
+                f"{fallback[0].env_name} is unset, and {secret.file} supplies that variable "
+                "from a secret store."
             )
-            yield make_finding(
-                "BASE-SEED-ON-START",
-                tag=Tag.INFERRED,
-                locations=[Location(entry.rel, number)],
-                severity="critical" if with_passwords else "high",
-                snippet=snippet(text, number),
-                refs=("BASE-LITERAL-PASSWORD-HASH",) if with_passwords else (),
-                start=entry.rel,
-                extra=detail,
-            )
+            proof = f"Check that the secret reference for {fallback[0].env_name} resolves."
+    elif not targets and other:
+        proof = (
+            f"Check which seed file this start command runs: {other[0]}, in another app root, "
+            "hashes passwords written in the repository."
+        )
+    if stage:
+        detail += f" This start command runs with the {stage} environment setting."
+    return make_finding(
+        "BASE-SEED-ON-START",
+        tag=Tag.INFERRED,
+        locations=locations,
+        severity=severity,
+        snippet=snippet(text, number),
+        proof_needed=proof,
+        refs=("BASE-LITERAL-PASSWORD-HASH",) if direct else (),
+        start=rel,
+        extra=detail,
+    )
 
 
 def _py_short_minimums(tree: ast.Module) -> Iterator[tuple[int, int]]:
