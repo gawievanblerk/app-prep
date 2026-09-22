@@ -9,6 +9,7 @@ from dpr.cli import main
 from dpr.model import Tag
 from dpr.report.markdown import BANNED_PHRASES, render_markdown
 from tests.fixture_builder import SECRETS, build
+from tests.reviews.helpers import write
 
 ALL = (
     "next-supabase-bad",
@@ -82,6 +83,92 @@ def test_no_secret_or_planted_address_in_any_format(tmp_path, capsys, name):
         assert not any(value in text for text in outputs), value
     data = json.loads(next(p for p in out_dir.iterdir() if p.suffix == ".json").read_text())
     assert data["register"]
+
+
+SNIPPET_ADDRESS = "ana.fictional" + "@" + "corpmail.io"
+SNIPPET_PASSWORD = "Fict" + "ional-seed-" + "5521"
+
+
+def snippet_repo(root):
+    """Every line a snippet-producing rule points at holds a personal address."""
+    write(root, "requirements.txt", "fastapi\nsendgrid\nsqlalchemy\npasslib\n")
+    write(
+        root,
+        "app/notify.py",
+        "import logging\n"
+        "from sendgrid import SendGridAPIClient\n\n"
+        "logger = logging.getLogger(__name__)\n"
+        "client = SendGridAPIClient('x')\n\n\n"
+        "def notify(user):\n"
+        f"    client.send(to='{SNIPPET_ADDRESS}', subject='hi', content=user.name)\n"
+        f"    logger.info('copied {SNIPPET_ADDRESS} for %s', user.email)\n",
+    )
+    write(
+        root,
+        "app/db/seed.py",
+        "from app.core.security import get_password_hash\n"
+        "from app.models import User\n\n\n"
+        "def seed(db):\n"
+        f"    db.add(User(email='{SNIPPET_ADDRESS}', "
+        f"password_hash=get_password_hash('{SNIPPET_PASSWORD}')))\n",
+    )
+    write(
+        root,
+        "app/models.py",
+        "from sqlalchemy import JSON, Integer, String\n"
+        "from sqlalchemy.orm import Mapped, mapped_column\n\n\n"
+        "class Profile(Base):\n"
+        "    __tablename__ = 'profiles'\n"
+        "    id: Mapped[int] = mapped_column(Integer, primary_key=True)\n"
+        "    email: Mapped[str] = mapped_column(String)\n"
+        f"    extra: Mapped[dict] = mapped_column(JSON, default={{'contact': '{SNIPPET_ADDRESS}'}})\n",
+    )
+    write(root, "start.sh", "#!/bin/sh\npython -m app.db.seed\nuvicorn app.main:app\n")
+    write(
+        root,
+        "web/package.json",
+        '{"dependencies": {"express": "4", "zod": "3"}}',
+    )
+    write(
+        root,
+        "web/src/server.js",
+        "const express = require('express')\n"
+        "const { z } = require('zod')\n"
+        "const app = express()\n"
+        f"const contactSchema = z.object({{ email: z.string().default('{SNIPPET_ADDRESS}') }})\n"
+        "app.post('/contact', (req, res) => {\n"
+        "  const input = contactSchema.parse(req.body)\n"
+        f"  console.log('contact {SNIPPET_ADDRESS}', input.email)\n"
+        "  res.json({ ok: true })\n"
+        "})\n",
+    )
+    return root
+
+
+def test_planted_address_on_snippet_lines_is_absent_from_every_format(tmp_path, capsys):
+    root = snippet_repo(tmp_path / "repo")
+    report = review(root)
+    pointed = {
+        f.rule_id
+        for f in report.findings
+        for loc in f.locations
+        if SNIPPET_ADDRESS in (root / loc.file).read_text().splitlines()[loc.line - 1]
+    }
+    for rule_id in (
+        "INV-SDK-RECEIVES-PII",
+        "LEAK-LOGGED-PII",
+        "BASE-LITERAL-PASSWORD-HASH",
+        "INV-CATCHALL-JSON",
+    ):
+        assert rule_id in pointed, rule_id
+    out_dir = tmp_path / "out"
+    assert main(["scan", str(root), "--format", "md,json,sarif", "--out", str(out_dir)]) == 0
+    outputs = [p.read_text() for p in out_dir.iterdir()]
+    captured = capsys.readouterr()
+    outputs += [captured.out, captured.err]
+    for value in (SNIPPET_ADDRESS, SNIPPET_PASSWORD):
+        assert not any(value in text for text in outputs), value
+    assert any("<redacted:email>" in text for text in outputs)
 
 
 def test_express_prisma_opens_no_network_connection(tmp_path, monkeypatch):

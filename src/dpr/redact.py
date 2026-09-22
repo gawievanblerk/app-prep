@@ -49,6 +49,9 @@ SECRET_ENV = re.compile(
     r"([^\s'\"`;&|]+)"
 )
 CODE_VALUE = re.compile(r"^(?:[$<{(\[]|(?:os|process|env|settings|config|self)\b)")
+EMAIL = re.compile(
+    r"(?<![\w.+-])[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})"
+)
 
 
 @dataclass(frozen=True)
@@ -169,7 +172,8 @@ def redact(text: str) -> str:
     """Mask key patterns, service JWTs and credential shapes: URL passwords (with or without a
     user name), password flags on command lines, secret query parameter values (also a value
     concatenated as a separate literal), and literals assigned to password, secret, token or
-    API key names, including adjacent, concatenated and triple-quoted literals."""
+    API key names, including adjacent, concatenated and triple-quoted literals. Every email
+    address is masked too: a personal value is never printed."""
     for kind, _live, pattern in _patterns():
         text = pattern.sub(f"<redacted:{kind}>", text)
     text = JWT.sub("<redacted:jwt>", text)
@@ -179,7 +183,8 @@ def redact(text: str) -> str:
     text = QUERY_QUOTED.sub(r"\1\2<redacted:secret>\2", text)
     text = QUERY_CONCAT.sub(lambda m: m.group(1) + _masked_literal(m.group(2)), text)
     text = _mask_secret_literals(text)
-    return SECRET_ENV.sub(_env_secret, text)
+    text = SECRET_ENV.sub(_env_secret, text)
+    return EMAIL.sub("<redacted:email>", text)
 
 
 def snippet(text: str, line: int, before: int = 0, after: int = 0, width: int = 200) -> str:

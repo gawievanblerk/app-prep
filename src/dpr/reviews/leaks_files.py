@@ -8,6 +8,7 @@ from pathlib import PurePosixPath
 
 from dpr.gitutil import tracked_files
 from dpr.model import Finding, Location, Tag
+from dpr.redact import EMAIL
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 
@@ -22,9 +23,6 @@ RECORD_WORDS = re.compile(
 )
 ASSET_WORDS = re.compile(r"(?i)logo|brand|icon|favicon|style[ _-]?guide|avatar|banner|hero")
 SKIPPED_DIRS = re.compile(r"(?:^|/)(?:node_modules|vendor|\.venv|venv|site-packages)/")
-EMAIL = re.compile(
-    r"(?<![\w.+-])[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})"
-)
 RESERVED_TLDS = ("test", "invalid", "localhost", "example", "local", "internal")
 PLACEHOLDER_LABELS = frozenset(
     {

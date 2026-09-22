@@ -180,3 +180,15 @@ def test_snippet_masks_quoted_values_inside_query_and_form_strings():
     assert "&password='<redacted:secret>'" in out
     dynamic = 'url = "https://x.example/?token="+token+"&a=1"'
     assert snippet(dynamic, 1) == dynamic
+
+
+def test_redact_masks_every_email_address_and_keeps_url_password_labels():
+    address = "ana.fictional" + "@" + "corpmail.io"
+    line = f"client.send(to='{address}', cc=\"{address.upper()}\")  # ops+{address}"
+    out = snippet(line, 1)
+    assert address not in out and address.upper() not in out
+    assert out.count("<redacted:email>") == 3
+    url = "postgres://app:" + "Hunter" + "2x@db.corpmail.io/main"
+    assert redact(url) == "postgres://app:<redacted:password>@db.corpmail.io/main"
+    assert redact("@router.get('/users/{user_id}')") == "@router.get('/users/{user_id}')"
+    assert redact('"lodash": "npm:lodash@4.17.21"') == '"lodash": "npm:lodash@4.17.21"'
