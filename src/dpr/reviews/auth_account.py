@@ -69,9 +69,15 @@ def _email_list(node: ast.AST | None) -> bool:
 
 
 def _writes(nodes: list[ast.stmt]) -> bool:
-    """The statements set an attribute on an object (setattr or `x.field = value`)."""
+    """The statements set an attribute on an object (setattr, `x.field = value`) or call an
+    update method."""
     return any(
         (isinstance(n, ast.Call) and pyast.dotted(n.func) == "setattr")
+        or (
+            isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "update"
+        )
         or (isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Attribute))
         for stmt in nodes
         for n in ast.walk(stmt)
@@ -82,24 +88,27 @@ def _refuses(nodes: list[ast.stmt]) -> bool:
     return any(isinstance(n, ast.Raise | ast.Continue) for stmt in nodes for n in ast.walk(stmt))
 
 
-def _named(node: ast.AST, names: set[str]) -> bool:
-    return isinstance(node, ast.Name) and node.id in names
+def _listed(node: ast.AST, names: set[str]) -> bool:
+    """A name bound to an email field list, or such a list written inline."""
+    return (isinstance(node, ast.Name) and node.id in names) or _email_list(node)
 
 
-def _allow_list_uses(root: ast.AST, names: set[str]) -> set[str]:
-    """Names used as an allow-list of updatable fields: in a set difference, as
-    `model_dump(include=...)`, in an `in` test that guards a write or filters a comprehension, in
-    a `not in` test that refuses or skips, or as the fields a loop writes."""
-    used = set()
+def _allow_list_uses(root: ast.AST, names: set[str]) -> list[ast.AST]:
+    """Field lists (a name from `names`, or an inline set, list or tuple naming email) used as an
+    allow-list of updatable fields: in a set difference, as `model_dump(include=...)`, in an `in`
+    test that guards a write or filters a comprehension, in a `not in` test that refuses or
+    skips, or as the fields a loop writes."""
+    used: list[ast.AST] = []
     for node in ast.walk(root):
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Sub):
-            used |= {n.id for n in (node.left, node.right) if _named(n, names)}
-        elif isinstance(node, ast.keyword) and node.arg == "include" and _named(node.value, names):
-            used.add(node.value.id)
+            used += [n for n in (node.left, node.right) if _listed(n, names)]
+        elif isinstance(node, ast.keyword) and node.arg == "include":
+            if isinstance(node.value, ast.Name) and node.value.id in names:
+                used.append(node.value)
         elif isinstance(node, ast.If | ast.comprehension):
             tests = [node.test] if isinstance(node, ast.If) else node.ifs
             for compare in (c for t in tests for c in ast.walk(t) if isinstance(c, ast.Compare)):
-                if len(compare.ops) != 1 or not _named(compare.comparators[0], names):
+                if len(compare.ops) != 1 or not _listed(compare.comparators[0], names):
                     continue
                 allowing = isinstance(compare.ops[0], ast.In) and (
                     isinstance(node, ast.comprehension) or _writes(node.body)
@@ -108,9 +117,9 @@ def _allow_list_uses(root: ast.AST, names: set[str]) -> set[str]:
                     isinstance(node, ast.If) and _refuses(node.body)
                 )
                 if allowing or refusing:
-                    used.add(compare.comparators[0].id)
-        elif isinstance(node, ast.For) and _named(node.iter, names) and _writes(node.body):
-            used.add(node.iter.id)
+                    used.append(compare.comparators[0])
+        elif isinstance(node, ast.For) and _listed(node.iter, names) and _writes(node.body):
+            used.append(node.iter)
     return used
 
 
@@ -128,9 +137,10 @@ def _py_email_writes(code: Code) -> list[tuple[Location, bool]]:
         elif isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Attribute):
             if node.targets[0].attr in EMAIL_FIELDS and not isinstance(node.value, ast.Constant):
                 found.append((Location(code.rel, node.lineno), True))
-    for name in sorted(_allow_list_uses(code.node, set(lists)), key=lists.get):
-        found.append((Location(code.rel, lists[name]), False))
-    return sorted(found, key=lambda item: (not item[1], item[0].line))
+    for used in _allow_list_uses(code.node, set(lists)):
+        line = lists[used.id] if isinstance(used, ast.Name) else used.lineno
+        found.append((Location(code.rel, line), False))
+    return sorted(dict.fromkeys(found), key=lambda item: (not item[1], item[0].line))
 
 
 def _js_email_writes(code: Code) -> list[tuple[Location, bool]]:

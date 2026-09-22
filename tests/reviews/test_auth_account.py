@@ -1,3 +1,5 @@
+import pytest
+
 from tests.reviews.auth_app import auth_app
 from tests.reviews.helpers import findings_for, write
 
@@ -339,3 +341,51 @@ def test_a_user_model_in_a_shared_library_root_counts_for_every_app_root(tmp_pat
     assert str(finding.locations[0]) == "packages/db/prisma/schema.prisma:3"
     shared_schema_app(tmp_path, "email String @unique")
     assert findings_for(tmp_path, "auth", "AUTH-EMAIL-NOT-UNIQUE") == []
+
+
+INLINE_ALLOW_LISTS = {
+    "in test": (
+        "    for key, value in data.model_dump(exclude_unset=True).items():\n"
+        "        if key in ('name', 'email'):\n"
+        "            setattr(user, key, value)\n"
+        "    return user\n",
+        9,
+    ),
+    "loop": (
+        "    for field in ('name', 'email'):\n"
+        "        setattr(user, field, getattr(data, field))\n"
+        "    return user\n",
+        8,
+    ),
+    "update call": (
+        "    for key, value in data.model_dump(exclude_unset=True).items():\n"
+        "        if key in {'name', 'email'}:\n"
+        "            user.update(key, value)\n"
+        "    return user\n",
+        9,
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(INLINE_ALLOW_LISTS))
+def test_an_inline_allow_list_naming_email_is_an_inferred_email_write(tmp_path, shape):
+    body, line = INLINE_ALLOW_LISTS[shape]
+    self_route(tmp_path, "/users/me", body)
+    [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED")
+    assert (finding.tag.value, str(finding.locations[0])) == (
+        "INFERRED",
+        f"api/app/routes/users.py:{line}",
+    )
+
+
+def test_an_inline_field_tuple_that_guards_no_write_is_not_an_email_write(tmp_path):
+    self_route(
+        tmp_path,
+        "/users/me",
+        "    changed = {}\n"
+        "    for key, value in data.model_dump(exclude_unset=True).items():\n"
+        "        if key in ('role', 'email') and getattr(user, key) != value:\n"
+        "            changed[key] = value\n"
+        "    return changed\n",
+    )
+    assert findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED") == []
