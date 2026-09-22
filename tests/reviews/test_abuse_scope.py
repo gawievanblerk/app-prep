@@ -107,3 +107,42 @@ def test_mounted_express_limiter_counts_for_paid_routes(tmp_path):
         "export default router\n",
     )
     assert findings_for(tmp_path, "abuse", "ABUSE-PAID-UNLIMITED") == []
+
+
+def proxied_api(root):
+    write(root, "render.yaml", "services:\n  - type: web\n    rootDir: api\n")
+    write(root, "api/requirements.txt", "fastapi\nslowapi\n")
+    write(root, "api/app/rate_limit.py", PY_LIMITER)
+    write(
+        root,
+        "api/app/main.py",
+        "from fastapi import FastAPI\napp = FastAPI()\n@app.get('/x')\ndef x(): ...\n",
+    )
+    write(root, "worker/requirements.txt", "flask\n")
+    write(
+        root,
+        "worker/app.py",
+        "from flask import Flask\napp = Flask(__name__)\n@app.get('/y')\ndef y(): ...\n",
+    )
+    return root
+
+
+def test_proxy_trust_in_another_root_or_a_test_does_not_cover_the_limiter(tmp_path):
+    root = proxied_api(tmp_path)
+    write(root, "worker/wsgi.py", "app.wsgi_app = ProxyFix(app.wsgi_app)\n")
+    write(root, "api/tests/test_ip.py", "HEADERS = {'x-forwarded-for': '1.2.3.4'}\n")
+    write(root, "docs/deploy.md", "Set x-forwarded-for on the proxy.\n")
+    [finding] = findings_for(root, "abuse", "ABUSE-LIMITER-PROXY-IP")
+    assert str(finding.locations[0]) == "api/app/rate_limit.py:3"
+    write(root, "api/startup.sh", "uvicorn app.main:app --forwarded-allow-ips='*'\n")
+    assert findings_for(root, "abuse", "ABUSE-LIMITER-PROXY-IP") == []
+
+
+def test_shared_store_setting_of_another_root_does_not_cover_the_limiter(tmp_path):
+    root = proxied_api(tmp_path)
+    write(root, "api/startup.sh", "gunicorn app.main:app --workers 2\n")
+    write(root, "worker/config.py", "RATELIMIT_STORAGE_URL = 'redis://cache:6379'\n")
+    [finding] = findings_for(root, "abuse", "ABUSE-INMEMORY-LIMITER")
+    assert (str(finding.locations[0]), finding.tag.value) == ("api/app/rate_limit.py:3", "INFERRED")
+    write(root, "api/app/config.py", "RATELIMIT_STORAGE_URL = 'redis://cache:6379'\n")
+    assert findings_for(root, "abuse", "ABUSE-INMEMORY-LIMITER") == []

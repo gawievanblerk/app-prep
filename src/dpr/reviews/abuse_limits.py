@@ -11,6 +11,7 @@ from dpr.model import Finding, Location, Tag
 from dpr.parsing import imports, jsts, pyast
 from dpr.redact import snippet
 from dpr.reviews.abuse_workers import multi_process
+from dpr.reviews.deploy_env import applies
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 
@@ -27,6 +28,7 @@ STORAGE_ASSIGN = re.compile(r"""RATELIMIT_STORAGE_UR[IL]['"]?[ \t]{0,8}\]?[ \t]{
 STORAGE_SETTING = re.compile(
     r"""RATELIMIT_STORAGE_UR[IL]['"]?[ \t]{0,8}\]?[ \t]{0,8}[:=][ \t]{0,8}(['"])([^'"\n]*)\1"""
 )
+DOC_SUFFIXES = (".md", ".mdx", ".rst", ".adoc", ".txt")
 
 
 def _limiters(ctx: Context) -> Iterator[tuple[str, ast.Module, ast.Call]]:
@@ -39,13 +41,12 @@ def _limiters(ctx: Context) -> Iterator[tuple[str, ast.Module, ast.Call]]:
             yield entry.rel, tree, call
 
 
-def _configured_storage(ctx: Context) -> str | None:
-    """RATELIMIT_STORAGE_URI (Flask-Limiter) or RATELIMIT_STORAGE_URL (slowapi) set in non-test
-    code or config: 'memory' or 'shared' when every setting is that literal, 'mixed' when the
-    settings disagree or one is read at runtime, None when nothing sets it."""
-    key = ("limiter-storage-setting", "")
+def _storage_settings(ctx: Context) -> list[tuple[str, str]]:
+    """(file, kind) for each RATELIMIT_STORAGE_URI (Flask-Limiter) or RATELIMIT_STORAGE_URL
+    (slowapi) setting in non-test code or config: 'memory', 'shared' or 'runtime'."""
+    key = ("limiter-storage-settings", "")
     if key not in ctx.index.cache:
-        kinds = set()
+        found = []
         for entry in ctx.index.files:
             text = ctx.index.text(entry.rel)
             if is_test(entry.rel) or "RATELIMIT_STORAGE" not in text:
@@ -53,12 +54,36 @@ def _configured_storage(ctx: Context) -> str | None:
             for match in STORAGE_ASSIGN.finditer(text):
                 literal = STORAGE_SETTING.match(text, match.start())
                 if literal is None:
-                    kinds.add("runtime")
+                    found.append((entry.rel, "runtime"))
                 else:
-                    kinds.add("memory" if literal.group(2).startswith("memory://") else "shared")
-        single = len(kinds) == 1 and "runtime" not in kinds
-        ctx.index.cache[key] = kinds.pop() if single else ("mixed" if kinds else None)
+                    memory = literal.group(2).startswith("memory://")
+                    found.append((entry.rel, "memory" if memory else "shared"))
+        ctx.index.cache[key] = found
     return ctx.index.cache[key]
+
+
+def _configured_storage(ctx: Context, rel: str) -> str | None:
+    """The storage setting that applies to `rel`'s app root (its own root or shared config):
+    'memory' or 'shared' when every setting is that literal, 'mixed' when the settings disagree
+    or one is read at runtime, None when nothing sets it."""
+    kinds = {kind for file, kind in _storage_settings(ctx) if applies(ctx, file, rel)}
+    single = len(kinds) == 1 and "runtime" not in kinds
+    return kinds.pop() if single else ("mixed" if kinds else None)
+
+
+def _proxy_trusted(ctx: Context, rel: str) -> bool:
+    """Proxy trust is configured in code or config that applies to `rel`'s app root. Test files
+    and documents only mention the header, so they never count."""
+    key = ("proxy-trust-files", "")
+    if key not in ctx.index.cache:
+        ctx.index.cache[key] = [
+            entry.rel
+            for entry in ctx.index.files
+            if not is_test(entry.rel)
+            and not entry.rel.endswith(DOC_SUFFIXES)
+            and PROXY_TRUST.search(ctx.index.text(entry.rel))
+        ]
+    return any(applies(ctx, trusted, rel) for trusted in ctx.index.cache[key])
 
 
 def _memory_storage(tree: ast.Module, call: ast.Call, configured: str | None = None) -> str | None:
@@ -115,12 +140,11 @@ def express_limiter_names(ctx: Context, rel: str) -> set[str]:
 def inmemory_limiter(ctx: Context) -> Iterator[Finding]:
     if multi_process(ctx) is None:
         return
-    configured = _configured_storage(ctx)
     for rel, tree, call in _limiters(ctx):
         evidence = multi_process(ctx, rel)
         if evidence is None:
             continue
-        kind = _memory_storage(tree, call, configured)
+        kind = _memory_storage(tree, call, _configured_storage(ctx, rel))
         if kind == "always":
             what = "The limiter keeps its counters in process memory."
             yield _inmemory(ctx, rel, call.lineno, Tag.CONFIRMED, what, evidence)
@@ -197,15 +221,13 @@ def limiter_not_applied(ctx: Context) -> Iterator[Finding]:
 def limiter_proxy_ip(ctx: Context) -> Iterator[Finding]:
     if not ctx.detection.hosting:
         return
-    if any(PROXY_TRUST.search(ctx.index.text(f.rel)) for f in ctx.index.files):
-        return
 
-    def undeployed(rel: str) -> bool:
+    def skipped(rel: str) -> bool:
         home = root_of(ctx.detection.app_roots, rel)
-        return home is not None and home.deployed is False
+        return (home is not None and home.deployed is False) or _proxy_trusted(ctx, rel)
 
     for rel, _tree, call in _limiters(ctx):
-        if undeployed(rel):
+        if skipped(rel):
             continue
         key = pyast.kwarg(call, "key_func")
         if key is not None and (pyast.dotted(key) or "").endswith("get_remote_address"):
@@ -219,7 +241,7 @@ def limiter_proxy_ip(ctx: Context) -> Iterator[Finding]:
     for entry in ctx.index.js_files:
         if is_test(entry.rel) or "rate-limit" not in ctx.index.text(entry.rel):
             continue
-        if undeployed(entry.rel):
+        if skipped(entry.rel):
             continue
         names = {
             local
