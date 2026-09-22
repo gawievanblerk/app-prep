@@ -3,7 +3,7 @@ from dpr.discovery.detect import detect
 from dpr.reviews.auth_flows import flows, lifetimes, managed_provider, user_models
 from dpr.walk import RepoIndex
 from tests.reviews.auth_app import auth_app
-from tests.reviews.helpers import write
+from tests.reviews.helpers import findings_for, write
 
 
 def context(root):
@@ -114,3 +114,51 @@ def test_lifetimes_scoped_by_app_root(tmp_path):
     ]
     assert web_only == [("expiresIn", "'14d'")]
     assert len(lifetimes(ctx)) == 3
+
+
+BUSINESS_ROUTES = (
+    "from fastapi import APIRouter, Depends\n\nrouter = APIRouter()\n\n\n"
+    "@router.post('/subscriptions/{sub_id}/activate')\n"
+    "async def activate_subscription(sub_id: int, user=Depends(get_current_user)):\n"
+    "    sub = await service.load(sub_id, user)\n"
+    "    sub.active = True\n"
+    "    return sub\n\n\n"
+    "@router.get('/orders/{order_id}/verify-address')\n"
+    "async def verify_address(order_id: int, user=Depends(get_current_user)):\n"
+    "    return await geo.check(order_id)\n\n\n"
+    "@router.get('/public/orders/{order_id}/verify-address')\n"
+    "async def check_address(order_id: int):\n"
+    "    return await geo.check(order_id)\n"
+)
+VERIFY_ROUTES = (
+    "from fastapi import APIRouter, Depends\n\nrouter = APIRouter()\n\n\n"
+    "@router.get('/auth/verify')\n"
+    "async def verify(token: str):\n"
+    "    return await accounts.verify(token)\n\n\n"
+    "@router.post('/me/confirm-email')\n"
+    "async def confirm(data: ConfirmRequest, user=Depends(get_current_user)):\n"
+    "    return await accounts.confirm(user, data.code)\n\n\n"
+    "@router.get('/activate/{activation_key}')\n"
+    "async def activate(activation_key: str):\n"
+    "    return await accounts.activate(activation_key)\n"
+)
+
+
+def test_business_routes_that_verify_or_activate_are_not_verify_flows(tmp_path):
+    write(tmp_path, "requirements.txt", "fastapi\n")
+    write(tmp_path, "app/routes.py", BUSINESS_ROUTES)
+    ctx = context(tmp_path)
+    assert [f for f in flows(ctx) if f.kind == "verify"] == []
+    for rule_id in ("AUTH-VERIFY-NO-EXPIRY", "AUTH-VERIFY-REUSABLE"):
+        assert findings_for(tmp_path, "auth", rule_id) == []
+
+
+def test_verify_flows_read_a_token_or_name_an_account_word(tmp_path):
+    write(tmp_path, "requirements.txt", "fastapi\n")
+    write(tmp_path, "app/routes.py", VERIFY_ROUTES)
+    ctx = context(tmp_path)
+    assert sorted(f.route.path for f in flows(ctx) if f.kind == "verify") == [
+        "/activate/{activation_key}",
+        "/auth/verify",
+        "/me/confirm-email",
+    ]

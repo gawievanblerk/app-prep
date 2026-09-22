@@ -26,6 +26,18 @@ KINDS = (
     ("login", re.compile(r"log-?in|sign-?in|/token$|authenticate")),
 )
 WRITE_METHODS = ("POST", "PUT", "PATCH", "ANY", "ACTION")
+ACCOUNT_VERIFY = re.compile(
+    r"(?:verify|confirm|verification)[-_]?e?-?mail|e?-?mail[-_]?(?:verif|confirm)"
+    r"|(?:activate|verify|confirm)[-_]?(?:account|user)"
+    r"|(?:^|/)(?:verify|verification|confirm|activate)/[{:<]\w*(?:token|code|key)"
+)
+TOKEN_WORD = r"\w*(?:token|code|key)\w*"
+PATH_TOKEN = re.compile(rf"(?i)[{{:<](?:\w+:)?{TOKEN_WORD}")
+REQUEST_TOKEN = re.compile(
+    rf"(?i)(?:query_params|args|form|GET|POST|json|body|params|query|searchParams)\s*"
+    rf"(?:\.get\(\s*['\"]|\[\s*['\"]|\?*\.){TOKEN_WORD}"
+    rf"|\{{[^{{}}]*\b{TOKEN_WORD}\b[^{{}}]*\}}\s*=\s*(?:await\s+)?req"
+)
 SELF_SEGMENT = re.compile(r"^(?:users?|me|profile|account|settings)$")
 PARAM_SEGMENT = re.compile(r"^\{[^{}]*\}$|^:[^/]+$|^<[^<>]*>$|^\*[^/]*$")
 USER_MODEL = re.compile(
@@ -106,6 +118,29 @@ def _is_self_path(path: str) -> bool:
     return False
 
 
+def _reads_token(route: Route) -> bool:
+    """The route reads a token, code or key from the request: a path parameter, a handler
+    argument (or a field of one) or a query, body or form value."""
+    if PATH_TOKEN.search(route.path):
+        return True
+    if isinstance(route.handler, ast.FunctionDef | ast.AsyncFunctionDef):
+        args = [a.arg for a in [*route.handler.args.args, *route.handler.args.kwonlyargs]]
+        text = ast.unparse(route.handler)
+        if any(re.fullmatch(rf"(?i){TOKEN_WORD}", a) for a in args):
+            return True
+        if any(re.search(rf"(?i)\b{re.escape(a)}\.{TOKEN_WORD}", text) for a in args):
+            return True
+    else:
+        text = jsts.node_text(route.handler) if route.handler is not None else ""
+    return bool(REQUEST_TOKEN.search(text))
+
+
+def _verify_flow(route: Route, subject: str, level: str) -> bool:
+    """An account verification link: the path or handler names an account word, or the route
+    reads a token, code or key from the request and is reached without a session."""
+    return bool(ACCOUNT_VERIFY.search(subject)) or (level == PUBLIC and _reads_token(route))
+
+
 def _kind(ctx: Context, route: Route) -> str | None:
     name = getattr(route.handler, "name", "")
     name = name if isinstance(name, str) else ""
@@ -113,6 +148,8 @@ def _kind(ctx: Context, route: Route) -> str | None:
     level = access(ctx, route).level
     for kind, pattern in KINDS:
         if pattern.search(subject):
+            if kind == "verify" and not _verify_flow(route, subject, level):
+                continue
             if kind != "verify" and route.method not in WRITE_METHODS:
                 return None
             if kind in ("register", "login", "forgot", "reset") and level != PUBLIC:
