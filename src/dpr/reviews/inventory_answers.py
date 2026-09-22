@@ -86,8 +86,8 @@ def _retention(ctx: Context) -> Answer:
     none = len(people) - len(hard) - len(soft)
     text = (
         f"{len(hard)} of {len(people)} personal data tables have a hard delete path, {len(soft)} "
-        f"only set a soft delete flag, {none} have no deletion path. No retention period is "
-        "enforced by a scheduled purge in code."
+        f"only set a soft delete flag, {none} have no deletion path. Scheduled purge jobs were "
+        "not checked, so a retention period one enforces would not show here."
     )
     settings = [f"{s} (`{loc}`)" for _r, s, loc in iac_retention(ctx)]
     if settings:
@@ -133,8 +133,8 @@ def _audit(ctx: Context) -> Answer:
         )
     else:
         text = (
-            "No audit or activity table was found, so reads and "
-            "exports are not recorded in the database."
+            "No audit or activity table was found by name; whether reads and exports are "
+            "recorded is not decided from code."
         )
     return Answer("Is access to personal data logged?", text, "data models")
 

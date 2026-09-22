@@ -149,3 +149,15 @@ def test_zod_collection_is_tied_to_its_route_not_the_runtime_row(tmp_path):
     assert user[2] == "POST /signup (`src/routes.js:6`)"
     assert not any(r[1] == "Technical identifiers" for r in rows)
     assert "- POST /signup (`src/routes.js:6`) -> User" in found["Data flows"].body
+
+
+def test_retention_and_audit_answers_claim_only_what_was_checked(tmp_path):
+    questions = {a.question: a.answer for a in review(app(tmp_path)).answered}
+    retention = questions["What retention does the code enforce?"]
+    assert "No retention period is enforced by a scheduled purge" not in retention
+    assert "Scheduled purge jobs were not checked" in retention
+    audit = questions["Is access to personal data logged?"]
+    assert audit == (
+        "No audit or activity table was found by name; whether reads and exports are recorded "
+        "is not decided from code."
+    )
