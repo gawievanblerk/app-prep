@@ -51,9 +51,9 @@ def test_csp_is_never_above_medium(tmp_path):
 
 
 def test_attacker_role_comes_from_the_auth_dependency():
-    assert attacker("Depends(ManagerOrAdmin)") == "any manager account"
+    assert attacker("Depends(AdminOrManager)") == "any manager account"
     assert attacker("Depends(get_current_user)") == "any signed-in user"
-    assert attacker("Depends(StaffOrAdmin)") == "any staff account"
+    assert attacker("Depends(AdminOrStaff)") == "any staff account"
     assert attacker("@login_required") == "any signed-in user"
     assert attacker("Depends(require_agents)") == "any agent account"
 
@@ -70,9 +70,9 @@ def test_unscoped_query_attack_names_the_role(tmp_path):
         tmp_path,
         "api/app/routes.py",
         "from fastapi import APIRouter\nfrom sqlalchemy import select\nrouter = APIRouter()\n"
-        "ManagerOrAdmin = Annotated[User, Depends(require_manager_or_admin)]\n"
+        "AdminOrManager = Annotated[User, Depends(require_admin_or_manager)]\n"
         "@router.get('/attachments/{attachment_id}')\n"
-        "async def download(attachment_id: str, current_user: ManagerOrAdmin):\n"
+        "async def download(attachment_id: str, current_user: AdminOrManager):\n"
         "    return await db.execute(select(Attachment).where(Attachment.id == attachment_id))\n",
     )
     [finding] = findings_for(tmp_path, "owasp", "OWASP-A01-UNSCOPED-QUERY")

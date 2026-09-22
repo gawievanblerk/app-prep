@@ -43,12 +43,12 @@ async def export_files(current_user: CurrentUser):
     return FileResponse(settings.export_file, media_type="text/csv", filename="files.csv")
 
 
-class BulkPdfRequest(BaseModel):
+class BatchPdfRequest(BaseModel):
     file_ids: list[str] = Field(..., min_length=1, max_length=500)
 
 
-@router.post("/bulk-pdf")
-async def bulk_pdf(payload: BulkPdfRequest, current_user: CurrentUser):
+@router.post("/batch-pdf")
+async def batch_pdf(payload: BatchPdfRequest, current_user: CurrentUser):
     for file_id in payload.file_ids:
         await render_pdf(file_id)
     return {"rendered": len(payload.file_ids)}

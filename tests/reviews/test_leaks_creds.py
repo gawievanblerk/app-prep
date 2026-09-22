@@ -3,7 +3,7 @@ from dpr.report.json_out import render_json
 from dpr.report.markdown import render_markdown
 from tests.reviews.helpers import findings_for, write
 
-BYPASS_VALUE = "cutover" + "-gate-" + "2031"
+BYPASS_VALUE = "rollout" + "-gate-" + "2031"
 DB_DEFAULT = "localdev" + "pw" + "31"
 
 
@@ -11,13 +11,13 @@ def repo(root):
     write(
         root,
         "web/src/Gate.tsx",
-        "export const ok = (k) => k === import.meta.env.VITE_STAFF_BYPASS_KEY\n",
+        "export const ok = (k) => k === import.meta.env.VITE_PREVIEW_UNLOCK_KEY\n",
     )
     write(root, "web/src/api.ts", "export const base = import.meta.env.VITE_API_URL\n")
     write(
         root,
         "azure-pipelines.yml",
-        f"variables:\n  VITE_STAFF_BYPASS_KEY: '{BYPASS_VALUE}'\n  VITE_API_URL: $(API_URL)\n",
+        f"variables:\n  VITE_PREVIEW_UNLOCK_KEY: '{BYPASS_VALUE}'\n  VITE_API_URL: $(API_URL)\n",
     )
     write(
         root,

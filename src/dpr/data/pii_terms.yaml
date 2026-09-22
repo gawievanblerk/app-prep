@@ -28,7 +28,7 @@ categories:
     terms: [last_login, last_login_at, last_seen, page_views, clicks, search_query, searches, events, activity, sent_at, viewed_at]
   - key: content
     label: Free text and content
-    terms: [message, messages, body, content, comment, comments, note, notes, description, bio, title, detail, details, review_note, status_note, file, filename, original_filename, attachment, upload]
+    terms: [message, messages, body, content, comment, comments, note, notes, description, bio, title, detail, details, file, filename, original_filename, attachment, upload]
   - key: inferred
     label: Inferred data
     terms: [score, risk_score, health_score, segment, segments, lifetime_value, churn, prediction, rating, risk_tolerance, personality]

@@ -56,7 +56,7 @@ def test_leak_hunt_places(tmp_path):
     write(
         tmp_path,
         ".env.example",
-        "VITE_API_URL=\nVITE_STAFF_BYPASS_KEY=\nNEXT_PUBLIC_WEBHOOK_SECRET=\nDATABASE_URL=\n",
+        "VITE_API_URL=\nVITE_PREVIEW_UNLOCK_KEY=\nNEXT_PUBLIC_WEBHOOK_SECRET=\nDATABASE_URL=\n",
     )
     write(tmp_path, "web/src/main.ts", "export const api = import.meta.env.VITE_API_URL\n")
     found = parts(review(tmp_path, reviews=["leaks"]), "leaks")
@@ -72,7 +72,7 @@ def test_leak_hunt_places(tmp_path):
         "- `NEXT_PUBLIC_WEBHOOK_SECRET`: secret word in a browser variable (LEAK-PUBLIC-SECRET) "
         "(`.env.example:3`)",
         "- `VITE_API_URL`: publishable (`.env.example:1`)",
-        "- `VITE_STAFF_BYPASS_KEY`: access gate key shipped to browsers (LEAK-PUBLIC-GATE-KEY) "
+        "- `VITE_PREVIEW_UNLOCK_KEY`: access gate key shipped to browsers (LEAK-PUBLIC-GATE-KEY) "
         "(`.env.example:2`)",
     ]
     history = found["Place 1: keys, env files and git history"].body

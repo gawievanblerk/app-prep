@@ -80,8 +80,8 @@ def test_self_path_requires_no_param_segment_before_the_self_word(tmp_path):
         "from fastapi import APIRouter, Depends\n\n"
         "router = APIRouter()\n"
         "CurrentUser = Annotated[dict, Depends(get_current_user)]\n\n\n"
-        '@router.patch("/insureds/{insured_id}/profile")\n'
-        "async def update_profile(insured_id: str, data: dict, current_user: CurrentUser):\n"
+        '@router.patch("/vehicles/{vehicle_id}/profile")\n'
+        "async def update_profile(vehicle_id: str, data: dict, current_user: CurrentUser):\n"
         '    return {"ok": True}\n\n\n'
         '@router.put("/users/{user_id}")\n'
         "async def update_user(user_id: str, data: dict, current_user: CurrentUser):\n"
@@ -95,7 +95,7 @@ def test_self_path_requires_no_param_segment_before_the_self_word(tmp_path):
     )
     ctx = context(tmp_path)
     kinds = {(f.route.method, f.route.path): f.kind for f in flows(ctx)}
-    assert ("PATCH", "/insureds/{insured_id}/profile") not in kinds
+    assert ("PATCH", "/vehicles/{vehicle_id}/profile") not in kinds
     assert kinds[("PUT", "/users/{user_id}")] == "update_self"
     assert kinds[("PATCH", "/me")] == "update_self"
     assert kinds[("PATCH", "/account/email")] == "update_self"

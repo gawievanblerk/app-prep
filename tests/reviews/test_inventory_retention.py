@@ -47,9 +47,9 @@ def app(root):
         root,
         "api/app/routes.py",
         "from fastapi import APIRouter\nrouter = APIRouter()\n"
-        "ManagerOrAdmin = Annotated[User, Depends(require_manager)]\n"
+        "AdminOrManager = Annotated[User, Depends(require_manager)]\n"
         "@router.get('/clients/{client_id}')\n"
-        "async def read_client(client_id: str, user: ManagerOrAdmin):\n"
+        "async def read_client(client_id: str, user: AdminOrManager):\n"
         "    return await db.get(Client, client_id)\n",
     )
     return root
@@ -163,20 +163,22 @@ def test_unused_personal_fields(tmp_path):
     write(
         tmp_path,
         "app/models.py",
-        "class Insured(Base):\n    __tablename__ = 'insureds'\n"
-        "    email = Column(String)\n    status_note = Column(String)\n    home_phone = Column(String)\n",
+        "class Subscriber(Base):\n    __tablename__ = 'subscribers'\n"
+        "    email = Column(String)\n    followup_note = Column(String)\n    home_phone = Column(String)\n",
     )
     write(
         tmp_path,
         "app/importer.py",
-        "def apply(insured, row):\n    insured.status_note = row['note']\n"
-        "    insured.home_phone = row['phone']\n",
+        "def apply(subscriber, row):\n    subscriber.followup_note = row['note']\n"
+        "    subscriber.home_phone = row['phone']\n",
     )
     write(
-        tmp_path, "app/views.py", "def show(insured):\n    return {'phone': insured.home_phone}\n"
+        tmp_path,
+        "app/views.py",
+        "def show(subscriber):\n    return {'phone': subscriber.home_phone}\n",
     )
     [finding] = findings_for(tmp_path, "inventory", "INV-UNUSED-FIELD")
-    assert finding.title == "Personal fields of Insured that no code reads"
+    assert finding.title == "Personal fields of Subscriber that no code reads"
     assert [str(loc) for loc in finding.locations] == ["app/models.py:4"]
 
 

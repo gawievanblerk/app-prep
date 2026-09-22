@@ -17,7 +17,7 @@ def test_words_and_personal_names():
     assert personal_name("to_email") and personal_name("firstName") and personal_name("client_ip")
     assert personal_name("name", "client") and not personal_name("name", "file")
     assert not personal_name("email_template") and not personal_name("user_id")
-    assert not personal_name("email_from_address", "self._settings")
+    assert not personal_name("notify_from_address", "self._settings")
 
 
 def test_python_identifiers_and_counts_are_not_personal_data(tmp_path):
@@ -28,8 +28,8 @@ def test_python_identifiers_and_counts_are_not_personal_data(tmp_path):
         "def pick(user, clients, payload, current_user):\n"
         "    logger.warning('%d records for user %s', len(clients), user.id)\n"
         "    logger.info('truncated %s of %s for %s', len(payload['rows']), payload['total'], current_user.id)\n"
-        "    logger.info('request %s created for insured %s', request.id, insured.id)\n"
-        "    logger.info('sender %s', settings.email_from_address)\n"
+        "    logger.info('request %s created for subscriber %s', request.id, subscriber.id)\n"
+        "    logger.info('sender %s', settings.notify_from_address)\n"
         "    logger.info('app %s', settings.app_name)\n",
     )
     assert found(tmp_path) == {}

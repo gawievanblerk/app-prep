@@ -16,7 +16,7 @@ def test_collection_points_from_request_schemas_and_body_reads(tmp_path):
         tmp_path,
         "api/schemas.py",
         "class ContactBase(BaseModel):\n    email: str\n    phone: str | None = None\n"
-        "class ClientCreate(ContactBase):\n    name: str\n    crop_year: int\n",
+        "class ClientCreate(ContactBase):\n    name: str\n    model_year: int\n",
     )
     write(
         tmp_path,

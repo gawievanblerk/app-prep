@@ -17,11 +17,11 @@ def test_classify_field_names():
     assert classify("medicalConditions").key == "special"
     assert classify("password_hash").key == "account"
     assert classify("ip_address").key == "technical"
-    assert classify("status_note").key == "content"
+    assert classify("followup_note").key == "content"
     assert classify("id_number").key == "government_ids"
     assert classify("client_id") is None and classify("uploaded_by") is None
     assert classify("name", person=False) is None and classify("name").key == "identifiers"
-    assert classify("crop_year") is None and classify("muscle_grade") is None
+    assert classify("model_year") is None and classify("steel_grade") is None
 
 
 def test_person_models_and_models_keyed_to_people(tmp_path):
@@ -32,7 +32,7 @@ def test_person_models_and_models_keyed_to_people(tmp_path):
         "    name = Column(String)\n    phone = Column(String)\n"
         "class Order(Base):\n    __tablename__ = 'orders'\n"
         "    client_id = Column(String)\n    net_price = Column(Numeric)\n    notes = Column(Text)\n"
-        "class CropType(Base):\n    __tablename__ = 'crop_types'\n"
+        "class ProductType(Base):\n    __tablename__ = 'product_types'\n"
         "    name = Column(String)\n    price = Column(Numeric)\n",
     )
     ctx = context(tmp_path)

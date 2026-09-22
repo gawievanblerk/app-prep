@@ -30,14 +30,14 @@ def app(root):
         root,
         "api/app/routes.py",
         "from fastapi import APIRouter\nfrom app.mail import Mailer\nrouter = APIRouter()\n"
-        "ManagerOrAdmin = Annotated[User, Depends(require_manager)]\n\n"
+        "AdminOrManager = Annotated[User, Depends(require_manager)]\n\n"
         "@router.post('/clients')\n"
-        "async def create_client(data: ClientCreate, user: ManagerOrAdmin, request: Request):\n"
+        "async def create_client(data: ClientCreate, user: AdminOrManager, request: Request):\n"
         "    Mailer().welcome(data.email)\n"
         "    logger.info('created for %s from %s', data.email, request.client.host)\n"
         "    return await save(Client(**data.model_dump()))\n\n"
         "@router.get('/clients/{client_id}')\n"
-        "async def read_client(client_id: str, user: ManagerOrAdmin):\n"
+        "async def read_client(client_id: str, user: AdminOrManager):\n"
         "    return await db.get(Client, client_id)\n",
     )
     write(

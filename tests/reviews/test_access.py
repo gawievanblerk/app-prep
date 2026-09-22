@@ -18,18 +18,18 @@ def test_fastapi_aliases_router_dependencies_and_admin(tmp_path):
         "from typing import Annotated\nfrom fastapi import Depends\n"
         "CurrentUser = Annotated[dict, Depends(get_current_user)]\n"
         "AdminUser = Annotated[dict, Depends(get_admin_user)]\n"
-        "ManagerOrAdmin = Annotated[dict, Depends(get_manager_or_admin_user)]\n"
-        "StaffOrAdmin = Annotated[dict, Depends(get_staff_or_admin_user)]\n",
+        "AdminOrManager = Annotated[dict, Depends(get_admin_or_manager_user)]\n"
+        "AdminOrStaff = Annotated[dict, Depends(get_admin_or_staff_user)]\n",
     )
     write(
         tmp_path,
         "app/items.py",
-        "from fastapi import APIRouter, Depends\nfrom app.deps import AdminUser, CurrentUser, ManagerOrAdmin\n"
+        "from fastapi import APIRouter, Depends\nfrom app.deps import AdminUser, CurrentUser, AdminOrManager\n"
         "router = APIRouter()\n"
         "@router.get('/items/{item_id}')\nasync def one(item_id: str, me: CurrentUser): ...\n"
         "@router.delete('/items/{item_id}')\nasync def drop(item_id: str, boss: AdminUser): ...\n"
-        "@router.put('/items/{item_id}')\nasync def edit(item_id: str, who: ManagerOrAdmin): ...\n"
-        "@router.patch('/items/{item_id}')\nasync def tune(item_id: str, who: StaffOrAdmin): ...\n"
+        "@router.put('/items/{item_id}')\nasync def edit(item_id: str, who: AdminOrManager): ...\n"
+        "@router.patch('/items/{item_id}')\nasync def tune(item_id: str, who: AdminOrStaff): ...\n"
         "@router.post('/login')\nasync def login(db=Depends(get_db)): ...\n"
         "@router.get('/me', dependencies=[Depends(verify_token)])\nasync def me(): ...\n"
         "@router.get('/old')\nasync def old(user=Depends(get_current_user)): ...\n",
