@@ -13,7 +13,7 @@ First release. dpr reviews a JS/TS or Python repository for data protection issu
 - Review 3, failure path test plan: account flow discovery and twelve cases for sign-in, signup, reset, verification, sessions, email change and second factors, each decided by a finding, a recorded pass or a live-test note.
 - Review 4, security baseline: security headers by surface, cookies, debug flags, seed accounts, committed passwords, password hashing, database exposure, and checks that pass.
 - Review 5, OWASP sweep: access control, injection, cryptography, integrity, logging and audit gaps.
-- Review 6, leak hunt: keys and env files in the tree and git history, over-broad responses, personal data in logs, source maps and committed data files.
+- Review 6, leak hunt: keys and env files in the tree and git history, over-broad responses, personal data in logs, source maps and committed data files. A tracked env file is judged by its values as well as its names, so publishable keys and other public-by-design values do not read as leaked secrets.
 - Review 7, abuse and bill guard: paid routes, rate limits, bulk fan-out, CORS and error messages, kill switches and a cost surface traced through services.
 
 ### Report
