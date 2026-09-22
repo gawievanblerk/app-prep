@@ -127,6 +127,16 @@ def _router_name(route: Route) -> str | None:
     return None
 
 
+def _handler_name(handler) -> str | None:
+    """The name a mounted handler is known by: an identifier or member name, or the callee of an
+    inline call such as `rateLimit({...})`. An inline function has no name and is not read."""
+    if handler.type in ("identifier", "member_expression"):
+        return jsts.node_text(handler)
+    if handler.type == "call_expression":
+        return jsts.callee(handler)
+    return None
+
+
 def _js_mounts(index: RepoIndex) -> tuple[dict[str, str], list[tuple[str, str]]]:
     """Route file to mount prefix, and (mounting file, prefix) for each limiter middleware.
 
@@ -152,7 +162,9 @@ def _js_mounts(index: RepoIndex) -> tuple[dict[str, str], list[tuple[str, str]]]
                 prefix = jsts.string_value(args[0]) if args else None
                 handlers = args[1:] if prefix is not None else args
                 for handler in handlers:
-                    name = jsts.node_text(handler)
+                    name = _handler_name(handler)
+                    if name is None:
+                        continue
                     if handler.type == "identifier" and name in imports and prefix:
                         routers.setdefault(imports[name], prefix.rstrip("/"))
                     declared = re.search(

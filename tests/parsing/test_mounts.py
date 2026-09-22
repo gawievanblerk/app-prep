@@ -200,3 +200,18 @@ def test_express_use_mounts_a_router_imported_via_an_alias_path(tmp_path):
         "router.post('/login', async (req, res) => res.json({}))\nexport default router\n",
     )
     assert paths(tmp_path) == [("POST", "/api/v1/auth/login")]
+
+
+def test_an_inline_middleware_that_mentions_a_limiter_is_not_a_limiter_mount(tmp_path):
+    write(
+        tmp_path,
+        "server.js",
+        "const app = express()\n"
+        "app.use('/api', (req, res, next) => {\n"
+        "  if (!req.limiterReady) console.log('rate limit store not ready')\n"
+        "  next()\n"
+        "})\n"
+        "app.use('/auth', rateLimit({ max: 5 }))\n"
+        "app.post('/login', (req, res) => res.json({}))\n",
+    )
+    assert limiter_mounts(RepoIndex(tmp_path)) == [("server.js", "/auth")]
