@@ -13,7 +13,7 @@ from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
 from dpr.parsing.routes_js import response_calls
 from dpr.parsing.schemas import find_model
-from dpr.redact import has_token_phrase, is_secret_name, public_prefix, snippet
+from dpr.redact import has_token_phrase, is_public_value, is_secret_name, public_prefix, snippet
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import SourceFile
 
@@ -28,8 +28,8 @@ SELECT_STAR = re.compile(r"select\s+\*", re.IGNORECASE)
 JS_ROUTE_FRAMEWORKS = ("next-app", "next-pages", "next-action", "express", "fastify")
 PY_ROUTE_FRAMEWORKS = ("django", "drf", "fastapi", "flask")
 PUBLIC_ENV_DETAIL = (
-    "Only public-prefixed, non-secret names are tracked; "
-    "frameworks such as Next.js commit these on purpose."
+    "Nothing secret is tracked here: every name is public-prefixed, or its value is public by "
+    "design, such as a publishable key; frameworks such as Next.js commit these on purpose."
 )
 PUBLIC_ENV_FIX = (
     "Keep {path} for public values only. Put any secret in an untracked file such as "
@@ -47,22 +47,33 @@ def _is_real_env(path: str) -> bool:
     return bool(ENV_NAME.match(name)) and not ENV_EXAMPLE.search(name)
 
 
-def _env_names(ctx: Context, path: str) -> list[str] | None:
-    """Parsed NAME=value names, or None when the file's contents could not be checked."""
+def _env_pairs(ctx: Context, path: str) -> list[tuple[str, str]] | None:
+    """Parsed NAME and value pairs, or None when the file's contents could not be checked.
+    A value is only ever tested here; no value leaves this module."""
     full = ctx.index.root / path
     if full.is_symlink() or not full.is_file():
         return None
     entry = next((e for e in ctx.index.env_files if e.rel == path), None)
     try:
-        names = [name for name, _ in ctx.index.env_names(entry or SourceFile(path, full, 0))]
+        pairs = [(n, v) for n, v, _ in ctx.index.env_pairs(entry or SourceFile(path, full, 0))]
     except OSError:
         return None
-    return names or None
+    return pairs or None
 
 
-def _only_public_names(names: list[str]) -> bool:
-    """True when every variable name in the file is public-prefixed and not secret-like."""
-    return not any(public_prefix(n) is None or is_secret_name(n) for n in names)
+def _public_name(name: str) -> bool:
+    return public_prefix(name) is not None and not is_secret_name(name)
+
+
+def _only_public_values(pairs: list[tuple[str, str]]) -> bool:
+    """True when nothing in the file is a secret: every variable is either public-prefixed and
+    not secret-like, holds a value that is public by design, or repeats a value the file already
+    exports to the browser under a public-prefixed name."""
+    exported = {value for name, value in pairs if value and _public_name(name)}
+    return all(
+        _public_name(name) or (bool(value) and (is_public_value(value) or value in exported))
+        for name, value in pairs
+    )
 
 
 @rule("LEAK-ENV-TRACKED", review="leaks", severity="critical", exploitability="high")
@@ -74,10 +85,10 @@ def env_tracked(ctx: Context) -> Iterator[Finding]:
     for path in tracked:
         if not _is_real_env(path):
             continue
-        names = _env_names(ctx, path)
-        public = names is not None and _only_public_names(names)
+        pairs = _env_pairs(ctx, path)
+        public = pairs is not None and _only_public_values(pairs)
         detail = PUBLIC_ENV_DETAIL if public else None
-        if detail is None and names is None:
+        if detail is None and pairs is None:
             detail = UNREADABLE_ENV_DETAIL
         yield make_finding(
             "LEAK-ENV-TRACKED",

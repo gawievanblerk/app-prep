@@ -48,7 +48,8 @@ JS_EXTS = frozenset(
     }
 )
 PY_EXTS = frozenset({".py"})
-ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
+ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=[ \t]*(.*?)[ \t\r]*$")
+ENV_QUOTED = re.compile(r"^([\"'])(.*)\1$")
 
 
 @dataclass(frozen=True)
@@ -224,13 +225,19 @@ class RepoIndex:
         return [f for f in self.files if f.suffix in PY_EXTS]
 
     def env_names(self, entry: SourceFile) -> list[tuple[str, int]]:
-        names: list[tuple[str, int]] = []
+        return [(name, number) for name, _, number in self.env_pairs(entry)]
+
+    def env_pairs(self, entry: SourceFile) -> list[tuple[str, str, int]]:
+        """NAME, value and line number per assignment. Callers must not report a value."""
+        pairs: list[tuple[str, str, int]] = []
         with entry.path.open("r", encoding="utf-8-sig", errors="replace") as fh:
             for number, raw in enumerate(fh, start=1):
                 match = ENV_LINE.match(raw)
                 if match:
-                    names.append((match.group(1), number))
-        return names
+                    value = match.group(2)
+                    quoted = ENV_QUOTED.match(value)
+                    pairs.append((match.group(1), quoted.group(2) if quoted else value, number))
+        return pairs
 
     def language_counts(self) -> dict[str, int]:
         counts = {"javascript/typescript": len(self.js_files), "python": len(self.py_files)}
