@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from dpr.data import load
@@ -9,8 +10,11 @@ from dpr.discovery.approots import root_of
 from dpr.model import AppRoot, Finding, Severity, Tag
 from dpr.rank import score
 from dpr.reviews import REVIEWS, number
+from dpr.rules import rule_text
 
 SEVERITY_ORDER = (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW)
+VARIABLE = re.compile(r"\$\{\w+\}")
+LISTED = 3
 
 
 @dataclass(frozen=True)
@@ -106,9 +110,59 @@ def build_register(findings: list[Finding], roots: list[AppRoot]) -> list[Issue]
     return issues
 
 
+def _title_pattern(rule_id: str) -> re.Pattern[str] | None:
+    """The rule's title template as a pattern with one group per run of variables: variables
+    joined only by spaces or punctuation (`${method} ${path}`, `${model}.${field}`) are one run."""
+    try:
+        template = rule_text(rule_id).title
+    except KeyError:
+        return None
+    pattern, position, previous = "", 0, None
+    for match in VARIABLE.finditer(template):
+        gap = template[position : match.start()]
+        if previous is not None and not re.search(r"\w", gap):
+            position = match.end()
+            continue
+        pattern += re.escape(gap) + "(.+?)"
+        position, previous = match.end(), match
+    return re.compile(pattern + re.escape(template[position:]), re.S) if previous else None
+
+
+def _subjects(members: list[Finding]) -> list[str] | None:
+    """What sets each member apart, from the first variable run whose value differs, in member
+    order and without repeats; None when a title does not follow the rule's template."""
+    pattern = _title_pattern(members[0].rule_id)
+    matches = [pattern.fullmatch(f.title) for f in members] if pattern else []
+    if not matches or not all(matches):
+        return None
+    for group in range(1, pattern.groups + 1):
+        values = list(dict.fromkeys(m.group(group) for m in matches))
+        if len(values) > 1:
+            return values
+    return None
+
+
+def _joined(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _rule_title(members: list[Finding], lead: Finding) -> str:
+    """The lead's title, naming the other members when their titles differ from it."""
+    if all(f.title == lead.title for f in members):
+        return lead.title
+    subjects = _subjects(members)
+    if subjects is None:
+        count = sum(f.title != lead.title for f in members)
+        return f"{lead.title} (and {count} similar finding{'s' if count > 1 else ''})"
+    others = subjects[1:]
+    if len(others) > LISTED + 1:
+        others = [*others[:LISTED], f"{len(others) - LISTED} more"]
+    return f"{lead.title} (also {_joined(others)})"
+
+
 def _title(key: tuple, members: list[Finding], lead: Finding) -> str:
     if key[0] != "chain":
-        return lead.title
+        return _rule_title(members, lead)
     spec = load("register.yaml")["chains"][key[1]]
     if spec["scope"] != "linked":
         return spec["title"]

@@ -146,3 +146,94 @@ def test_summary_counts_issues_and_prints_the_register(tmp_path):
     assert "about" in summary and ", F-01)" in summary
     line = summary_lines(report, [], None)[0]
     assert line.endswith(f", {len(report.register)} distinct issues")
+
+
+def unscoped(path, model, line):
+    return finding(
+        "OWASP-A01-UNSCOPED-QUERY",
+        "api/app/routes/items.py",
+        line,
+        severity="high",
+        review="owasp",
+        title=f"GET {path} loads {model} by item_id with no owner check",
+    )
+
+
+def test_rule_issue_title_names_every_member_when_titles_differ():
+    issues = build_register(
+        [unscoped("/invoices/{item_id}", "Invoice", 5), unscoped("/notes/{item_id}", "Note", 9)],
+        ROOTS,
+    )
+    [issue] = issues
+    assert issue.count == 2
+    assert issue.title == (
+        "GET /invoices/{item_id} loads Invoice by item_id with no owner check"
+        " (also GET /notes/{item_id})"
+    )
+
+
+def test_rule_issue_title_lists_three_other_subjects_then_a_count():
+    paths = [f"/r{n}/{{item_id}}" for n in range(6)]
+    issues = build_register([unscoped(p, "Record", n + 1) for n, p in enumerate(paths)], ROOTS)
+    [issue] = issues
+    assert issue.title.endswith(
+        "(also GET /r1/{item_id}, GET /r2/{item_id}, GET /r3/{item_id} and 2 more)"
+    )
+
+
+def test_rule_issue_title_names_each_sdk_and_keeps_equal_titles():
+    sdks = [
+        finding(
+            "INV-SDK-RECEIVES-PII",
+            "api/app/mail.py",
+            review="inventory",
+            title=f"{name} receives personal data",
+        )
+        for name in ("mailer-sdk", "llm-sdk")
+    ]
+    [issue] = build_register(sdks, ROOTS)
+    assert issue.title == "mailer-sdk receives personal data (also llm-sdk)"
+    same = [
+        finding(
+            "ABUSE-ERROR-LEAK", f"api/app/{n}.py", title="Exception text returned to the caller"
+        )
+        for n in "ab"
+    ]
+    [issue] = build_register(same, ROOTS)
+    assert issue.title == "Exception text returned to the caller"
+
+
+def test_rule_issue_title_counts_members_whose_title_has_another_shape():
+    shaped = [
+        finding("ABUSE-ERROR-LEAK", "api/app/a.py", title="First wording"),
+        finding("ABUSE-ERROR-LEAK", "api/app/b.py", title="Second wording"),
+    ]
+    [issue] = build_register(shaped, ROOTS)
+    assert issue.title == "First wording (and 1 similar finding)"
+
+
+def test_register_names_both_unscoped_routes_of_a_scan(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\nsqlalchemy\n")
+    routes = ["from fastapi import APIRouter, Depends\n\nrouter = APIRouter()\n"]
+    for name, model in (("invoices", "Invoice"), ("notes", "Note")):
+        routes.append(
+            f"\n\n@router.get('/{name}/{{item_id}}')\n"
+            f"async def get_{name}(item_id: int, user=Depends(get_current_user)):\n"
+            f"    return await db.get({model}, item_id)\n"
+        )
+    write(tmp_path, "api/app/routes/items.py", "".join(routes))
+    write(
+        tmp_path,
+        "api/app/models.py",
+        "from sqlalchemy.orm import Mapped, mapped_column\nfrom sqlalchemy import Integer\n\n"
+        "class Invoice(Base):\n    __tablename__ = 'invoices'\n"
+        "    id: Mapped[int] = mapped_column(Integer, primary_key=True)\n"
+        "    user_id: Mapped[int] = mapped_column(Integer)\n\n"
+        "class Note(Base):\n    __tablename__ = 'notes'\n"
+        "    id: Mapped[int] = mapped_column(Integer, primary_key=True)\n"
+        "    user_id: Mapped[int] = mapped_column(Integer)\n",
+    )
+    report = review(tmp_path, reviews=["owasp"])
+    [issue] = [i for i in report.register if "OWASP-A01-UNSCOPED-QUERY" in i.findings]
+    assert issue.count == 2
+    assert "/invoices/{item_id}" in issue.title and "/notes/{item_id}" in issue.title
