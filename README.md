@@ -7,6 +7,18 @@ uv sync
 uv run dpr scan /path/to/repo
 ```
 
+## Install a release
+
+Releases are private GitHub releases of this repository. Each release attaches a wheel and a source archive. With access to the repository:
+
+```bash
+gh release download v0.1.0 --repo gawievanblerk/app-prep --pattern "*.whl" --dir /tmp/dpr
+uv tool install /tmp/dpr/dpr-0.1.0-py3-none-any.whl
+dpr --version
+```
+
+Or install straight from the tag: `uv tool install git+https://github.com/gawievanblerk/app-prep@v0.1.0`. The changes in each release are in `CHANGELOG.md`.
+
 The report maps where personal data and weaknesses are. Keep it out of git.
 This is an inventory of what the code shows, not legal advice.
 

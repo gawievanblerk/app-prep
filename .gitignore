@@ -10,3 +10,4 @@ htmlcov/
 .DS_Store
 data-protection-review/
 dpr-answers.yaml
+.idea/
