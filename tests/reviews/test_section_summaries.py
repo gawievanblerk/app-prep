@@ -40,7 +40,7 @@ def test_baseline_checks_that_pass(tmp_path):
         "- Cookie secure is enforced in production by a validator (`api/app/config.py:10`). CONFIRMED",
         "- The signing secret jwt_secret_key is checked by a production validator that rejects "
         "development values (`api/app/config.py:8`). CONFIRMED",
-        "- Database connections require TLS (`infra/main.tf:2`). CONFIRMED",
+        "- The database connection setting at `infra/main.tf:2` requires TLS. CONFIRMED",
         "- No http:// asset URLs in 1 HTML file(s). CONFIRMED",
     ]
 
@@ -99,7 +99,7 @@ DB_TLS_COMMENT_AND_ENV_CHECK = (
 def test_database_tls_pass_ignores_comment_and_env_check(tmp_path):
     write(tmp_path, "api/app/config.py", DB_TLS_COMMENT_AND_ENV_CHECK)
     body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
-    assert "Database connections require TLS" not in body
+    assert "require TLS" not in body and "requires TLS" not in body
 
 
 def test_database_tls_pass_from_real_default(tmp_path):
@@ -110,7 +110,8 @@ def test_database_tls_pass_from_real_default(tmp_path):
     )
     body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
     assert (
-        "- Database connections require TLS (`api/app/config.py:1`). CONFIRMED" in body.splitlines()
+        "- The database connection setting at `api/app/config.py:1` requires TLS. CONFIRMED"
+        in body.splitlines()
     )
 
 
@@ -140,13 +141,16 @@ def test_database_tls_pass_ignores_trailing_comment(tmp_path):
         'configure()  # database_url = "postgres://x?sslmode=require"\n',
     )
     body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
-    assert "Database connections require TLS" not in body
+    assert "require TLS" not in body and "requires TLS" not in body
 
 
 def test_database_tls_pass_from_unquoted_yaml_value(tmp_path):
     write(tmp_path, "infra/db.yaml", "DATABASE_URL: postgres://u@h/db?sslmode=require\n")
     body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
-    assert "- Database connections require TLS (`infra/db.yaml:1`). CONFIRMED" in body.splitlines()
+    assert (
+        "- The database connection setting at `infra/db.yaml:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
 
 
 def test_database_tls_pass_from_terraform_heredoc(tmp_path):
@@ -162,7 +166,10 @@ def test_database_tls_pass_from_terraform_heredoc(tmp_path):
         ),
     )
     body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
-    assert "- Database connections require TLS (`infra/main.tf:3`). CONFIRMED" in body.splitlines()
+    assert (
+        "- The database connection setting at `infra/main.tf:3` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
 
 
 def test_database_tls_pass_from_fstring_default(tmp_path):
@@ -173,7 +180,8 @@ def test_database_tls_pass_from_fstring_default(tmp_path):
     )
     body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
     assert (
-        "- Database connections require TLS (`api/app/config.py:1`). CONFIRMED" in body.splitlines()
+        "- The database connection setting at `api/app/config.py:1` requires TLS. CONFIRMED"
+        in body.splitlines()
     )
 
 
@@ -185,7 +193,8 @@ def test_database_tls_pass_from_triple_quoted_default(tmp_path):
     )
     body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
     assert (
-        "- Database connections require TLS (`api/app/config.py:1`). CONFIRMED" in body.splitlines()
+        "- The database connection setting at `api/app/config.py:1` requires TLS. CONFIRMED"
+        in body.splitlines()
     )
 
 
@@ -196,7 +205,10 @@ def test_database_tls_pass_from_js_const_declaration(tmp_path):
         'const DATABASE_URL = "postgres://x?sslmode=require";\n',
     )
     body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
-    assert "- Database connections require TLS (`web/src/db.ts:1`). CONFIRMED" in body.splitlines()
+    assert (
+        "- The database connection setting at `web/src/db.ts:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
 
 
 def test_database_tls_pass_from_js_let_declaration(tmp_path):
@@ -206,7 +218,10 @@ def test_database_tls_pass_from_js_let_declaration(tmp_path):
         'let dbUrl = "postgres://x?sslmode=require";\n',
     )
     body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
-    assert "- Database connections require TLS (`web/src/db.ts:1`). CONFIRMED" in body.splitlines()
+    assert (
+        "- The database connection setting at `web/src/db.ts:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
 
 
 def test_database_tls_pass_from_js_export_const_declaration(tmp_path):
@@ -216,13 +231,19 @@ def test_database_tls_pass_from_js_export_const_declaration(tmp_path):
         'export const DB_URL = "postgres://x?sslmode=require";\n',
     )
     body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
-    assert "- Database connections require TLS (`web/src/db.ts:1`). CONFIRMED" in body.splitlines()
+    assert (
+        "- The database connection setting at `web/src/db.ts:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
 
 
 def test_database_tls_pass_from_yaml_list_item(tmp_path):
     write(tmp_path, "infra/db.yaml", "- DATABASE_URL: postgres://u@h/db?sslmode=require\n")
     body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
-    assert "- Database connections require TLS (`infra/db.yaml:1`). CONFIRMED" in body.splitlines()
+    assert (
+        "- The database connection setting at `infra/db.yaml:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
 
 
 def test_database_tls_pass_counts_trailing_comment_after_real_value(tmp_path):
@@ -232,7 +253,10 @@ def test_database_tls_pass_counts_trailing_comment_after_real_value(tmp_path):
         'const u = "postgres://x?sslmode=require" // prod\n',
     )
     body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
-    assert "- Database connections require TLS (`web/src/db.ts:1`). CONFIRMED" in body.splitlines()
+    assert (
+        "- The database connection setting at `web/src/db.ts:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
 
 
 def test_database_tls_pass_ignores_includes_method_call(tmp_path):
@@ -242,4 +266,26 @@ def test_database_tls_pass_ignores_includes_method_call(tmp_path):
         'if (url.includes("sslmode=require")) {\n  handle();\n}\n',
     )
     body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
-    assert "Database connections require TLS" not in body
+    assert "require TLS" not in body and "requires TLS" not in body
+
+
+def test_database_tls_pass_names_each_setting_per_app_root(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    write(
+        tmp_path,
+        "api/app/config.py",
+        'DATABASE_URL = "postgresql://u@h/db?sslmode=require"\n'
+        'REPLICA_URL = "postgresql://u@r/db?sslmode=require"\n',
+    )
+    write(tmp_path, "worker/requirements.txt", "sqlalchemy\n")
+    write(tmp_path, "worker/db.py", 'URL = "postgresql://u@h/db?sslmode=verify-full"\n')
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    lines = body.splitlines()
+    assert (
+        "- In api, the database connection settings at `api/app/config.py:1`, "
+        "`api/app/config.py:2` require TLS. CONFIRMED"
+    ) in lines
+    assert (
+        "- In worker, the database connection setting at `worker/db.py:1` requires TLS. CONFIRMED"
+    ) in lines
+    assert not any("Database connections require TLS" in line for line in lines)

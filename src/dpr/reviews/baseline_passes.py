@@ -185,8 +185,21 @@ def _hashing(ctx: Context) -> list[str]:
     return list(found.values())
 
 
+def _tls_line(root: str, locations: list[Location], multi: bool) -> str:
+    one = len(locations) == 1
+    shown = ", ".join(f"`{loc}`" for loc in locations[:5])
+    if len(locations) > 5:
+        shown += f" and {len(locations) - 5} more"
+    subject = f"database connection {'setting' if one else 'settings'} at {shown}"
+    verb = "requires" if one else "require"
+    lead = f"In {root or 'the repository root'}, the" if multi else "The"
+    return f"{lead} {subject} {verb} TLS"
+
+
 def _database_tls(ctx: Context) -> list[str]:
-    locations = []
+    """One pass per app root naming each connection setting that requires TLS; nothing here
+    shows that every connection does."""
+    by_root: dict[str, list[Location]] = {}
     for entry in ctx.index.files:
         if not entry.rel.endswith((".tf", ".yaml", ".yml", ".toml", ".json", ".py", ".ts", ".js")):
             continue
@@ -205,13 +218,12 @@ def _database_tls(ctx: Context) -> list[str]:
             local_start = match.start() - line_start
             if not _is_real_tls_evidence(line_text, local_start, entry.suffix, line_no in heredoc):
                 continue
-            locations.append(Location(entry.rel, line_no))
-            break
-    if not locations:
-        return []
-    return [
-        "Database connections require TLS (" + ", ".join(f"`{loc}`" for loc in locations[:3]) + ")"
-    ]
+            home = root_of(ctx.detection.app_roots, entry.rel)
+            found = by_root.setdefault(home.path if home is not None else "", [])
+            if Location(entry.rel, line_no) not in found:
+                found.append(Location(entry.rel, line_no))
+    multi = len(by_root) > 1
+    return [_tls_line(root, locations, multi) for root, locations in sorted(by_root.items())]
 
 
 def _mixed_content(ctx: Context, findings: list[Finding]) -> list[str]:
