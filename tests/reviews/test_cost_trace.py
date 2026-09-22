@@ -121,3 +121,51 @@ def test_cost_surface_gains_an_app_column_with_two_apps(tmp_path):
         "120",
         "1 min",
     )
+
+
+class CountingModule:
+    """Delegates to a module and counts calls to class_defs."""
+
+    def __init__(self, module):
+        self.module = module
+        self.class_scans = 0
+
+    def __getattr__(self, name):
+        return getattr(self.module, name)
+
+    def class_defs(self, tree):
+        self.class_scans += 1
+        return self.module.class_defs(tree)
+
+
+def test_self_clients_scan_each_class_once_however_many_routes_reach_it(tmp_path, monkeypatch):
+    methods = "".join(
+        f"    def step_{n}(self, item):\n        self.cache_{n} = item\n"
+        f"        return self._client.begin_send(item)\n\n"
+        for n in range(30)
+    )
+    write(tmp_path, "api/requirements.txt", "fastapi\nazure-communication-email\n")
+    write(
+        tmp_path,
+        "api/app/services/mailer.py",
+        "from azure.communication.email import EmailClient\n\n\nclass Mailer:\n"
+        "    def __init__(self, conn):\n"
+        "        self._client = EmailClient.from_connection_string(conn)\n\n" + methods,
+    )
+    routes = "".join(
+        f"\n\n@router.post('/send/{n}')\nasync def send_{n}(item: dict):\n"
+        f"    return Mailer('x').step_{n}(item)\n"
+        for n in range(30)
+    )
+    write(
+        tmp_path,
+        "api/app/routes.py",
+        "from fastapi import APIRouter\nfrom app.services.mailer import Mailer\n\n"
+        "router = APIRouter()\n" + routes,
+    )
+    counter = CountingModule(cost_trace.pyast)
+    monkeypatch.setattr(cost_trace, "pyast", counter)
+    rows = cost_trace.cost_rows(ctx_for(tmp_path))
+    assert len(rows) == 30
+    assert all(r.calls == ("azure-communication-email",) for r in rows)
+    assert counter.class_scans <= 2

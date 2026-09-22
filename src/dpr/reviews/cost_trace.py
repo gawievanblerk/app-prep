@@ -50,18 +50,35 @@ def cost_names(ctx: Context) -> dict[str, dict[str, SdkUse]]:
     return ctx.facts["cost_names"]
 
 
-def _self_clients(tree: ast.Module, node: ast.AST, names: dict[str, SdkUse]) -> dict[str, SdkUse]:
+def _self_assignments(ctx: Context, rel: str, tree: ast.Module) -> dict[int, list[tuple[str, str]]]:
+    """For each statement directly in a class body (by id), the `self.<attr> = value`
+    assignments anywhere in that class as (attribute, value text). Read once per file."""
+    key = ("self-assignments", rel)
+    cached = ctx.index.cache.get(key)
+    if cached is None or cached[0] is not tree:
+        by_statement: dict[int, list[tuple[str, str]]] = {}
+        for cls in pyast.class_defs(tree):
+            pairs = [
+                (target.attr, ast.unparse(sub.value))
+                for sub in ast.walk(cls)
+                if isinstance(sub, ast.Assign)
+                for target in sub.targets
+                if isinstance(target, ast.Attribute) and pyast.dotted(target.value) == "self"
+            ]
+            for statement in cls.body:
+                by_statement[id(statement)] = pairs
+        cached = (tree, by_statement)
+        ctx.index.cache[key] = cached
+    return cached[1]
+
+
+def _self_clients(ctx: Context, code: Code, names: dict[str, SdkUse]) -> dict[str, SdkUse]:
     """Attributes such as self._client built from an SDK anywhere in the method's class."""
     found: dict[str, SdkUse] = {}
-    for cls in pyast.class_defs(tree):
-        if node not in cls.body:
-            continue
-        for sub in ast.walk(cls):
-            if isinstance(sub, ast.Assign):
-                sdk = uses(ast.unparse(sub.value), names)
-                for target in sub.targets if sdk else []:
-                    if isinstance(target, ast.Attribute) and pyast.dotted(target.value) == "self":
-                        found[f"self.{target.attr}"] = sdk
+    for attr, value in _self_assignments(ctx, code.rel, code.tree).get(id(code.node), []):
+        sdk = uses(value, names)
+        if sdk is not None:
+            found[f"self.{attr}"] = sdk
     return found
 
 
@@ -70,7 +87,7 @@ def code_costs(ctx: Context, code: Code) -> list[tuple[str, str]]:
     text = code.text()
     hits: list[tuple[str, str]] = []
     if code.python and isinstance(code.tree, ast.Module):
-        for attr, sdk in _self_clients(code.tree, code.node, names).items():
+        for attr, sdk in _self_clients(ctx, code, names).items():
             if re.search(rf"{re.escape(attr)}\b", text):
                 hits.append((sdk.name, sdk.category))
     sdk = uses(text, names)

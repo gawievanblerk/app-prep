@@ -119,19 +119,32 @@ def literal_password_sites(ctx: Context) -> dict[str, list[tuple[int, pyvalues.L
     return sites
 
 
+def _token_sites(ctx: Context) -> dict[str, list[tuple[int, int, Location]]]:
+    """Digest to (file order, offset, location) for every token in the indexed files that has the
+    length and digest of a committed literal. Each file is scanned once per run."""
+    if "password_token_sites" not in ctx.facts:
+        literals = [lit for items in literal_password_sites(ctx).values() for _, lit in items]
+        lengths = {len(lit.value) for lit in literals}
+        digests = {_digest(lit.value) for lit in literals}
+        found: dict[str, list[tuple[int, int, Location]]] = {}
+        for order, entry in enumerate(ctx.index.files if literals else []):
+            text = ctx.index.text(entry.rel)
+            for match in TOKEN.finditer(text):
+                token = match.group(0)
+                digest = _digest(token) if len(token) in lengths else None
+                if digest in digests:
+                    location = Location(entry.rel, line_of(text, match.start()))
+                    found.setdefault(digest, []).append((order, match.start(), location))
+        ctx.facts["password_token_sites"] = found
+    return ctx.facts["password_token_sites"]
+
+
 def _copies(ctx: Context, owner: str, literals: list[pyvalues.Literal]) -> list[Location]:
+    """Places outside `owner` where the text of one of `literals` appears as a whole token."""
+    sites = _token_sites(ctx)
     digests = {_digest(lit.value) for lit in literals}
-    lengths = {len(lit.value) for lit in literals}
-    found = []
-    for entry in ctx.index.files:
-        if entry.rel == owner:
-            continue
-        text = ctx.index.text(entry.rel)
-        for match in TOKEN.finditer(text):
-            token = match.group(0)
-            if len(token) in lengths and _digest(token) in digests:
-                found.append(Location(entry.rel, line_of(text, match.start())))
-    return found
+    hits = sorted(site for digest in digests for site in sites.get(digest, []))
+    return [location for _, _, location in hits if location.file != owner]
 
 
 def _char_column(source_line: str, byte_column: int) -> int:

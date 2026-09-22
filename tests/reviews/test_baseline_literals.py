@@ -190,3 +190,37 @@ def test_repository_level_start_file_still_marks_a_seed_script_referenced(tmp_pa
     )
     [finding] = found(tmp_path).values()
     assert finding.severity.value == "critical"
+
+
+class CountingPattern:
+    """Wraps a compiled pattern and counts full-text scans."""
+
+    def __init__(self, pattern):
+        self.pattern = pattern
+        self.scans = 0
+
+    def finditer(self, text):
+        self.scans += 1
+        return self.pattern.finditer(text)
+
+
+def test_copies_of_many_literals_scan_each_file_once(tmp_path, monkeypatch):
+    from dpr.reviews import baseline_accounts
+
+    literals = [f"Demo{n}" + "-Scale-" + f"{n}{n}{n}" for n in range(8)]
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    write(
+        tmp_path,
+        "api/app/db/seed.py",
+        "from app.core.security import get_password_hash\n\ndef seed(db):\n"
+        + "".join(f"    db.add(User(password_hash=get_password_hash('{v}')))\n" for v in literals),
+    )
+    write(tmp_path, "README.md", "".join(f"Account {n}: {v}\n" for n, v in enumerate(literals)))
+    for n in range(20):
+        write(tmp_path, f"api/app/other_{n}.py", f"VALUE_{n} = {n}\n")
+    counter = CountingPattern(baseline_accounts.TOKEN)
+    monkeypatch.setattr(baseline_accounts, "TOKEN", counter)
+    result = findings_for(tmp_path, "baseline", "BASE-LITERAL-PASSWORD-HASH")
+    assert len(result) == 8
+    assert sorted(str(f.locations[-1]) for f in result) == [f"README.md:{n}" for n in range(1, 9)]
+    assert counter.scans <= 25
