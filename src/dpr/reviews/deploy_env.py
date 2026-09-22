@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import posixpath
 import re
 from dataclasses import dataclass
 
@@ -151,6 +152,38 @@ def service_root_dir(ctx: Context, rel: str, line: int) -> str | None:
     if match is None:
         return None
     folder = match.group(1).removeprefix("./").strip("/")
+    return "" if folder == "." else folder
+
+
+def compose_build_dir(ctx: Context, rel: str, line: int) -> str | None:
+    """The build context (`build: dir` or `build: context: dir`) of the compose service whose
+    block holds `line`, as a repository-relative folder, or None."""
+    if not re.search(r"(?:^|/)(?:docker-)?compose[\w.-]*\.ya?ml$", rel):
+        return None
+    lines = ctx.index.text(rel).splitlines()
+
+    def indent(text: str) -> int:
+        return len(text) - len(text.lstrip())
+
+    level = indent(lines[line - 1])
+    head = next(
+        (i for i in range(line - 2, -1, -1) if lines[i].strip() and indent(lines[i]) < level),
+        None,
+    )
+    if head is None:
+        return None
+    block = [lines[head]]
+    for text in lines[head + 1 :]:
+        if text.strip() and indent(text) <= indent(lines[head]):
+            break
+        block.append(text)
+    body = "\n".join(block)
+    match = re.search(r"""^\s*build:[ \t]*["']?([^"'\s#]+)""", body, re.MULTILINE) or re.search(
+        r"""^\s*context:[ \t]*["']?([^"'\s#]+)""", body, re.MULTILINE
+    )
+    if match is None:
+        return None
+    folder = posixpath.normpath(posixpath.join(posixpath.dirname(rel), match.group(1)))
     return "" if folder == "." else folder
 
 

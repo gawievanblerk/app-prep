@@ -1,3 +1,6 @@
+import pytest
+
+from dpr.api import review
 from tests.reviews.helpers import findings_for, write
 
 PW = "Seed" + "Stage" + "#4410"
@@ -130,6 +133,9 @@ SEED_ENV = (
 )
 
 
+ROUTE = "from fastapi import FastAPI\napp = FastAPI()\n\n\n@app.get('/health')\ndef health():\n    return 1\n"
+
+
 def two_seed_roots(root):
     write(root, "a/requirements.txt", "fastapi\n")
     write(root, "a/app/db/seed.py", SEED_LITERAL)
@@ -154,6 +160,7 @@ def test_render_service_resolves_the_seed_module_under_its_root_dir(tmp_path):
 def test_seed_module_found_only_in_another_root_is_not_given_its_severity(tmp_path):
     two_seed_roots(tmp_path)
     write(tmp_path, "c/requirements.txt", "fastapi\n")
+    write(tmp_path, "c/app/main.py", ROUTE)
     write(tmp_path, "c/start.sh", "python -m app.db.seed\nuvicorn app.main:app\n")
     finding = by_location(tmp_path)["c/start.sh:1"]
     assert (finding.severity.value, finding.tag.value) == ("high", "INFERRED")
@@ -163,3 +170,69 @@ def test_seed_module_found_only_in_another_root_is_not_given_its_severity(tmp_pa
     local = by_location(tmp_path)["a/start.sh:1"]
     assert local.severity.value == "critical"
     assert [str(loc) for loc in local.locations] == ["a/start.sh:1", "a/app/db/seed.py:4"]
+
+
+SHARED_STARTS = {
+    "compose build": (
+        "docker-compose.yml",
+        "services:\n  api:\n    build: ./backend\n"
+        '    command: sh -c "python -m app.db.seed && uvicorn app.main:app"\n',
+        4,
+    ),
+    "compose context": (
+        "docker-compose.yml",
+        "services:\n  api:\n    build:\n      context: ./backend\n"
+        '    command: sh -c "python -m app.db.seed && uvicorn app.main:app"\n',
+        5,
+    ),
+    "procfile cd": ("Procfile", "release: cd backend && python -m app.db.seed\n", 1),
+    "render cd": (
+        "render.yaml",
+        "services:\n  - type: web\n    name: api\n"
+        "    startCommand: cd backend && python -m app.db.seed && uvicorn app.main:app\n",
+        4,
+    ),
+    "render script path": (
+        "render.yaml",
+        "services:\n  - type: web\n    name: api\n"
+        "    startCommand: python backend/app/db/seed.py && uvicorn app.main:app\n",
+        4,
+    ),
+    "module under one root": ("Procfile", "release: python -m app.db.seed\n", 1),
+}
+
+
+def backend(root):
+    write(root, "backend/requirements.txt", "fastapi\npasslib\n")
+    write(root, "backend/app/main.py", ROUTE)
+    write(root, "backend/app/db/seed.py", SEED_LITERAL)
+    return root
+
+
+@pytest.mark.parametrize("shape", sorted(SHARED_STARTS))
+def test_shared_start_file_resolves_the_seed_in_the_app_root_it_names(tmp_path, shape):
+    rel, text, line = SHARED_STARTS[shape]
+    write(backend(tmp_path), rel, text)
+    finding = by_location(tmp_path)[f"{rel}:{line}"]
+    assert finding.severity.value == "critical"
+    assert "another app root" not in finding.proof_needed
+    assert [str(loc) for loc in finding.locations] == [f"{rel}:{line}", "backend/app/db/seed.py:4"]
+    assert finding.refs == ("BASE-LITERAL-PASSWORD-HASH",)
+    [issue] = [i for i in review(tmp_path).register if "BASE-SEED-ON-START" in i.findings]
+    assert issue.title == (
+        "Account passwords are written in backend/app/db/seed.py, and a start command runs it"
+    )
+
+
+def test_shared_start_file_with_seeds_in_two_app_roots_stays_unresolved(tmp_path):
+    backend(tmp_path)
+    write(tmp_path, "worker/requirements.txt", "fastapi\n")
+    write(tmp_path, "worker/app/main.py", ROUTE)
+    write(tmp_path, "worker/app/db/seed.py", SEED_LITERAL.replace("demo", "other"))
+    write(tmp_path, "Procfile", "release: python -m app.db.seed\n")
+    finding = by_location(tmp_path)["Procfile:1"]
+    assert (finding.severity.value, [loc.file for loc in finding.locations]) == (
+        "high",
+        ["Procfile"],
+    )
+    assert "backend/app/db/seed.py" in finding.proof_needed

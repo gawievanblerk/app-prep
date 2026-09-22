@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import ast
+import posixpath
 import re
 from collections.abc import Iterator
 from pathlib import PurePosixPath
 
-from dpr.discovery.approots import same_root
+from dpr.discovery.approots import root_of, same_root
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast, pyvalues
 from dpr.redact import snippet
 from dpr.reviews.deploy_env import (
+    compose_build_dir,
     non_production,
     secret_reference,
     service_root_dir,
@@ -46,6 +48,7 @@ START_FILES = (
     "docker-compose.yml",
     "docker-compose.yaml",
 )
+CD_PREFIX = re.compile(r"""(?:^|[\s;&("'])cd\s+["']?([^\s;&|"')]+)["']?\s*(?:&&|;)""")
 SEED_COMMAND = re.compile(
     r"(?i)(?:^|[\s/.:_-])seed(?:s|_\w+|\.py|\.js|\.ts)?(?=$|[\s.:_)\"'-])|\bloaddata\b"
 )
@@ -112,28 +115,47 @@ def literal_password_sites(ctx: Context) -> dict[str, list[tuple[int, pyvalues.L
     return sites
 
 
-def _seed_target(ctx: Context, start: str, number: int, line: str) -> tuple[list[str], list[str]]:
-    """(seed files the start command runs, files with the same name in other app roots).
-
-    The name resolves under the Render service's rootDir, or else next to the start file; a
-    file with that exact path wins, then any file in the same app root."""
-    module = re.search(r"-m\s+([\w.]*seed\w*)", line)
-    script = re.search(r"([\w./-]*seed\w*\.(?:py|js|ts|mjs))", line)
-    suffix = (
-        module.group(1).replace(".", "/") + ".py" if module else (script.group(1) if script else "")
-    ).lstrip("./")
-    if not suffix:
-        return [], []
-    matches = [f.rel for f in ctx.index.files if f.rel == suffix or f.rel.endswith("/" + suffix)]
+def _named_dir(ctx: Context, start: str, number: int, line: str, at: int) -> str | None:
+    """The folder a start command runs in when it names one: a Render rootDir, a compose build
+    context, then a `cd <dir>` before the seed command. None when nothing names a folder."""
     base = service_root_dir(ctx, start, number)
     if base is None:
-        anchor = str(PurePosixPath(start).parent / suffix)
-    else:
-        anchor = f"{base}/{suffix}" if base else suffix
+        base = compose_build_dir(ctx, start, number)
+    moves = [m.group(1) for m in CD_PREFIX.finditer(line[:at]) if not m.group(1).startswith("/")]
+    if base is None and not moves:
+        return None
+    folder = base if base is not None else str(PurePosixPath(start).parent)
+    if moves:
+        folder = posixpath.normpath(posixpath.join(folder, moves[-1]))
+    return "" if folder == "." else folder
+
+
+def _seed_target(ctx: Context, start: str, number: int, line: str) -> tuple[list[str], list[str]]:
+    """(seed files the start command runs, files with the same name that it does not run).
+
+    The name resolves under the folder the command names (Render rootDir, compose build
+    context, `cd <dir>`), or else next to the start file; a file at that exact path wins, then
+    any file in the same app root. A shared start file (outside every app root, in the
+    repository-root entry or in a library root) that names no folder runs the seed of the one
+    app root that has it. A start file in any other app root never runs another root's seed."""
+    module = re.search(r"-m\s+([\w.]*seed\w*)", line)
+    script = re.search(r"([\w./-]*seed\w*\.(?:py|js|ts|mjs))", line)
+    found = module or script
+    if found is None:
+        return [], []
+    suffix = (module.group(1).replace(".", "/") + ".py" if module else script.group(1)).lstrip("./")
+    matches = [f.rel for f in ctx.index.files if f.rel == suffix or f.rel.endswith("/" + suffix)]
     roots = ctx.detection.app_roots
-    local = [m for m in matches if m == anchor] or [
-        m for m in matches if same_root(roots, m, anchor)
-    ]
+    own = root_of(roots, start)
+    shared = own is None or not own.path or own.kind == "library"
+    pool = matches if shared else [m for m in matches if same_root(roots, m, start)]
+    folder = _named_dir(ctx, start, number, line, found.start())
+    base = folder if folder is not None else str(PurePosixPath(start).parent)
+    anchor = str(PurePosixPath(base) / suffix) if base not in ("", ".") else suffix
+    local = [m for m in pool if m == anchor] or [m for m in pool if same_root(roots, m, anchor)]
+    if not local and shared and folder is None:
+        homes = {getattr(root_of(roots, m), "path", None) for m in pool}
+        local = pool if len(homes) == 1 else []
     return local, [m for m in matches if m not in local]
 
 
