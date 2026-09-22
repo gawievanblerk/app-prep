@@ -27,7 +27,6 @@ ZOD_SCHEMA = re.compile(r"(?:export\s+)?const\s+(\w+)\s*=\s*z\.object\(\s*\{([^{
 ZOD_FIELD = re.compile(r"(\w+)\s*:")
 ZOD_PARSE = re.compile(r"\b(\w+)\.(?:parse|safeParse|parseAsync)\(\s*([^)]*?)\s*\)")
 REQUEST_BODY_EXPR = r"(?:await\s+)?req(?:uest)?\.(?:body|json\(\))"
-REQUEST_BODY = re.compile(REQUEST_BODY_EXPR)
 RUNTIME_SOURCE = "captured at runtime"
 RUNTIME = (
     (

@@ -274,3 +274,15 @@ def test_linked_scope_joins_every_literal_first_hashed_in_one_seed_file():
         ("Account passwords are written in api/scripts/migrate.py", 1),
     ]
     assert [i.severity.value for i in issues] == ["critical", "critical"]
+
+
+def test_sibling_issues_label_the_repository_root_app():
+    roots = [AppRoot("", "server", True), AppRoot("api", "server", True)]
+    issues = build_register(
+        [finding("ABUSE-ERROR-LEAK", "app/main.py"), finding("ABUSE-ERROR-LEAK", "api/main.py")],
+        roots,
+    )
+    assert sorted(i.title for i in issues) == [
+        "ABUSE-ERROR-LEAK title (api)",
+        "ABUSE-ERROR-LEAK title (repository root)",
+    ]

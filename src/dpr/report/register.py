@@ -94,8 +94,9 @@ def build_register(findings: list[Finding], roots: list[AppRoot]) -> list[Issue]
         title = _title(key, members, lead)
         apps = {_app(f, roots) for f in members}
         siblings = [k for k in groups if k[:2] == key[:2]]
-        if len(siblings) > 1 and len(apps) == 1 and next(iter(apps)) not in title:
-            title += f" ({next(iter(apps)) or 'repository root'})"
+        app = next(iter(apps)) if len(apps) == 1 else None
+        if len(siblings) > 1 and app is not None and (not app or app not in title):
+            title += f" ({app or 'repository root'})"
         issues.append(
             Issue(
                 id=f"F-{position:02d}",
