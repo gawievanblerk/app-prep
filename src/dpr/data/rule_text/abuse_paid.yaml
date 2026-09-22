@@ -1,0 +1,34 @@
+ABUSE-PAID-UNAUTH:
+  title: ${method} ${path} calls ${sdk} with no sign-in
+  effort_minutes: 10
+  detail: ${method} ${path} reaches the ${sdk} SDK${via} and no authentication check or middleware covers the route. Cost per call is ${cost}.
+  attack: Script the route in a loop from one machine; every call is billed to your ${sdk} account.
+  blast: Unbounded spend on ${sdk} until a provider cap or the card limit stops it, plus whatever data the call sends out.
+  fix: Require a signed-in caller before the paid call, add per-user and per-IP limits, and set a hard monthly cap in the provider dashboard.
+  verify: Call ${method} ${path} without a session and expect 401 before any provider request is made.
+ABUSE-PAID-UNLIMITED:
+  title: ${method} ${path} calls ${sdk} with no rate limit
+  effort_minutes: 30
+  detail: ${method} ${path} reaches the ${sdk} SDK${via} and no limiter covers the route. Cost per call is ${cost}.
+  proof_needed: Check whether a gateway, WAF or provider-side quota limits this route outside the code.
+  attack: Any account that can reach the route calls it in a loop; spend grows with every request.
+  blast: Provider spend for the whole account, and degraded service for everyone once the quota is gone.
+  fix: 'Limit per signed-in user first and per IP second. Starting numbers, not measured traffic: ${per_user} per user and ${per_ip} per IP per ${window}, plus a global daily ceiling and a provider hard cap. If the limiter store is unreachable, reject the call rather than pass it through.'
+  verify: Send ${per_user} plus one requests within ${window} as one user and expect 429 on the last one.
+ABUSE-NO-KILL-SWITCH:
+  title: No kill switch for the paid route ${method} ${path}
+  effort_minutes: 15
+  detail: ${method} ${path} reaches ${sdk}${via} and nothing in the handler checks an enable flag, so stopping the spend needs a deploy or a key rotation.
+  proof_needed: Check whether a feature flag service or gateway rule can switch this route off without a deploy.
+  blast: Spend keeps running while a fix is written, reviewed and deployed.
+  fix: Read an environment or feature flag such as ${flag} on every request and return 503 when it is off.
+  verify: Set ${flag}=false in a test environment and confirm the route returns 503 without calling ${sdk}.
+ABUSE-FORM-NO-CHALLENGE:
+  title: Public forms ${summary}
+  effort_minutes: 30
+  detail: 'These unauthenticated form routes have no bot challenge or honeypot: ${routes}. Each is a free write into the system and, when it sends email, a free send from your quota.'
+  proof_needed: Check whether a WAF, edge rule or provider-side challenge protects these routes.
+  attack: Script sign-ups, resets or messages in bulk, or use them to test stolen credentials.
+  blast: Fake accounts and rows, email quota and sender reputation, and credential stuffing against sign-in.
+  fix: Add an invisible challenge (Cloudflare Turnstile or hCaptcha) verified on the server, a honeypot field as the free first line, and per-IP limits on every route listed.
+  verify: Submit one of these forms from a script without a challenge token and expect a rejection.

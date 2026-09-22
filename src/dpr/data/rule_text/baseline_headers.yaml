@@ -1,0 +1,77 @@
+BASE-HEADER-MISSING-HSTS:
+  title: Strict-Transport-Security is not set
+  effort_minutes: 10
+  detail: No ${header} header was found for ${where}.
+  attack: On a hostile network, intercept a first plain HTTP visit and keep the victim on HTTP to read or change traffic.
+  blast: Sessions and form data of anyone who reaches the site over an intercepted connection.
+  fix: 'Send Strict-Transport-Security: max-age=31536000; includeSubDomains from every surface listed: the host config (for example staticwebapp.config.json globalHeaders or vercel.json headers), a response middleware in the API, or SECURE_HSTS_SECONDS in Django.'
+  verify: curl -sSI https://your-host/ | grep -i strict-transport-security
+BASE-HEADER-MISSING-CSP:
+  title: Content-Security-Policy is not set
+  effort_minutes: 240
+  detail: No ${header} header was found for ${where}. A policy takes real testing time, so rank it after the quick fixes.
+  attack: Any injected script runs with full access to the page, because nothing limits where scripts load from.
+  blast: Whatever the signed-in page can read or do.
+  fix: "Start with Content-Security-Policy-Report-Only: default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self', add the script, style, font and connect origins the app really uses, watch the reports, then switch to enforcing."
+  verify: curl -sSI https://your-host/ | grep -i content-security-policy
+BASE-HEADER-MISSING-XCTO:
+  title: X-Content-Type-Options is not set
+  effort_minutes: 5
+  detail: No ${header} header was found for ${where}.
+  attack: Upload or reflect content that a browser sniffs as script or HTML instead of the declared type.
+  blast: Pages that serve user-supplied files or reflected content.
+  fix: 'Send X-Content-Type-Options: nosniff from every surface listed.'
+  verify: curl -sSI https://your-host/ | grep -i x-content-type-options
+BASE-HEADER-MISSING-FRAME:
+  title: Frame protection is not set
+  effort_minutes: 5
+  detail: No ${header} header or CSP frame-ancestors directive was found for ${where}.
+  attack: Load the site in an invisible frame on another page and trick a signed-in user into clicking a real button.
+  blast: Any one-click action on authenticated pages.
+  fix: "Send X-Frame-Options: DENY, or Content-Security-Policy: frame-ancestors 'none', from every surface listed."
+  verify: curl -sSI https://your-host/ | grep -iE "x-frame-options|frame-ancestors"
+BASE-HEADER-MISSING-REFERRER:
+  title: Referrer-Policy is not set
+  effort_minutes: 5
+  detail: No ${header} header was found for ${where}.
+  blast: Full URLs, including tokens or IDs in paths and query strings, sent to third-party sites the page links to or loads from.
+  fix: 'Send Referrer-Policy: strict-origin-when-cross-origin from every surface listed.'
+  verify: curl -sSI https://your-host/ | grep -i referrer-policy
+BASE-HEADER-MISSING-PERMISSIONS:
+  title: Permissions-Policy is not set
+  effort_minutes: 5
+  detail: No ${header} header was found for ${where}.
+  blast: Camera, microphone and location prompts available to any script or frame running on the page.
+  fix: 'Send Permissions-Policy: camera=(), microphone=(), geolocation=() from every surface listed, allowing only the features the app uses.'
+  verify: curl -sSI https://your-host/ | grep -i permissions-policy
+BASE-CSP-WEAK:
+  title: Content-Security-Policy is weak
+  effort_minutes: 60
+  detail: The policy here is weak because ${reason}, which lets injected script run.
+  attack: Inject an inline script through any XSS bug; the policy does not stop it.
+  blast: Whatever the signed-in page can read or do.
+  fix: Remove 'unsafe-inline' from script-src by moving inline scripts to files or using nonces or hashes, and replace any * source with explicit origins.
+  verify: curl -sSI https://your-host/ | grep -i content-security-policy
+BASE-VERSION-DISCLOSURE:
+  title: Server or framework version disclosed
+  effort_minutes: 5
+  detail: ${what}
+  proof_needed: Check the headers the deployed site actually sends; a proxy or platform may remove or add them.
+  attack: Read the header and look up known vulnerabilities for that exact version.
+  fix: Remove the header (poweredByHeader false in next.config, app.disable('x-powered-by') or helmet in Express, server_tokens off in nginx).
+  verify: curl -sSI https://your-host/ | grep -iE "^(server|x-powered-by):"
+BASE-NO-HTTPS-REDIRECT:
+  title: Plain HTTP does not redirect to HTTPS
+  effort_minutes: 10
+  detail: The http root answered with status ${status} and no redirect to an https:// URL.
+  attack: Link a victim to the http:// address on a hostile network and read or change the unencrypted response.
+  blast: Sessions and form data sent over the plain HTTP connection.
+  fix: Redirect every plain HTTP request to HTTPS with a 301 at the host or proxy (for example https_only on Azure App Service, force HTTPS on the CDN).
+  verify: curl -sSI http://your-host/ and confirm a 301 with an https:// Location.
+BASE-CACHE-AUTH:
+  title: Login page can be cached
+  effort_minutes: 5
+  detail: The login page response has no Cache-Control no-store, so browsers and shared proxies may keep it.
+  blast: Authenticated pages restored from cache on shared machines, including after logout.
+  fix: 'Send Cache-Control: no-store on the login page and on every authenticated response.'
+  verify: curl -sSI https://your-host/login | grep -i cache-control

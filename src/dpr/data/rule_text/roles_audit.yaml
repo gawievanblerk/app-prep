@@ -1,0 +1,25 @@
+ABUSE-PAID-ANY-ROLE:
+  title: Paid route ${method} ${path} is open to every signed-in role
+  effort_minutes: 10
+  detail: ${method} ${path} calls ${sdk} (${cost}) and only checks that the caller is signed in (${evidence}), although the app defines role checks (${checks}) that this route does not use.
+  proof_needed: Confirm with the product owner which roles are meant to use this feature.
+  attack: Sign up or use any low-privilege account and call the route in a loop.
+  blast: Provider spend, and the data the route sends to the provider, for every account type.
+  fix: Put the narrowest role dependency the feature needs on the route, and keep per-user limits on top.
+  verify: Call the route as the lowest role and expect 403.
+BASE-OPENAPI-ALWAYS-ON:
+  title: API schema stays public when the docs pages are off
+  effort_minutes: 5
+  detail: The FastAPI app turns docs_url or redoc_url off outside debug, but ${where}, so the full OpenAPI schema with every route and parameter is still served.
+  attack: Download the schema and use it as a map of every endpoint, including admin and legacy routes.
+  blast: A complete description of the API surface.
+  fix: Gate openapi_url with the same condition as docs_url, for example openapi_url=None when debug is off.
+  verify: Request the openapi.json path on the deployed API and expect 404.
+OWASP-A09-NO-READ-AUDIT:
+  title: Exports and downloads in ${app} leave no audit record
+  effort_minutes: 60
+  detail: '${what}. ${count} export, download or report route(s): ${routes}.'
+  proof_needed: Check whether a gateway, log pipeline or database audit extension records these reads outside the code.
+  blast: After a stolen account or insider misuse, nobody can say which personal records were viewed or exported.
+  fix: Write an audit row (actor, action, record ids, row count, time) for every export, bulk report and download, to a table the application login cannot update or delete.
+  verify: Export a report in a test and confirm one audit row with the actor and record ids.

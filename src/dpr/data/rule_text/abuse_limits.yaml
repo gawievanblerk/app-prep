@@ -1,0 +1,33 @@
+ABUSE-INMEMORY-LIMITER:
+  title: Rate limiter counts in process memory on a multi-process deploy
+  effort_minutes: 45
+  detail: ${what} The deploy runs more than one process or instance (second location), and each keeps its own count, so the real limit is the configured limit times the number of processes, and counters reset on every restart.
+  attack: Send requests fast enough to spread across workers, or wait for a restart, and exceed the intended limit.
+  blast: Every route this limiter protects, including sign-in and paid routes.
+  fix: Point the limiter at a shared store (Redis or the platform's rate limiting), refuse to start without it outside development, and fail closed on paid routes when the store is unreachable.
+  verify: Run two workers locally with the shared store and confirm the limit holds across both.
+ABUSE-LIMITER-NOT-APPLIED:
+  title: Default rate limits are configured but never applied
+  effort_minutes: 10
+  detail: The slowapi Limiter sets default_limits, but SlowAPIMiddleware is never added to the app, so every route without its own @limiter.limit decorator is unlimited.
+  attack: Script any undecorated route; nothing counts the requests.
+  blast: Every route without an explicit limit decorator.
+  fix: Add app.add_middleware(SlowAPIMiddleware) after setting app.state.limiter, then check that the default limit fits every route.
+  verify: Call an undecorated route more times than the default limit within its window and expect 429.
+ABUSE-LIMITER-PROXY-IP:
+  title: Rate limits keyed on the connection address behind a proxy
+  effort_minutes: 20
+  detail: Limits are keyed with ${key}, which is the address of the direct connection. Hosted behind a load balancer or platform proxy, and with no forwarded-address trust configured anywhere, that is the proxy's address, so all users share one counter.
+  proof_needed: Log the key value in production and compare it with the caller's real address.
+  attack: Legitimate users lock each other out, while an attacker behind the same proxy exhausts the shared budget for everyone.
+  blast: Every route limited by this key, including sign-in and password reset.
+  fix: Trust forwarded headers only from the platform proxy (uvicorn or gunicorn --forwarded-allow-ips, Express app.set('trust proxy', 1)), and key authenticated routes on the user id.
+  verify: From two networks, confirm the sixth request inside the window is limited only for the network that sent six.
+ABUSE-UPLOAD-UNBOUNDED:
+  title: ${method} ${path} buffers the whole upload
+  effort_minutes: 15
+  detail: The handler ${what}.
+  attack: Send a multi-gigabyte upload, or many large ones in parallel, and exhaust the worker's memory.
+  blast: Availability of the API worker for every user.
+  fix: Reject requests whose Content-Length exceeds the limit before reading, read in chunks with a running total, and set a body size limit at the proxy or server.
+  verify: Upload a file just over the limit and confirm a 413 before the worker's memory grows.

@@ -1,0 +1,16 @@
+model User {
+  id                Int       @id @default(autoincrement())
+  email             String    @unique
+  passwordHash      String
+  name              String?
+  metadata          Json?
+  medicalConditions String?
+  invoices          Invoice[]
+}
+
+model Invoice {
+  id     Int  @id @default(autoincrement())
+  userId Int
+  amount Int
+  user   User @relation(fields: [userId], references: [id])
+}

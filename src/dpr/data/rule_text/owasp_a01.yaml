@@ -1,0 +1,34 @@
+OWASP-A01-UNSCOPED-QUERY:
+  title: ${method} ${path} loads ${model} by ${key} with no owner check
+  effort_minutes: 15
+  detail: The ${level} route ${method} ${path} looks up a ${model} using ${key} from the request, and neither the query nor a later check ties the record to the caller.
+  proof_needed: Confirm the record belongs to a user or tenant and that nothing outside this code path checks ownership.
+  attack: 1. Sign in as ${attacker}. 2. Note the identifier of one of your own records. 3. Request the same route with another identifier. 4. Read or change a record that belongs to someone else.
+  blast: Every ${model} record reachable through ${method} ${path}.
+  fix: Put the caller into the query itself, for example where(Model.id == key, Model.owner_id == current_user.id) or findFirst({ where { id, userId session.user.id } }), and return 404 when nothing matches.
+  verify: As user A, request a record that belongs to user B through ${method} ${path} and expect 404.
+OWASP-A01-GUESSABLE-ID:
+  title: ${model} uses sequential IDs in ${path}
+  effort_minutes: 60
+  detail: ${model} has an auto-increment integer primary key and ${path} takes it from the URL, so one working ID reveals all the others.
+  attack: Take your own record ID and count down or up to walk the whole table through ${path}.
+  blast: Every ${model} row, as soon as any lookup on it is missing an ownership check.
+  fix: Keep ownership checks as the real control, and expose a random identifier (UUID or a public slug) in URLs instead of the integer primary key.
+  verify: Confirm the URL identifier is a UUID or slug and that neighbouring integers return 404.
+OWASP-A01-UNGUARDED-METHOD:
+  title: ${method} ${path} has no auth check while ${guarded} on the same route does
+  effort_minutes: 10
+  detail: In the same file, ${path} checks the caller for ${guarded} but not for ${method}.
+  attack: Send ${method} to ${path} without signing in.
+  blast: Whatever ${method} ${path} writes or deletes, for every record it accepts.
+  fix: Apply the same authentication (and ownership) check to ${method} as to the other methods, ideally through one shared guard for the route.
+  verify: Send ${method} to ${path} without a session and expect 401.
+OWASP-A01-EMAIL-OWNERSHIP:
+  title: ${model} records are matched to the caller by email
+  effort_minutes: 30
+  detail: The code finds the caller's ${model} by comparing its email with the signed-in user's email. Ownership is then only as strong as control over that email field.
+  proof_needed: Check whether users can sign up or change their own email without verifying it; if they can, anyone can claim a record by setting its email.
+  attack: 1. Sign up or change your account email to the email stored on someone else's record. 2. Open the page that resolves records by email. 3. Read that record.
+  blast: Every ${model} whose email is not already held by another account.
+  fix: Link the record to the account with an explicit foreign key (for example ${model}.user_id) set by staff or by a verified invite, and filter on that key.
+  verify: Change a test account's email to another record's email and confirm that record is not returned.

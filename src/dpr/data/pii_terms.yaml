@@ -1,0 +1,41 @@
+sensitive_columns: [password, hash, token, secret, stripe_customer_id, role]
+# Review 1 categories. A term matches whole words of a field name (split on case and underscores).
+# Categories are checked in this order; the first match wins.
+categories:
+  - key: special
+    label: Special category
+    terms: [medical, health_condition, health_status, diagnosis, disability, disabilities, biometric, fingerprint, face_scan, race, ethnicity, ethnic_origin, religion, religious, political, trade_union, union_membership, sexual_orientation, sexuality, criminal, conviction, convictions, genetic, pregnancy, hiv, mental_health, medication, allergies]
+  - key: children
+    label: Children
+    terms: [guardian, parent_name, parent_email, parent_phone, parental_consent, school, school_name, is_minor, minor, child_name, children_names, grade_level]
+  - key: government_ids
+    label: Government identifiers
+    terms: [id_number, sa_id, identity_number, national_id, passport_number, passport, ssn, social_security, tax_number, tax_id, driver_license, drivers_license, nin]
+  - key: account
+    label: Account and credentials
+    terms: [password, password_hash, passwd, mfa_secret, totp_secret, otp_secret, session_token, refresh_token, api_key, oauth_token, access_token, reset_token, verification_token, recovery_codes]
+  - key: technical
+    label: Technical identifiers
+    terms: [ip, ip_address, client_ip, user_agent, device_id, cookie_id, latitude, longitude, geolocation, geo, fingerprint_id]
+  - key: identifiers
+    label: Contact and identity
+    terms: [email, emails, email_address, phone, phone_number, mobile, telephone, first_name, last_name, full_name, surname, given_name, username, display_name, avatar, avatar_url, address, address_line1, address_line2, address1, address2, street, city, postcode, postal_code, zip, zip_code, date_of_birth, birth_date, dob, birthday, gender, nationality, name, entity_name, contact, recipient]
+  - key: financial
+    label: Financial
+    terms: [card_last4, last4, iban, bank_account, account_number, routing_number, vat_number, billing_address, salary, income, premium, commission, commission_amount, indemnity, profit, profit_loss, net_profit, revenue, price, amount, total, fees, balance, invoice, payment]
+  - key: behavioural
+    label: Behavioural
+    terms: [last_login, last_login_at, last_seen, page_views, clicks, search_query, searches, events, activity, sent_at, viewed_at]
+  - key: content
+    label: Free text and content
+    terms: [message, messages, body, content, comment, comments, note, notes, description, bio, title, detail, details, file, filename, original_filename, attachment, upload]
+  - key: inferred
+    label: Inferred data
+    terms: [score, risk_score, health_score, segment, segments, lifetime_value, churn, prediction, rating, risk_tolerance, personality]
+catch_all_json: [metadata, properties, custom_fields, extra, payload, raw, attributes, data, detail, details, context, info]
+person_models: [user, users, account, customer, client, member, contact, profile, person, people, employee, patient, student, insured, producer, lead, subscriber, recipient, applicant, guest, staff, agent, author, owner, tenant_user, lender]
+# Bare terms that also occur in ordinary software names (minor_version, race_condition_flag,
+# total_distance, price_tier_label). Each must be a single category word. It counts only when it
+# is the field's last name word, or when every word after it is itself a personal word from any
+# category list.
+ambiguous_terms: [race, genetic, minor, school, guardian, price, total, amount]

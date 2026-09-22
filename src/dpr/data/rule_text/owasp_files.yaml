@@ -1,0 +1,27 @@
+OWASP-A01-PATH-TRAVERSAL:
+  title: ${method} ${path} writes a file to a path built from ${source}
+  effort_minutes: 20
+  detail: In ${method} ${path}, ${source} reaches a file write path without being reduced to a safe file name, so ../ segments or an absolute name can place the file outside the upload folder.
+  proof_needed: Confirm the call reaches the helper shown and that no caller validates the value first.
+  attack: Upload with a file name or identifier such as ../../app/main.py and overwrite a file the server later loads or serves.
+  blast: Any file the app's process can write, which can mean code execution on the next restart.
+  fix: Store uploads under a server-generated name (a UUID plus a checked extension), use only Path(name).name or secure_filename for display, validate identifiers as UUIDs, and assert the resolved path is inside the upload root before writing.
+  verify: Upload a file named ../escape.txt and confirm it is rejected or stored inside the upload folder under a generated name.
+OWASP-A01-MASS-ASSIGNMENT:
+  title: Request body written whole into ${model}
+  effort_minutes: 15
+  detail: The request body is passed straight into a ${model} create or update, so the caller chooses which columns to set, including ${fields}.
+  proof_needed: Check whether the model has columns a caller must not set, such as role, is_admin, org_id or plan.
+  attack: Add "role":"admin" (or org_id, plan, is_staff) to the JSON body of a normal request and read the account back.
+  blast: Privilege escalation or cross-tenant writes for every caller who can reach this route.
+  fix: Build the data object from an explicit list of allowed fields (a schema or DTO), never from the raw body.
+  verify: Send the request with an extra role or org_id field and confirm the stored record ignores it.
+OWASP-A01-CLIENT-ONLY-GUARD:
+  title: Admin route ${method} ${path} has no server-side role check
+  effort_minutes: 15
+  detail: The UI hides admin features behind an admin check, but ${method} ${path} only checks that the caller is signed in, or not even that.
+  proof_needed: Check whether a middleware, layout or proxy outside this handler enforces an admin role for this path.
+  attack: Sign in as a normal user and call ${method} ${path} directly; the hidden button was the only guard.
+  blast: Every admin action this route performs.
+  fix: Enforce the admin role in the route handler or a dependency it cannot bypass, and treat the UI check as cosmetic.
+  verify: Call ${method} ${path} as a non-admin user and expect 403.

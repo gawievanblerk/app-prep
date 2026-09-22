@@ -1,0 +1,37 @@
+RLS-TABLE-OFF:
+  title: Row level security is off on ${table}
+  effort_minutes: 15
+  detail: ${table} never has row level security enabled. ${reach}
+  attack: Open the app, copy the public database key from devtools, and request every row of ${table} from the REST endpoint.
+  blast: Every row in ${table}, readable and possibly writable by anyone holding the public key.
+  fix: Enable row level security and add policies.
+RLS-NO-POLICIES:
+  title: ${table} has row level security but no policies
+  effort_minutes: 10
+  detail: Row level security is on and no policy exists, so clients are denied everything. If the app still reads this table, it is using a service key, which must never reach the browser.
+  fix: Add policies for the access the app needs.
+RLS-SELECT-ONLY:
+  title: ${table} only has select policies
+  effort_minutes: 5
+  detail: Clients can read ${table} but every insert, update and delete from a client is denied. If the app writes to this table, it uses a service key. Check the leaks review for that key.
+  fix: No change needed if only the server writes to ${table}. If clients should write, add insert, update and delete policies scoped to the owner.
+RLS-VIEW-BYPASS:
+  title: View ${view} bypasses row level security on ${tables}
+  effort_minutes: 5
+  detail: The view ${view} reads ${tables} with the permissions of the view owner, so the row level security on those tables does not apply to people who query the view.
+  attack: Query the view through the REST endpoint with the public key and read rows the table policies would hide.
+  blast: Every row the view selects from ${tables}.
+  fix: Recreate the view with security_invoker set to true.
+RLS-DEFINER-FUNCTION:
+  title: Security definer function ${function}
+  effort_minutes: 15
+  detail: ${what}
+  attack: Call the function through the RPC endpoint with the public key.
+  blast: Whatever the function reads or changes, without the caller's row level security.
+  fix: Prefer security invoker. If definer is required, check ownership inside the function, set search_path to an empty value, and revoke execute from anon.
+RLS-PUBLIC-BUCKET:
+  title: Storage bucket ${bucket} is public
+  effort_minutes: 10
+  detail: Files in the ${bucket} bucket can be downloaded by anyone who has or guesses the file URL.
+  blast: Every file in the ${bucket} bucket.
+  fix: Make the bucket private and serve files through signed URLs with a short expiry, unless the files are meant to be public.

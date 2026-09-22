@@ -1,0 +1,18 @@
+create table public.profiles (id uuid primary key, user_id uuid not null, full_name text, phone text);
+alter table public.profiles enable row level security;
+create policy "profiles_select_own" on public.profiles for select to authenticated using (auth.uid() = user_id);
+create policy "profiles_update_own" on public.profiles for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create table public.documents (id bigserial primary key, user_id uuid not null, body text);
+alter table public.documents enable row level security;
+create policy "documents_select_own" on public.documents for select to authenticated using (auth.uid() = user_id);
+create policy "documents_insert_own" on public.documents for insert to authenticated with check (auth.uid() = user_id);
+create table public.members (org_id uuid not null, user_id uuid not null);
+alter table public.members enable row level security;
+create policy "members_select_own" on public.members for select to authenticated using (auth.uid() = user_id);
+create policy "members_insert_own" on public.members for insert to authenticated with check (auth.uid() = user_id);
+create table public.projects (id uuid primary key, org_id uuid not null, name text);
+alter table public.projects enable row level security;
+create policy "projects_read" on public.projects for select to authenticated using (org_id in (select org_id from public.members where user_id = auth.uid()));
+create policy "projects_insert" on public.projects for insert to authenticated with check (org_id in (select org_id from public.members where user_id = auth.uid()));
+create view public.document_list with (security_invoker = true) as select id, body from public.documents;
+insert into storage.buckets (id, name, public) values ('avatars', 'avatars', false);

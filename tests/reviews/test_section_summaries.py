@@ -1,0 +1,291 @@
+from dpr.api import review
+from tests.reviews.helpers import write
+
+SETTINGS = (
+    "class Settings(BaseSettings):\n"
+    "    cookie_httponly: bool = True\n"
+    "    cookie_secure: bool = False\n"
+    "    jwt_secret_key: str = 'dev-only'\n\n"
+    "    def check(self):\n"
+    "        if self.environment == 'production':\n"
+    "            if 'dev-only' in self.jwt_secret_key:\n"
+    "                raise ValueError('set JWT_SECRET_KEY')\n"
+    "            if not self.cookie_secure:\n"
+    "                raise ValueError('COOKIE_SECURE must be True')\n"
+)
+
+
+def parts(report, slug):
+    return {p.title: p for p in report.sections[slug].parts}
+
+
+def test_baseline_checks_that_pass(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\npasslib\n")
+    write(tmp_path, "api/app/config.py", SETTINGS)
+    write(
+        tmp_path,
+        "api/app/security.py",
+        "from passlib.context import CryptContext\npwd = CryptContext(schemes=['bcrypt'])\n",
+    )
+    write(
+        tmp_path,
+        "infra/main.tf",
+        'locals {\n  url = "postgresql://${var.user}:${var.pw}@db:5432/app?sslmode=require"\n}\n',
+    )
+    write(tmp_path, "web/index.html", '<script src="/main.js"></script>\n')
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert body.splitlines() == [
+        "- Password hashing uses bcrypt (`api/app/security.py:2`). CONFIRMED",
+        "- Cookie httponly defaults to on (`api/app/config.py:2`). CONFIRMED",
+        "- Cookie secure is enforced in production by a validator (`api/app/config.py:10`). CONFIRMED",
+        "- The signing secret jwt_secret_key is checked by a production validator that rejects "
+        "development values (`api/app/config.py:8`). CONFIRMED",
+        "- The database connection setting at `infra/main.tf:2` requires TLS. CONFIRMED",
+        "- No http:// asset URLs in 1 HTML file(s). CONFIRMED",
+    ]
+
+
+def test_baseline_without_passing_evidence(tmp_path):
+    write(tmp_path, "api/app/main.py", "from fastapi import FastAPI\napp = FastAPI()\n")
+    found = parts(review(tmp_path, reviews=["baseline"]), "baseline")
+    assert found["Checks that pass"].body == "No passing checks could be confirmed from code."
+    assert "AUTH-ENUM-SIGNUP-MESSAGE" in found["Password storage and account enumeration"].body
+
+
+def test_leak_hunt_places(tmp_path):
+    write(
+        tmp_path,
+        ".env.example",
+        "VITE_API_URL=\nVITE_PREVIEW_UNLOCK_KEY=\nNEXT_PUBLIC_WEBHOOK_SECRET=\nDATABASE_URL=\n",
+    )
+    write(tmp_path, "web/src/main.ts", "export const api = import.meta.env.VITE_API_URL\n")
+    found = parts(review(tmp_path, reviews=["leaks"]), "leaks")
+    assert list(found)[:5] == [
+        "What this review never prints",
+        "Place 1: public variables reviewed",
+        "Place 1: keys, env files and git history",
+        "Place 2: over-broad responses",
+        "Place 3: logs",
+    ]
+    public = found["Place 1: public variables reviewed"].body.splitlines()
+    assert public == [
+        "- `NEXT_PUBLIC_WEBHOOK_SECRET`: secret word in a browser variable (LEAK-PUBLIC-SECRET) "
+        "(`.env.example:3`)",
+        "- `VITE_API_URL`: publishable (`.env.example:1`)",
+        "- `VITE_PREVIEW_UNLOCK_KEY`: access gate key shipped to browsers (LEAK-PUBLIC-GATE-KEY) "
+        "(`.env.example:2`)",
+    ]
+    history = found["Place 1: keys, env files and git history"].body
+    assert history.startswith(
+        "- Not a git repository, so tracked files and history were not checked."
+    )
+    assert (
+        found["Place 3: logs"].body
+        == "No log call writes a request, user, token or personal value."
+    )
+
+
+DB_TLS_COMMENT_AND_ENV_CHECK = (
+    "class DatabaseSettings(BaseSettings):\n"
+    "    database_url: str = 'postgresql://'\n\n"
+    "    def connect_args(self):\n"
+    "        # Convert ssl=require to asyncpg-compatible format\n"
+    "        if 'sslmode=require' in self.database_url:\n"
+    "            return {'ssl': True}\n"
+    "        return {}\n"
+)
+
+
+def test_database_tls_pass_ignores_comment_and_env_check(tmp_path):
+    write(tmp_path, "api/app/config.py", DB_TLS_COMMENT_AND_ENV_CHECK)
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert "require TLS" not in body and "requires TLS" not in body
+
+
+def test_database_tls_pass_from_real_default(tmp_path):
+    write(
+        tmp_path,
+        "api/app/config.py",
+        'DATABASE_URL = "postgresql://u@h/db?sslmode=require"\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert (
+        "- The database connection setting at `api/app/config.py:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
+
+
+def test_hashing_pass_lists_evidence_per_app_root(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\npasslib\n")
+    write(
+        tmp_path,
+        "api/app/security.py",
+        "from passlib.context import CryptContext\npwd = CryptContext(schemes=['bcrypt'])\n",
+    )
+    write(tmp_path, "worker/requirements.txt", "passlib\n")
+    write(
+        tmp_path,
+        "worker/app/security.py",
+        "from passlib.context import CryptContext\npwd = CryptContext(schemes=['bcrypt'])\n",
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    lines = body.splitlines()
+    assert "- Password hashing uses bcrypt (`api/app/security.py:2`). CONFIRMED" in lines
+    assert "- Password hashing uses bcrypt (`worker/app/security.py:2`). CONFIRMED" in lines
+
+
+def test_database_tls_pass_ignores_trailing_comment(tmp_path):
+    write(
+        tmp_path,
+        "api/app/config.py",
+        'configure()  # database_url = "postgres://x?sslmode=require"\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert "require TLS" not in body and "requires TLS" not in body
+
+
+def test_database_tls_pass_from_unquoted_yaml_value(tmp_path):
+    write(tmp_path, "infra/db.yaml", "DATABASE_URL: postgres://u@h/db?sslmode=require\n")
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert (
+        "- The database connection setting at `infra/db.yaml:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
+
+
+def test_database_tls_pass_from_terraform_heredoc(tmp_path):
+    write(
+        tmp_path,
+        "infra/main.tf",
+        (
+            'resource "example" "x" {\n'
+            "  user_data = <<-EOT\n"
+            "    postgres://u@h/db?sslmode=require\n"
+            "  EOT\n"
+            "}\n"
+        ),
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert (
+        "- The database connection setting at `infra/main.tf:3` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
+
+
+def test_database_tls_pass_from_fstring_default(tmp_path):
+    write(
+        tmp_path,
+        "api/app/config.py",
+        'DATABASE_URL = f"postgresql://{host}/db?sslmode=require"\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert (
+        "- The database connection setting at `api/app/config.py:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
+
+
+def test_database_tls_pass_from_triple_quoted_default(tmp_path):
+    write(
+        tmp_path,
+        "api/app/config.py",
+        'DATABASE_URL = """postgresql://u@h/db?sslmode=require"""\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert (
+        "- The database connection setting at `api/app/config.py:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
+
+
+def test_database_tls_pass_from_js_const_declaration(tmp_path):
+    write(
+        tmp_path,
+        "web/src/db.ts",
+        'const DATABASE_URL = "postgres://x?sslmode=require";\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert (
+        "- The database connection setting at `web/src/db.ts:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
+
+
+def test_database_tls_pass_from_js_let_declaration(tmp_path):
+    write(
+        tmp_path,
+        "web/src/db.ts",
+        'let dbUrl = "postgres://x?sslmode=require";\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert (
+        "- The database connection setting at `web/src/db.ts:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
+
+
+def test_database_tls_pass_from_js_export_const_declaration(tmp_path):
+    write(
+        tmp_path,
+        "web/src/db.ts",
+        'export const DB_URL = "postgres://x?sslmode=require";\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert (
+        "- The database connection setting at `web/src/db.ts:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
+
+
+def test_database_tls_pass_from_yaml_list_item(tmp_path):
+    write(tmp_path, "infra/db.yaml", "- DATABASE_URL: postgres://u@h/db?sslmode=require\n")
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert (
+        "- The database connection setting at `infra/db.yaml:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
+
+
+def test_database_tls_pass_counts_trailing_comment_after_real_value(tmp_path):
+    write(
+        tmp_path,
+        "web/src/db.ts",
+        'const u = "postgres://x?sslmode=require" // prod\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert (
+        "- The database connection setting at `web/src/db.ts:1` requires TLS. CONFIRMED"
+        in body.splitlines()
+    )
+
+
+def test_database_tls_pass_ignores_includes_method_call(tmp_path):
+    write(
+        tmp_path,
+        "web/src/db.ts",
+        'if (url.includes("sslmode=require")) {\n  handle();\n}\n',
+    )
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    assert "require TLS" not in body and "requires TLS" not in body
+
+
+def test_database_tls_pass_names_each_setting_per_app_root(tmp_path):
+    write(tmp_path, "api/requirements.txt", "fastapi\n")
+    write(
+        tmp_path,
+        "api/app/config.py",
+        'DATABASE_URL = "postgresql://u@h/db?sslmode=require"\n'
+        'REPLICA_URL = "postgresql://u@r/db?sslmode=require"\n',
+    )
+    write(tmp_path, "worker/requirements.txt", "sqlalchemy\n")
+    write(tmp_path, "worker/db.py", 'URL = "postgresql://u@h/db?sslmode=verify-full"\n')
+    body = parts(review(tmp_path, reviews=["baseline"]), "baseline")["Checks that pass"].body
+    lines = body.splitlines()
+    assert (
+        "- In api, the database connection settings at `api/app/config.py:1`, "
+        "`api/app/config.py:2` require TLS. CONFIRMED"
+    ) in lines
+    assert (
+        "- In worker, the database connection setting at `worker/db.py:1` requires TLS. CONFIRMED"
+    ) in lines
+    assert not any("Database connections require TLS" in line for line in lines)

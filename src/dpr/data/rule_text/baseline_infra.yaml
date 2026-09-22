@@ -1,0 +1,24 @@
+BASE-DB-NETWORK-OPEN:
+  title: Database network access is open wider than the app needs
+  effort_minutes: 30
+  detail: ${what} The database password is then the only barrier.
+  attack: Reach the database port from the admitted network and try the credentials, or use any leaked or default database password directly.
+  blast: Every table in the database, with the rights of whichever login is used.
+  fix: Remove the rule. Use private networking (VNet integration or private endpoints, a private subnet, private IP) for the app, or allow only the app's outbound addresses.
+  verify: List the firewall or security group rules for the server and confirm no 0.0.0.0 rule remains.
+BASE-DB-ADMIN-LOGIN:
+  title: App connection string uses the database admin login
+  effort_minutes: 45
+  detail: A connection string is built from ${login}, which looks like the server administrator login. An injection bug or a leaked app setting then gives owner rights over every table, including DDL.
+  proof_needed: Run select current_user through the deployed app's connection string and compare it with the administrator login.
+  blast: Every table, schema change and role in the database.
+  fix: Create a least-privilege role for the app with only select, insert, update and delete on its tables, point the app's connection string at it, and keep the admin login for migrations in the deploy pipeline.
+  verify: Through the app's connection string, run select current_user and confirm it is not the administrator login.
+BASE-HTTPS-NOT-ENFORCED:
+  title: HTTPS is not enforced by the infrastructure
+  effort_minutes: 5
+  detail: ${what}
+  attack: Send a victim a plain http:// link to the host and read or change the unencrypted traffic on a hostile network.
+  blast: Requests and responses on the plain HTTP path, including cookies without the Secure flag.
+  fix: Set https_only = true on Azure App Service and Function Apps, viewer_protocol_policy = "redirect-to-https" on CloudFront, or a redirect action on HTTP load balancer listeners.
+  verify: curl -sSI http://your-host/ and confirm a 301 to https://.
