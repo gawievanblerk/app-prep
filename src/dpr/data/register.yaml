@@ -1,6 +1,7 @@
 # Rules that describe one underlying issue are grouped into one register entry.
-# scope: app groups per app root; repo groups across the repository; linked keeps each finding of
-# the first rule as its own issue and attaches findings of the other rules that share a file with it.
+# scope: app groups per app root; repo groups across the repository; linked groups the findings of
+# the first rule by the file of their first site and attaches findings of the other rules that
+# share a file with them.
 chains:
   - title: Accounts can be signed in to with passwords written in the repository
     scope: linked

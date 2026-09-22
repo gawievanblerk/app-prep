@@ -43,6 +43,9 @@ def _app(finding: Finding, roots: list[AppRoot]) -> str:
 
 
 def _linked_key(finding: Finding, spec: dict, position: int, findings: list[Finding]) -> tuple:
+    """Findings of the first rule are keyed by the file of their first site, so every literal
+    first hashed in one file is one issue; findings of the other rules join the first-rule
+    finding that shares a file with them."""
     anchor = finding
     if finding.rule_id != spec["rules"][0]:
         files = {loc.file for loc in finding.locations[1:]}
@@ -54,8 +57,7 @@ def _linked_key(finding: Finding, spec: dict, position: int, findings: list[Find
             ),
             finding,
         )
-    first = anchor.locations[0] if anchor.locations else None
-    return ("chain", position, f"{anchor.rule_id} {first}")
+    return ("chain", position, anchor.locations[0].file if anchor.locations else "")
 
 
 def _key(finding: Finding, roots: list[AppRoot], findings: list[Finding]) -> tuple:

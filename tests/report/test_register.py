@@ -237,3 +237,40 @@ def test_register_names_both_unscoped_routes_of_a_scan(tmp_path):
     [issue] = [i for i in report.register if "OWASP-A01-UNSCOPED-QUERY" in i.findings]
     assert issue.count == 2
     assert "/invoices/{item_id}" in issue.title and "/notes/{item_id}" in issue.title
+
+
+def test_linked_scope_joins_every_literal_first_hashed_in_one_seed_file():
+    literals = [
+        finding(
+            "BASE-LITERAL-PASSWORD-HASH",
+            "api/app/db/seed.py",
+            line,
+            severity="critical",
+            review="baseline",
+            title="Account passwords are written in api/app/db/seed.py",
+            more=(Location("api/scripts/reset.py", line),) if line == 12 else (),
+        )
+        for line in (4, 8, 12)
+    ]
+    start = finding(
+        "BASE-SEED-ON-START",
+        "api/startup.sh",
+        severity="critical",
+        tag="INFERRED",
+        review="baseline",
+        more=(Location("api/app/db/seed.py", 4),),
+    )
+    other = finding(
+        "BASE-LITERAL-PASSWORD-HASH",
+        "api/scripts/migrate.py",
+        9,
+        severity="critical",
+        review="baseline",
+        title="Account passwords are written in api/scripts/migrate.py",
+    )
+    issues = build_register([*literals, start, other], ROOTS)
+    assert sorted((i.title, i.count) for i in issues) == [
+        ("Account passwords are written in api/app/db/seed.py, and a start command runs it", 4),
+        ("Account passwords are written in api/scripts/migrate.py", 1),
+    ]
+    assert [i.severity.value for i in issues] == ["critical", "critical"]
