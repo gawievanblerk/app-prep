@@ -128,6 +128,8 @@ def expiry_checks(flow: Flow) -> list[Location]:
 
 
 def _no_expiry(ctx: Context, kind: str, rule_id: str, case: int) -> Iterator[Finding]:
+    """Expiry is judged only for a flow that looks its token up; a flow that never reads a
+    stored token leaves the case to a live test."""
     for flow in flows_of(ctx, kind):
         checks = expiry_checks(flow)
         if checks:
@@ -138,6 +140,8 @@ def _no_expiry(ctx: Context, kind: str, rule_id: str, case: int) -> Iterator[Fin
                 f"The {_label(flow).lower()} flow compares a timestamp before accepting the token",
                 checks[0],
             )
+            continue
+        if not (plaintext_matches(flow) or _hashed_lookups(flow)):
             continue
         yield make_finding(
             rule_id,

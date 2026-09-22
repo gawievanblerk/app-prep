@@ -179,3 +179,20 @@ def test_hashed_flag_columns_do_not_give_case_7_a_false_pass(tmp_path):
         "Cases"
     ].body
     assert "#### CASE 7: Reset token that belongs to someone else (PASSES)" not in body
+
+
+STUB = (
+    "class Accounts:\n"
+    "    async def reset(self, data):\n"
+    "        token, password = data.token, data.password\n"
+    "        return {'ok': True}\n\n"
+    "    async def verify(self, token):\n"
+    "        return {'ok': True}\n"
+)
+
+
+def test_a_reset_stub_that_never_looks_the_token_up_is_not_judged(tmp_path):
+    app(tmp_path, STUB)
+    assert findings_for(tmp_path, "auth", "AUTH-RESET-NO-EXPIRY") == []
+    body = {p.title: p for p in review(tmp_path, reviews=["auth"]).sections["auth"].parts}
+    assert "#### CASE 6: Reset link opened after it expired (UNVERIFIED)" in body["Cases"].body
