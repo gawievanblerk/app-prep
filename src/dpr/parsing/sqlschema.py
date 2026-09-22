@@ -1,8 +1,7 @@
-"""Schema state built from SQL migrations or a pasted psql dump."""
+"""Schema state built from SQL migrations (a pasted psql dump is read by `sqldump`)."""
 
 from __future__ import annotations
 
-import csv
 import re
 from dataclasses import dataclass, field, replace
 
@@ -19,6 +18,15 @@ from dpr.parsing.sql import (
     split_top_level,
 )
 from dpr.parsing.sqlgrants import Grant, parse_grant
+from dpr.parsing.sqlobjects import (
+    TRUE_WORDS,
+    Bucket,
+    Column,
+    Function,
+    Policy,
+    TableDef,
+    View,
+)
 from dpr.walk import RepoIndex
 
 MIGRATION_GLOBS = (
@@ -40,74 +48,6 @@ def up_section(text: str) -> str:
         return text
     kept = text[: down.start()]
     return kept + "\n" * text[down.start() :].count("\n")
-
-
-TRUE_WORDS = ("true", "t", "1", "yes", "on")
-
-
-@dataclass(frozen=True)
-class Column:
-    name: str
-    type: str
-    unique: bool = False
-    autoincrement: bool = False
-
-
-@dataclass
-class TableDef:
-    key: str
-    columns: list[Column]
-    location: Location
-    rls: bool = False
-    rls_location: Location | None = None
-
-    @property
-    def schema(self) -> str:
-        return self.key.split(".")[0]
-
-    @property
-    def name(self) -> str:
-        return self.key.split(".", 1)[1]
-
-    def column_names(self) -> list[str]:
-        return [c.name for c in self.columns]
-
-
-@dataclass(frozen=True)
-class Policy:
-    name: str
-    table: str
-    command: str
-    roles: tuple[str, ...]
-    roles_explicit: bool
-    using: str | None
-    with_check: str | None
-    permissive: bool
-    location: Location
-
-
-@dataclass(frozen=True)
-class View:
-    key: str
-    security_invoker: bool
-    sources: tuple[str, ...]
-    location: Location
-
-
-@dataclass(frozen=True)
-class Function:
-    key: str
-    security_definer: bool
-    sets_search_path: bool
-    tables: tuple[str, ...]
-    location: Location
-
-
-@dataclass(frozen=True)
-class Bucket:
-    id: str
-    public: bool
-    location: Location
 
 
 CREATE_TABLE = re.compile(
@@ -433,63 +373,3 @@ def load_schema(index: RepoIndex) -> SchemaState:
         for stmt in split_sql(up_section(index.text(rel))):
             state.apply(stmt, rel)
     return state
-
-
-def _dump_rows(text: str) -> list[tuple[int, dict[str, str]]]:
-    """Rows from psql aligned or CSV output, each with its 1-based line number."""
-    rows: list[tuple[int, dict[str, str]]] = []
-    header: list[str] | None = None
-    delimiter = "|"
-    for number, raw in enumerate(text.splitlines(), start=1):
-        line = raw.strip()
-        if not line or re.fullmatch(r"[-+]+", line) or re.fullmatch(r"\(\d+ rows?\)", line):
-            if not line:
-                header = None
-            continue
-        if "tablename" in line and ("rowsecurity" in line or "policyname" in line):
-            delimiter = "|" if "|" in line else ","
-            header = [h.strip() for h in line.split(delimiter)]
-            continue
-        if header is None:
-            continue
-        cells = next(csv.reader([line])) if delimiter == "," else line.split("|")
-        cells = [c.strip() for c in cells]
-        if len(cells) != len(header):
-            rows.append((number, {}))
-            continue
-        rows.append((number, dict(zip(header, cells, strict=True))))
-    return rows
-
-
-def apply_dump(state: SchemaState, text: str, file: str) -> list[str]:
-    problems: list[str] = []
-    replaced: set[str] = set()
-    for number, row in _dump_rows(text):
-        loc = Location(file, number)
-        if not row or not row.get("tablename"):
-            problems.append(f"{file}:{number}: row skipped, unexpected column count")
-            continue
-        key = qualify(f'"{row.get("schemaname") or "public"}"."{row["tablename"]}"')
-        if "rowsecurity" in row:
-            table = state.table(key, loc)
-            table.rls = row["rowsecurity"].lower() in TRUE_WORDS
-            table.rls_location = loc
-            continue
-        if key not in replaced:
-            state.policies = {k: v for k, v in state.policies.items() if k[0] != key}
-            replaced.add(key)
-        roles = tuple(r.strip() for r in row.get("roles", "").strip("{}").split(",") if r.strip())
-        qual = re.sub(r"\s+", " ", row.get("qual", "")).strip().lower()
-        check = re.sub(r"\s+", " ", row.get("with_check", "")).strip().lower()
-        state.policies[(key, row["policyname"])] = Policy(
-            name=row["policyname"],
-            table=key,
-            command=row.get("cmd", "ALL").lower(),
-            roles=roles or ("public",),
-            roles_explicit=bool(roles) and roles != ("public",),
-            using=clean_predicate(qual) if qual else None,
-            with_check=clean_predicate(check) if check else None,
-            permissive=row.get("permissive", "PERMISSIVE").upper() == "PERMISSIVE",
-            location=loc,
-        )
-    return problems

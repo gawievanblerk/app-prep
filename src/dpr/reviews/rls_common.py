@@ -7,7 +7,9 @@ import re
 from pathlib import Path
 
 from dpr.model import Location
-from dpr.parsing.sqlschema import Policy, SchemaState, TableDef, apply_dump
+from dpr.parsing.sqldump import apply_dump
+from dpr.parsing.sqlobjects import Policy, TableDef
+from dpr.parsing.sqlschema import SchemaState
 from dpr.rules import Context
 
 OWNER_COLUMNS = ("user_id", "owner_id", "created_by", "author_id", "profile_id")

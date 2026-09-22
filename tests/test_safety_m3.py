@@ -219,3 +219,14 @@ def test_no_module_imports_a_private_name_from_another_module():
                     if alias.name.startswith("_") and not alias.name.startswith("__")
                 ]
     assert offenders == []
+
+
+def test_every_source_module_stays_under_about_400_lines():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "src"
+    sizes = {
+        str(path.relative_to(root)): len(path.read_text(encoding="utf-8").splitlines())
+        for path in root.rglob("*.py")
+    }
+    assert {rel: size for rel, size in sizes.items() if size > 410} == {}

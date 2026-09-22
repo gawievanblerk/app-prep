@@ -6,7 +6,7 @@ import re
 from collections.abc import Iterator
 
 from dpr.model import Finding, Tag
-from dpr.parsing.sqlschema import TableDef
+from dpr.parsing.sqlobjects import TableDef
 from dpr.reviews.rls_common import (
     AUTH_REF,
     HELPER_PROOF,
