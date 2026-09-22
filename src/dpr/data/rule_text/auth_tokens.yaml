@@ -3,7 +3,7 @@ AUTH-TOKEN-PLAINTEXT:
   effort_minutes: 45
   detail: ${route} finds the account by comparing the token from the request with the stored column ${column} (first location), so the database holds usable tokens.
   attack: Read a database backup, a replica or a query log and use any unexpired token to take over the account.
-  blast: Every account with a pending ${kind} token.
+  blast: Every account with a pending ${noun} token.
   fix: Store only a SHA-256 hash of the token, compare hashes, and clear the column after use.
   verify: Request a token, read the column, and confirm it does not equal the value in the emailed link.
 AUTH-VERIFY-NO-EXPIRY:

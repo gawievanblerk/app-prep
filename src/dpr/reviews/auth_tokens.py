@@ -95,6 +95,7 @@ def token_plaintext(ctx: Context) -> Iterator[Finding]:
             locations=[*locations, flow.location],
             snippet=snippet(ctx.index.text(locations[0].file), locations[0].line),
             kind=_label(flow),
+            noun=_label(flow).lower(),
             column=", ".join(sorted({col for col, _ in matches})),
             route=f"{flow.route.method} {flow.route.path}",
         )

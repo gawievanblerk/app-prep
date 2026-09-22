@@ -286,3 +286,10 @@ def test_sibling_issues_label_the_repository_root_app():
         "ABUSE-ERROR-LEAK title (api)",
         "ABUSE-ERROR-LEAK title (repository root)",
     ]
+
+
+def test_unpinned_chain_title_reads_as_either_rule():
+    [issue] = build_register(
+        [finding("OWASP-A08-UNPINNED-DEPS", "api/requirements.txt", review="owasp")], ROOTS
+    )
+    assert issue.title == "Unpinned dependencies or installs"

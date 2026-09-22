@@ -196,3 +196,12 @@ def test_a_reset_stub_that_never_looks_the_token_up_is_not_judged(tmp_path):
     assert findings_for(tmp_path, "auth", "AUTH-RESET-NO-EXPIRY") == []
     body = {p.title: p for p in review(tmp_path, reviews=["auth"]).sections["auth"].parts}
     assert "#### CASE 6: Reset link opened after it expired (UNVERIFIED)" in body["Cases"].body
+
+
+def test_plaintext_token_blast_names_the_kind_in_lower_case(tmp_path):
+    app(tmp_path, PLAIN)
+    blasts = {f.blast for f in findings_for(tmp_path, "auth", "AUTH-TOKEN-PLAINTEXT")}
+    assert blasts == {
+        "Every account with a pending reset token.",
+        "Every account with a pending verification token.",
+    }

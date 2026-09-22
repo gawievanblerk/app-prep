@@ -27,7 +27,7 @@ chains:
   - title: Database reachable too widely or used with administrator rights
     scope: repo
     rules: [BASE-DB-NETWORK-OPEN, BASE-DB-ADMIN-LOGIN]
-  - title: Unpinned dependencies and installs
+  - title: Unpinned dependencies or installs
     scope: repo
     rules: [OWASP-A08-UNPINNED-DEPS, OWASP-A08-UNPINNED-INSTALL]
   - title: Cookie flags leave sessions exposed
