@@ -182,11 +182,18 @@ LEGACY_USER = (
 )
 
 
+LEGACY_ROUTE = (
+    "from flask import Flask\napp = Flask(__name__)\n\n\n@app.get('/health')\n"
+    "def health():\n    return 'ok'\n"
+)
+
+
 def test_mfa_field_on_a_user_model_in_another_root_does_not_guard_sign_in(tmp_path):
     write(tmp_path, "api/requirements.txt", "fastapi\n")
     write(tmp_path, "api/app/routes/auth.py", LOGIN_ROUTE)
     write(tmp_path, "legacy/requirements.txt", "flask\n")
     write(tmp_path, "legacy/models.py", LEGACY_USER)
+    write(tmp_path, "legacy/app.py", LEGACY_ROUTE)
     [finding] = findings_for(tmp_path, "auth", "AUTH-NO-MFA")
     assert finding.title == "No second factor for sign-in in api"
     write(tmp_path, "api/app/models.py", LEGACY_USER)
@@ -204,6 +211,7 @@ def test_email_uniqueness_is_judged_only_where_a_register_flow_shares_the_root(t
     )
     write(tmp_path, "legacy/requirements.txt", "flask\n")
     write(tmp_path, "legacy/models.py", LEGACY_USER)
+    write(tmp_path, "legacy/app.py", LEGACY_ROUTE)
     assert findings_for(tmp_path, "auth", "AUTH-EMAIL-NOT-UNIQUE") == []
     write(tmp_path, "api/app/models.py", LEGACY_USER)
     [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-NOT-UNIQUE")
@@ -299,3 +307,35 @@ def test_a_resource_profile_route_is_not_an_email_change(tmp_path):
         "client_id: int, data: ClientUpdate",
     )
     assert findings_for(tmp_path, "auth", "AUTH-EMAIL-CHANGE-UNVERIFIED") == []
+
+
+def shared_schema_app(root, email_line="email String"):
+    write(root, "package.json", '{"private": true, "workspaces": ["apps/*", "packages/*"]}')
+    write(root, "apps/web/package.json", '{"dependencies": {"next": "14", "@repo/db": "*"}}')
+    write(
+        root,
+        "apps/web/app/api/auth/register/route.ts",
+        "import { prisma } from '@repo/db'\nexport async function POST(req: Request) {\n"
+        "  const body = await req.json()\n"
+        "  await prisma.user.create({ data: { email: body.email } })\n"
+        "  return Response.json({ ok: true })\n}\n",
+    )
+    write(
+        root,
+        "packages/db/package.json",
+        '{"name": "@repo/db", "dependencies": {"@prisma/client": "5"}}',
+    )
+    write(
+        root,
+        "packages/db/prisma/schema.prisma",
+        f"model User {{\n  id Int @id @default(autoincrement())\n  {email_line}\n}}\n",
+    )
+    return root
+
+
+def test_a_user_model_in_a_shared_library_root_counts_for_every_app_root(tmp_path):
+    shared_schema_app(tmp_path)
+    [finding] = findings_for(tmp_path, "auth", "AUTH-EMAIL-NOT-UNIQUE")
+    assert str(finding.locations[0]) == "packages/db/prisma/schema.prisma:3"
+    shared_schema_app(tmp_path, "email String @unique")
+    assert findings_for(tmp_path, "auth", "AUTH-EMAIL-NOT-UNIQUE") == []

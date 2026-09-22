@@ -6,7 +6,7 @@ import ast
 import re
 from collections.abc import Iterator
 
-from dpr.discovery.approots import root_of, same_root
+from dpr.discovery.approots import root_of
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
@@ -20,7 +20,7 @@ from dpr.reviews.auth_flows import (
     user_models,
     user_models_in,
 )
-from dpr.reviews.deploy_env import declared_for
+from dpr.reviews.deploy_env import applies, declared_for
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 
@@ -197,12 +197,12 @@ def _declared_unique(ctx: Context, model) -> bool:
 
 @rule("AUTH-EMAIL-NOT-UNIQUE", review="auth", severity="medium", exploitability="low", owasp="A07")
 def email_not_unique(ctx: Context) -> Iterator[Finding]:
-    """A user model is judged only when a register flow sits in its own app root."""
+    """A user model is judged only when a register flow sits in an app root it applies to: its
+    own root, or any root when the model is shared (see `auth_flows.user_models_in`)."""
     registers = [f.route.file for f in flows_of(ctx, "register")]
     for model in user_models(ctx):
         field = next((f for f in model.fields if f.name in EMAIL_FIELDS), None)
-        roots = ctx.detection.app_roots
-        if field is None or not any(same_root(roots, model.location.file, r) for r in registers):
+        if field is None or not any(applies(ctx, model.location.file, r) for r in registers):
             continue
         if field.unique or _declared_unique(ctx, model):
             record_pass(

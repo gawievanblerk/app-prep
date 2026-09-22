@@ -6,10 +6,11 @@ import ast
 import re
 from dataclasses import dataclass, field
 
-from dpr.discovery.approots import root_of, same_root
+from dpr.discovery.approots import root_of
 from dpr.model import DataModel, Location, Route, Tag
 from dpr.parsing import jsts, pyast
 from dpr.reviews.access import ADMIN, PUBLIC, access
+from dpr.reviews.deploy_env import applies
 from dpr.reviews.lookups import resolve_helper
 from dpr.reviews.paid import js_call_target
 from dpr.reviews.paths import is_test
@@ -251,9 +252,10 @@ def user_models(ctx: Context) -> list[DataModel]:
 
 
 def user_models_in(ctx: Context, rel: str) -> list[DataModel]:
-    """User models in the app root of `rel`: a model in another root never decides a flow."""
-    roots = ctx.detection.app_roots
-    return [m for m in user_models(ctx) if same_root(roots, m.location.file, rel)]
+    """User models that apply to the app root of `rel`: models in that root, and shared models
+    (outside every app root, in the repository-root entry or in a library root), the same rule
+    as shared infra. A model inside another non-library app root never decides a flow."""
+    return [m for m in user_models(ctx) if applies(ctx, m.location.file, rel)]
 
 
 def lifetimes(ctx: Context, root: str | None = None) -> list[tuple[str, str, Location]]:

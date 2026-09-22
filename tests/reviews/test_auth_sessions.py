@@ -118,6 +118,12 @@ def test_lockout_column_in_another_root_does_not_pass_sign_in(tmp_path):
         "legacy/models.py",
         "class User(Base):\n    __tablename__ = 'users'\n    failed_login_attempts = Column(Integer)\n",
     )
+    write(
+        tmp_path,
+        "legacy/app.py",
+        "from flask import Flask\napp = Flask(__name__)\n\n\n@app.get('/health')\n"
+        "def health():\n    return 'ok'\n",
+    )
     [finding] = findings_for(tmp_path, "auth", "AUTH-NO-LOCKOUT")
     assert str(finding.locations[0]) == "api/app/routes/auth.py:7"
 
@@ -135,4 +141,23 @@ def test_lockout_package_of_another_app_root_does_not_pass_sign_in(tmp_path):
     [finding] = findings_for(tmp_path, "auth", "AUTH-NO-LOCKOUT")
     assert str(finding.locations[0]) == "api/app/routes/auth.py:7"
     write(tmp_path, "requirements.txt", "flask-limiter\n")
+    assert findings_for(tmp_path, "auth", "AUTH-NO-LOCKOUT") == []
+
+
+def test_lockout_column_on_a_shared_library_user_model_passes_sign_in(tmp_path):
+    write(tmp_path, "apps/api/requirements.txt", "fastapi\n")
+    write(tmp_path, "apps/api/app/routes/auth.py", LOGIN_ONLY)
+    write(tmp_path, "packages/db/requirements.txt", "sqlalchemy\n")
+    write(
+        tmp_path,
+        "packages/db/models.py",
+        "class User(Base):\n    __tablename__ = 'users'\n    email = Column(String)\n",
+    )
+    [finding] = findings_for(tmp_path, "auth", "AUTH-NO-LOCKOUT")
+    assert str(finding.locations[0]) == "apps/api/app/routes/auth.py:7"
+    write(
+        tmp_path,
+        "packages/db/models.py",
+        "class User(Base):\n    __tablename__ = 'users'\n    failed_login_attempts = Column(Integer)\n",
+    )
     assert findings_for(tmp_path, "auth", "AUTH-NO-LOCKOUT") == []
