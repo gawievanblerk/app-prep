@@ -110,3 +110,30 @@ def test_reserved_placeholder_and_own_domains_are_not_reported(tmp_path):
         "Write to a@example.org, b@x.com, c@company.com, d@ourapp.io or e@db.postgres.database.azure.com\n",
     )
     assert findings_for(tmp_path, "leaks", "LEAK-COMMITTED-DATA-FILE") == []
+
+
+def test_nearest_schema_never_crosses_app_roots(tmp_path):
+    from dpr import reviews, rules
+    from dpr.discovery.detect import detect
+    from dpr.reviews.abuse_bulk import list_fields, nearest
+    from dpr.walk import RepoIndex
+
+    schema = (
+        "from pydantic import BaseModel, Field\n\n\n"
+        "class BulkRequest(BaseModel):\n    ids: list[str] = Field(..., max_length={cap})\n"
+    )
+    write(tmp_path, "apps/api/requirements.txt", "fastapi\npydantic\n")
+    write(tmp_path, "apps/api-worker/requirements.txt", "fastapi\npydantic\n")
+    write(tmp_path, "apps/api-worker/app/routes/schemas.py", schema.format(cap=900))
+    route = "apps/api/app/routes/reports.py"
+
+    def pick(root):
+        reviews.available()
+        index = RepoIndex(root)
+        ctx = rules.Context(index=index, detection=detect(index))
+        return nearest(ctx, list_fields(ctx)["BulkRequest"], route)
+
+    assert pick(tmp_path) == {}
+    write(tmp_path, "apps/api/app/schemas.py", schema.format(cap=50))
+    [(cap, where)] = pick(tmp_path).values()
+    assert (cap, str(where)) == (50, "apps/api/app/schemas.py:5")
