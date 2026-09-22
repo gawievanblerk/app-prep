@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from dpr import reviews, rules
 from dpr.api import review
 from dpr.discovery.detect import detect
@@ -190,3 +192,20 @@ def test_committed_password_case_stays_out_when_baseline_did_not_run(tmp_path):
     report = review(committed_password_app(tmp_path), reviews=["auth"])
     body = {p.title: p for p in report.sections["auth"].parts}["Cases"].body
     assert "Accounts created with passwords written in the repository" not in body
+
+
+def test_timing_findings_are_listed_only_under_their_own_flow_case(tmp_path):
+    ctx = context(auth_app(tmp_path))
+    sign_in = replace(
+        finding("AUTH-ENUM-TIMING", "medium", 30),
+        title="Sign-in response time reveals whether an account exists",
+    )
+    reset = replace(
+        finding("AUTH-ENUM-TIMING", "medium", 40),
+        title="Reset request response time reveals whether an account exists",
+    )
+    blocks = auth.case_blocks(ctx, [sign_in, reset]).split("#### ")
+    [case1] = [b for b in blocks if b.startswith("CASE 1:")]
+    [case2] = [b for b in blocks if b.startswith("CASE 2:")]
+    assert "Sign-in response time" in case1 and "Reset request response time" not in case1
+    assert "Reset request response time" in case2 and "Sign-in response time" not in case2

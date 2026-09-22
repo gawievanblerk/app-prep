@@ -3,14 +3,14 @@ cases:
   - number: 1
     title: Wrong password five times in a row
     kinds: [login]
-    rules: [AUTH-NO-LOCKOUT, AUTH-ENUM-LOCKOUT-STATUS, AUTH-ENUM-TIMING]
+    rules: [AUTH-NO-LOCKOUT, AUTH-ENUM-LOCKOUT-STATUS, "AUTH-ENUM-TIMING|sign-in"]
     expected: Attempts are throttled per account and per IP, the response and its timing are the same for a wrong password, an unknown account and a locked account, lockout cannot be used to deny the owner indefinitely, and the event is logged.
     risk: Password guessing without a throttle, or an oracle that confirms which accounts exist and lets anyone keep a known account locked.
     test: Send eleven wrong passwords for a real account and eleven for an unknown address; the status, body and median latency must match, and requests after the limit must be refused.
   - number: 2
     title: Reset requested for an email that was never registered
     kinds: [forgot]
-    rules: [AUTH-ENUM-RESET-MESSAGE, AUTH-ENUM-TIMING]
+    rules: [AUTH-ENUM-RESET-MESSAGE, "AUTH-ENUM-TIMING|reset"]
     expected: The same response and the same timing as for a registered address, and no email to the unregistered address.
     risk: A free account enumeration oracle.
     test: Time twenty reset requests for a known and an unknown address against a local stack; the responses and latency distributions must match.
