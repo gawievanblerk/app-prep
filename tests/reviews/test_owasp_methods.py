@@ -196,3 +196,27 @@ def test_single_deletes_grouped_low_and_post_flows_skipped(tmp_path):
     [finding] = findings_for(tmp_path, "owasp", "OWASP-A04-GET-SIDE-EFFECT")
     assert finding.title == "GET /doc_delete/<int:pk> and 1 other route(s) delete records"
     assert (finding.severity.value, [loc.line for loc in finding.locations]) == ("low", [10, 16])
+
+
+def test_dict_updates_in_a_loop_are_not_writes(tmp_path):
+    write(
+        tmp_path,
+        "sync/urls.py",
+        "from django.urls import path\nfrom sync import views\n\nurlpatterns = [\n"
+        '    path("passwords/", views.passwords),\n'
+        '    path("rename/", views.rename),\n]\n',
+    )
+    write(
+        tmp_path,
+        "sync/views.py",
+        "@login_required\ndef passwords(request):\n    data = {}\n"
+        "    for row in Secret.objects.all():\n        data.update({row.name: row.value})\n"
+        "        extra = dict(name=row.name)\n        extra.update(**row.more)\n"
+        "    return JsonResponse(data)\n\n\n"
+        "@login_required\ndef rename(request):\n"
+        "    for member in Member.objects.filter(active=True):\n"
+        "        member.surname = 'x'\n        Member.objects.filter(pk=member.pk).update(x=1)\n"
+        "    return redirect('home')\n",
+    )
+    [finding] = findings_for(tmp_path, "owasp", "OWASP-A04-GET-SIDE-EFFECT")
+    assert finding.title == "GET /rename writes records in bulk"

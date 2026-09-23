@@ -133,6 +133,29 @@ def _static(node: ast.Return) -> bool:
     return isinstance(value, ast.Call) and all(isinstance(p, ast.Constant) for p in parts)
 
 
+def raises_always(fn: ast.AST) -> ast.stmt | None:
+    """A top-level statement that fails on every call: a `raise`, `assert False`, or a
+    division by the literal zero (`100 / 0`)."""
+    for stmt in reachable(fn):
+        if isinstance(stmt, ast.Raise):
+            return stmt
+        if isinstance(stmt, ast.Assert) and pyast.constant(stmt.test, True) in (False, 0):
+            return stmt
+        for node in ast.walk(stmt) if isinstance(stmt, ast.Expr | ast.Assign) else []:
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div | ast.FloorDiv):
+                if pyast.constant(node.right, None) == 0:
+                    return stmt
+    return None
+
+
+RAISES = (
+    "raises an error for anyone",
+    "{where} is a test or debug route that anyone can call, and it raises an error on every "
+    "request. Each call writes an error log entry and, when an error tracker is set up, sends "
+    "it an event carrying the request's data, using up its quota.",
+)
+
+
 @rule(
     "OWASP-A05-DEBUG-ENDPOINT",
     review="owasp",
@@ -150,17 +173,22 @@ def debug_endpoint(ctx: Context) -> Iterator[Finding]:
                 (n for n in ast.walk(fn) if hasattr(n, "lineno") and DETAIL.search(_line(n))),
                 None,
             )
-            if detail is None or all(_static(r) for r in returns):
+            raised = raises_always(fn)
+            if raised is None and (detail is None or all(_static(r) for r in returns)):
                 continue
+            site = detail if raised is None else raised
             proof = unread_guard(access(ctx, route))
+            where = f"{route.method} {route.path}"
             yield make_finding(
                 "OWASP-A05-DEBUG-ENDPOINT",
                 tag=Tag.INFERRED if proof else Tag.CONFIRMED,
-                locations=[Location(route.file, detail.lineno)],
-                snippet=snippet(ctx.index.text(route.file), detail.lineno),
+                locations=[Location(route.file, site.lineno)],
+                snippet=snippet(ctx.index.text(route.file), site.lineno),
+                detail=None if raised is None else RAISES[1].format(where=where),
                 proof_needed=proof,
                 method=route.method,
                 path=route.path,
+                what="returns internal detail" if raised is None else RAISES[0],
             )
             break
 

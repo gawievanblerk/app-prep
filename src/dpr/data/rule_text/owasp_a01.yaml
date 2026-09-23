@@ -40,3 +40,12 @@ OWASP-A01-UNSIGNED-CALLBACK:
   blast: Every record the callback creates or changes, such as consents, confirmations and delivery results.
   fix: Verify the provider's HMAC signature (hmac.compare_digest over the raw body with a shared secret) or a secret token in a header, and reject anything else with 403. If the provider cannot sign, allow only its IP addresses at the proxy and in the view.
   verify: Send a request to ${method} ${path} without the signature or from another address and expect 403 with nothing written.
+OWASP-A01-UNSCOPED-LIST:
+  title: ${method} ${path} returns every ${model} record to ${attacker}
+  effort_minutes: 20
+  detail: The ${method} ${path} route checks only that the caller is signed in, then sends a list of ${model} records that no filter ties to the caller or to a role. Any account that can sign in, including through HTTP Basic or a token when the API accepts them, receives the whole list.
+  proof_needed: Confirm who may see every record.
+  attack: Sign in as ${attacker}, request ${method} ${path} and page through the response to collect every ${model} record.
+  blast: Every ${model} record, with the personal data its serializer or template shows.
+  fix: Remove the route if nothing calls it. Otherwise require a role (a permission class, permission_required or user_passes_test) and filter the queryset to the records the caller may see, in get_queryset or the view itself.
+  verify: Sign in as an ordinary account, request ${method} ${path} and expect 403 or only the caller's own records.

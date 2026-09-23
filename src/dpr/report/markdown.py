@@ -9,7 +9,7 @@ from jinja2 import Environment, PackageLoader
 from dpr.model import Finding, Part, Report
 from dpr.questions.lawyer import lawyer_questions
 from dpr.rank import order_for_section
-from dpr.report.register import build_register
+from dpr.report.register import app_of, build_register, chain_of
 from dpr.reviews import LABELS, REVIEWS, TITLES, number
 
 DISCLAIMER = (
@@ -102,8 +102,58 @@ def _part_body(slug: str, part: Part, report: Report) -> str:
         items = order_for_section(slug, report.findings)
         if not items:
             return "None found."
-        return "\n\n".join(_block(LABELS[slug], i, f) for i, f in enumerate(items, start=1))
+        return "\n\n".join(_blocks(LABELS[slug], items, report))
     return part.body
+
+
+def _folded(label: str, position: int, spec: dict, members: list[Finding]) -> str:
+    """One entry for the findings of a folded register chain: a line per file listing each
+    finding's subject and line. The JSON report keeps every finding in full."""
+    lead = members[0]
+    by_file: dict[str, list[str]] = {}
+    for f in members:
+        where = f.locations[0] if f.locations else None
+        subject = re.sub(r"\s+(?:loads|returns|lists|runs|starts|sends)\b.*$", "", f.title)
+        by_file.setdefault(where.file if where else "not tied to a file", []).append(
+            f"{subject} (line {where.line})" if where else subject
+        )
+    lines = [
+        f"#### {label} {position}: {spec['title']} ({len(members)} findings)",
+        "",
+        f"Severity: {lead.severity.value}, tag: {lead.tag.value}, effort: about "
+        f"{lead.effort_minutes} min each",
+        "",
+        spec.get("detail", lead.detail),
+        "",
+        *(f"- `{file}`: {', '.join(items)}" for file, items in by_file.items()),
+        "",
+        "Fix:",
+        "",
+        lead.fix,
+    ]
+    return "\n".join(lines)
+
+
+def _blocks(label: str, items: list[Finding], report: Report) -> list[str]:
+    """Finding blocks in order; the members of a folded chain (register.yaml `fold`) become one
+    entry per app at the place of the first."""
+    roots = report.detection.app_roots
+    groups: dict[tuple, list[Finding]] = {}
+    for f in items:
+        chain = chain_of(f)
+        if chain is not None and chain[1].get("fold"):
+            groups.setdefault((chain[0], app_of(f, roots)), []).append(f)
+    blocks, done = [], set()
+    for f in items:
+        chain = chain_of(f)
+        key = (chain[0], app_of(f, roots)) if chain is not None else None
+        if key in groups:
+            if key not in done:
+                done.add(key)
+                blocks.append(_folded(label, len(blocks) + 1, chain[1], groups[key]))
+            continue
+        blocks.append(_block(label, len(blocks) + 1, f))
+    return blocks
 
 
 def _app_roots(report: Report) -> str:

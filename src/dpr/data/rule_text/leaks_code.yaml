@@ -50,3 +50,10 @@ LEAK-PII-LITERAL-IN-CODE:
   blast: Every person whose number is in the file, exposed to anyone with repository access.
   fix: Move the values to the database or to environment settings kept outside the repository, load them at run time, and plan a history rewrite if the numbers are real.
   verify: Search the file for 13-digit and 10-digit numbers and confirm none remain; run git log -p on the file to see which commits still hold them.
+LEAK-REQUEST-LOG:
+  title: ${where} stores ${what}
+  effort_minutes: 60
+  detail: ${where} writes ${what} to a log or a database table with no redaction step. Headers carry session cookies, Authorization values and API keys; bodies carry passwords, identity and bank numbers and whatever the API returns, including temporary credentials. Anyone who can read the log (an admin page, a log platform, a backup) can reuse the tokens and read the personal data.
+  blast: Every request the logger covers, for as long as the log or table keeps it.
+  fix: Drop or mask Authorization, Cookie, Set-Cookie and API key headers and known personal fields (passwords, identity, bank and phone numbers) before saving, cap body sizes, set a retention period with a purge job, and rotate any key that has been logged.
+  verify: Send a request with an Authorization header and a password field through the logged path and confirm the stored row holds neither.

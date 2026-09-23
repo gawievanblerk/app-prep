@@ -1,8 +1,9 @@
 """Review 5, OWASP A01: sensitive actions on routes anyone can call.
 
 A route the classifier marks public is reported once when it sets a password or changes a
-user account, looks up personal data by a value from the request, returns a file, or starts a
-background job or a back-office write that takes no input at all.
+user account, looks up personal data by a value from the request, returns a file, lists stored
+records that hold personal data, files or users' records, or starts a background job or a
+back-office write that takes no input at all.
 """
 
 from __future__ import annotations
@@ -16,11 +17,12 @@ from dpr.model import Finding, Location, Route, Tag
 from dpr.parsing import pyast
 from dpr.redact import snippet
 from dpr.reviews.access import PUBLIC, Access, access, path_params, unread_guard
-from dpr.reviews.lookups import PY_ORM, user_model
+from dpr.reviews.lookups import PY_ORM, owned, user_model
 from dpr.reviews.lookups_route import handler_functions, route_lookups
 from dpr.reviews.owasp_hooks import callback_routes, reachable
 from dpr.reviews.paid_targets import py_target
 from dpr.reviews.paths import is_test
+from dpr.reviews.record_lists import has_file_field, personal_model, route_lists
 from dpr.reviews.request_values import PERSONAL_KEY, reads, request_names, trace
 from dpr.rules import Context, make_finding, rule
 
@@ -49,6 +51,7 @@ ACTIONS = {
     "account": "changes a user account",
     "personal": "looks up personal data by {label}",
     "file": "returns a file",
+    "list": "lists stored {model} records",
     "job": "starts a background job",
     "write": "runs a back-office write that takes no input",
 }
@@ -61,6 +64,7 @@ class Sensitive:
     kinds: dict[str, Location]
     label: str
     exact: bool
+    model: str = ""
 
 
 def _records(fn: ast.AST) -> dict[str, str]:
@@ -158,9 +162,22 @@ def _helper_kinds(ctx: Context, rel: str, fn: ast.AST) -> dict[str, Location]:
     return found
 
 
+def _record_list(ctx: Context, route: Route) -> tuple[Location, str, bool] | None:
+    """The first list of records sent by the handler whose model holds personal data, files or
+    records owned by users, and whether the model surely holds personal data or files."""
+    for item in route_lists(ctx, route):
+        sure = personal_model(ctx, item.model) or has_file_field(ctx, item.model)
+        if sure or owned(ctx, item.model):
+            return Location(route.file, item.line), item.model, sure
+    return None
+
+
 def _sensitive(ctx: Context, route: Route, level: Access) -> Sensitive | None:
     kinds: dict[str, Location] = {}
     label = ""
+    listed = _record_list(ctx, route)
+    if listed is not None:
+        kinds["list"] = listed[0]
     keys = set(path_params(route))
     takes_input = False
     for fn in handler_functions(route.handler):
@@ -184,9 +201,13 @@ def _sensitive(ctx: Context, route: Route, level: Access) -> Sensitive | None:
     lookups = [lookup for lookup, _check in route_lookups(ctx, route, level)]
     keyed = bool(lookups) and not any(RANDOM_KEY.search(k) for k in lookups[0].keys)
     exact = unread_guard(level) is None and (
-        "password" in kinds or ("personal" in kinds or "file" in kinds) and keyed
+        "password" in kinds
+        or ("personal" in kinds or "file" in kinds)
+        and keyed
+        or listed is not None
+        and listed[2]
     )
-    return Sensitive(route, kinds, label, exact)
+    return Sensitive(route, kinds, label, exact, listed[1] if listed else "")
 
 
 def public_sensitive(ctx: Context) -> list[Sensitive]:
@@ -223,7 +244,10 @@ def public_sensitive_actions(ctx: Context) -> Iterator[Finding]:
     for item in public_sensitive(ctx):
         route = item.route
         kinds = sorted(item.kinds, key=ORDER.index)
-        actions = [ACTIONS[k].format(label=item.label or "a request value") for k in kinds]
+        actions = [
+            ACTIONS[k].format(label=item.label or "a request value", model=item.model)
+            for k in kinds
+        ]
         proofs = []
         guard = unread_guard(access(ctx, route))
         if guard:

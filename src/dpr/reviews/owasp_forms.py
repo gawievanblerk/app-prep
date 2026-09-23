@@ -28,6 +28,7 @@ LARGE = 100_000_000
 ALWAYS = ("is_superuser", "is_staff", "user_permissions")
 GRANTS = ("groups", "permissions")
 FORM_BASE = re.compile(r"ModelForm|ModelSerializer|UserChangeForm|UserCreationForm")
+CHOICE = re.compile(r"(?:ModelChoiceField|ModelMultipleChoiceField|PrimaryKeyRelatedField)$")
 FILE_FIELD = re.compile(r"(?:(?:models|forms|serializers)\.)?FileField")
 PACKAGE_DIRS = frozenset({"forms", "models", "views", "serializers", "api"})
 SIZES = ((1 << 30, "GB"), (1 << 20, "MB"), (1 << 10, "KB"))
@@ -190,7 +191,29 @@ def _exposed(cls: ast.ClassDef, privileged: dict[str, set[str]]) -> tuple[list[s
         if not re.search(rf"(?:fields\.pop\(|del self\.fields\[)\s*['\"]{f}['\"]", methods)
     ]
     line = getattr(fields_node, "lineno", cls.lineno)
-    return exposed, line
+    chosen = _template_choices(cls, privileged)
+    if chosen and not exposed:
+        line = chosen[0][1]
+    return exposed + [text for text, _line in chosen], line
+
+
+def _template_choices(cls: ast.ClassDef, privileged: dict[str, set[str]]) -> list[tuple[str, int]]:
+    """Declared choice fields over a role template that carries a superuser or staff flag,
+    such as `designation = ModelChoiceField(queryset=Designation.objects.all())`, whose
+    queryset does not leave the flagged rows out."""
+    found = []
+    for name, value in pyast.assignments(cls.body).items():
+        if not isinstance(value, ast.Call) or not CHOICE.search(pyast.dotted(value.func) or ""):
+            continue
+        queryset = pyast.kwarg(value, "queryset")
+        text = ast.unparse(queryset) if queryset is not None else ""
+        model = re.match(r"(?:\w+\.)*(\w+)\.objects\b", text)
+        flags = sorted(privileged.get(model.group(1), set()) & set(ALWAYS[:2])) if model else []
+        if flags and not any(flag in text for flag in flags):
+            found.append(
+                (f"{name} (a {model.group(1)}, which sets {', '.join(flags)})", value.lineno)
+            )
+    return found
 
 
 def _guard_text(route: Route) -> str:

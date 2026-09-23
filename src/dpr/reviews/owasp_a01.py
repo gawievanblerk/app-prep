@@ -1,4 +1,4 @@
-"""Review 5, OWASP A01: unscoped lookups, unguarded methods, email ownership."""
+"""Review 5, OWASP A01: unscoped lookups and lists, unguarded methods, email ownership."""
 
 from __future__ import annotations
 
@@ -10,10 +10,11 @@ from dpr.model import Finding, Location, Route, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
 from dpr.reviews.access import ADMIN, AUTHENTICATED, PUBLIC, Access, access, unread_guard
-from dpr.reviews.lookups import USER_MODELS, Lookup, model_for, owned
+from dpr.reviews.lookups import USER_MODELS, Lookup, model_for, owned, user_model
 from dpr.reviews.lookups_route import handler_functions, route_lookups
 from dpr.reviews.owasp_public import public_sensitive_routes
 from dpr.reviews.paths import is_test
+from dpr.reviews.record_lists import personal_model, route_lists
 from dpr.reviews.request_values import request_names
 from dpr.rules import Context, make_finding, rule
 
@@ -28,6 +29,10 @@ ROLE_BODY = r"user\.(?:has_perms?|is_superuser|is_staff|groups)\b"
 ROLE_PROOF = (
     "Role-gated back-office access ({role}): confirm by design that every holder of this role "
     "may reach every record."
+)
+LIST_PROOF = (
+    "Confirm that every signed-in account (staff, advisors, partners) may see every {model} "
+    "record; a narrower audience needs a role check or a filter on the caller."
 )
 SEQUENTIAL = " {model} has an auto-increment integer key, so one working ID reveals the others."
 PUBLIC_ATTACK = (
@@ -144,6 +149,36 @@ def unscoped_query(ctx: Context) -> Iterator[Finding]:
             level=level.level,
             attacker=attacker(level.evidence),
             extra=extra,
+        )
+
+
+@rule(
+    "OWASP-A01-UNSCOPED-LIST", review="owasp", severity="high", exploitability="high", owasp="A01"
+)
+def unscoped_list(ctx: Context) -> Iterator[Finding]:
+    """A signed-in route with no role gate that sends every user or personal record."""
+    for route in ctx.detection.routes:
+        level = access(ctx, route)
+        if level.level != AUTHENTICATED or is_test(route.file) or role_gate(route, level):
+            continue
+        lists = [i for i in route_lists(ctx, route) if not i.related]
+        item = next((i for i in lists if personal_model(ctx, i.model)), None)
+        if item is None:
+            continue
+        users = user_model(item.model)
+        proof = unread_guard(level)
+        if not users:
+            proof = " ".join(p for p in (proof, LIST_PROOF.format(model=item.model)) if p)
+        yield make_finding(
+            "OWASP-A01-UNSCOPED-LIST",
+            tag=Tag.INFERRED if proof else Tag.CONFIRMED,
+            locations=[Location(route.file, item.line)],
+            snippet=snippet(ctx.index.text(route.file), item.line),
+            proof_needed=proof or None,
+            method=route.method,
+            path=route.path,
+            model=item.model,
+            attacker=attacker(level.evidence),
         )
 
 

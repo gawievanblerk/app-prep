@@ -207,3 +207,70 @@ def test_code_after_a_top_level_return_is_not_read(tmp_path):
         "    policy = Policy.objects.get(pk=request.GET['policy_id'])\n",
     )
     assert findings_for(tmp_path, "owasp", "OWASP-A01-UNSCOPED-QUERY") == []
+
+
+def test_signed_in_lists_of_every_user_or_personal_record(tmp_path):
+    write(
+        tmp_path,
+        "api/models.py",
+        "from django.db import models\n"
+        "class PoliciesUser(models.Model):\n    email = models.EmailField()\n"
+        "class Applicant(models.Model):\n    id_number = models.CharField(max_length=13)\n"
+        "    email = models.EmailField()\n"
+        "class Product(models.Model):\n    title = models.CharField(max_length=20)\n"
+        "class Dependent(models.Model):\n    id_number = models.CharField(max_length=13)\n"
+        "    applicant = models.ForeignKey(Applicant, related_name='dependents')\n",
+    )
+    write(
+        tmp_path,
+        "api/urls.py",
+        "from django.urls import path\nfrom api import views\nurlpatterns = [\n"
+        "    path('users/list/', views.user_list), path('members/', views.members),\n"
+        "    path('products/', views.products), path('staff/users/', views.staff_users),\n"
+        "    path('team/', views.team), path('member-api/', views.MemberList.as_view()),\n"
+        "    path('deps/<int:pk>/', views.deps),\n]\n",
+    )
+    write(
+        tmp_path,
+        "api/views.py",
+        "from django.contrib.auth.decorators import login_required, user_passes_test\n"
+        "from rest_framework.decorators import api_view\n"
+        "from rest_framework.generics import ListAPIView\n"
+        "@api_view(['GET'])\ndef user_list(request):\n"
+        "    users = PoliciesUser.objects.order_by('-username')\n"
+        "    serializer = UserSerializer(users, many=True)\n"
+        "    return JsonResponse(serializer.data, safe=False)\n"
+        "@login_required\ndef members(request):\n"
+        "    return render(request, 'm.html', {'members': Applicant.objects.all()[:100]})\n"
+        "@login_required\ndef products(request):\n"
+        "    return render(request, 'p.html', {'items': Product.objects.all()})\n"
+        "@login_required\n@user_passes_test(lambda u: u.is_superuser)\ndef staff_users(request):\n"
+        "    return render(request, 'u.html', {'users': PoliciesUser.objects.all()})\n"
+        "@login_required\ndef team(request):\n"
+        "    users = PoliciesUser.objects.filter(team=request.user.team)\n"
+        "    return render(request, 't.html', {'users': users})\n"
+        "class MemberList(ListAPIView):\n"
+        "    queryset = PoliciesUser.objects.all()\n    serializer_class = UserSerializer\n"
+        "@login_required\ndef deps(request, pk):\n    found = Applicant.objects.get(pk=pk)\n"
+        "    return render(request, 'd.html', {'deps': found.dependents.all()})\n",
+    )
+    write(tmp_path, "config/settings.py", SETTINGS)
+    found = findings_for(tmp_path, "owasp", "OWASP-A01-UNSCOPED-LIST")
+    got = sorted((f.title, f.tag.value, str(f.locations[0])) for f in found)
+    assert got == [
+        (
+            "ANY /member-api returns every PoliciesUser record to any signed-in user",
+            "CONFIRMED",
+            "api/views.py:24",
+        ),
+        (
+            "ANY /members returns every Applicant record to any signed-in user",
+            "INFERRED",
+            "api/views.py:11",
+        ),
+        (
+            "ANY /users/list returns every PoliciesUser record to any signed-in user",
+            "CONFIRMED",
+            "api/views.py:6",
+        ),
+    ]

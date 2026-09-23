@@ -218,3 +218,84 @@ def test_debug_endpoints_that_disclose_detail(tmp_path):
         ("Public ANY /readyz returns internal detail", "ops/views.py:6"),
     ]
     assert {f.severity.value for f in found} == {"low"}
+
+
+def test_debug_routes_that_raise_on_demand(tmp_path):
+    write(
+        tmp_path,
+        "ops/urls.py",
+        "from django.urls import path\nfrom ops import views\nurlpatterns = [\n"
+        "    path('test/error/', views.test_error),\n"
+        "    path('test/serialization_error/', views.test_serialization_error),\n"
+        "    path('test/checked/', views.test_checked), path('boom/', views.boom),\n"
+        "    path('debug/staff/', views.staff_error),\n]\n",
+    )
+    write(
+        tmp_path,
+        "ops/views.py",
+        "def test_error(request):\n    100 / 0\n"
+        "def test_serialization_error(request):\n"
+        "    raise ValidationError('This is a test error')\n"
+        "def test_checked(request):\n    if request.GET.get('x'):\n        raise Http404\n"
+        "    return HttpResponse('OK')\n"
+        "def boom(request):\n    raise ValueError('boom')\n"
+        "@login_required\ndef staff_error(request):\n    raise ValueError('boom')\n",
+    )
+    found = findings_for(tmp_path, "owasp", "OWASP-A05-DEBUG-ENDPOINT")
+    assert sorted((f.title, str(f.locations[0])) for f in found) == [
+        ("Public ANY /test/error raises an error for anyone", "ops/views.py:2"),
+        ("Public ANY /test/serialization_error raises an error for anyone", "ops/views.py:4"),
+    ]
+    assert "error tracker" in found[0].detail
+
+
+LIST_MODELS = (
+    "from django.db import models\n"
+    "class UploadFile(models.Model):\n    file_name = models.FileField()\n"
+    "class Batch(models.Model):\n    date = models.DateField()\n"
+    "class Premium(models.Model):\n    policy_number = models.CharField(max_length=20)\n"
+    "    member_id = models.IntegerField()\n"
+    "    batch = models.ForeignKey('Batch', related_name='premiums', on_delete=models.CASCADE)\n"
+    "class Article(models.Model):\n    title = models.CharField(max_length=20)\n"
+)
+LIST_VIEWS = (
+    "def uploaded(request):\n    context = {}\n"
+    "    context['files'] = UploadFile.objects.order_by('-id')\n"
+    "    return smart_respond(request, 'files.html', context)\n"
+    "def batch(request, batch_id):\n    found = get_object_or_404(Batch, pk=batch_id)\n"
+    "    premiums = found.premiums.all()\n    premiums = narrow(premiums)\n"
+    "    return render(request, 'batch.html', {'premiums': premiums})\n"
+    "def articles(request):\n"
+    "    return render(request, 'a.html', {'items': Article.objects.all()})\n"
+    "def counts(request):\n"
+    "    return JsonResponse({'n': UploadFile.objects.all().count()})\n"
+    "def mine(request):\n"
+    "    files = UploadFile.objects.filter(owner=request.user)\n"
+    "    return render(request, 'f.html', {'files': files})\n"
+)
+
+
+def test_public_routes_that_list_stored_records(tmp_path):
+    write(tmp_path, "desk/models.py", LIST_MODELS)
+    names = ("uploaded", "batch/<int:batch_id>", "articles", "counts", "mine")
+    patterns = "".join(f"    path('{p}/', views.{p.split('/')[0]}),\n" for p in names)
+    write(
+        tmp_path,
+        "desk/urls.py",
+        f"from django.urls import path\nfrom desk import views\nurlpatterns = [\n{patterns}]\n",
+    )
+    write(tmp_path, "desk/views.py", LIST_VIEWS)
+    found = findings_for(tmp_path, "owasp", "OWASP-A01-PUBLIC-SENSITIVE")
+    got = sorted((f.title, f.tag.value, str(f.locations[0])) for f in found)
+    assert got == [
+        (
+            "ANY /batch/<int:batch_id> lists stored Premium records without sign-in",
+            "INFERRED",
+            "desk/views.py:7",
+        ),
+        (
+            "ANY /uploaded lists stored UploadFile records without sign-in",
+            "CONFIRMED",
+            "desk/views.py:3",
+        ),
+    ]

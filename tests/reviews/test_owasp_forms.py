@@ -214,3 +214,45 @@ def test_serializers_used_only_for_output_are_not_reported(tmp_path):
     )
     [finding] = findings_for(tmp_path, "owasp", "OWASP-A01-PRIVILEGE-FIELDS")
     assert finding.title == "DesignationSerializer lets its users set is_superuser, groups"
+
+
+def test_role_template_choice_reaches_superuser(tmp_path):
+    write(
+        tmp_path,
+        "accounts/models.py",
+        "from django.db import models\n"
+        "class Designation(models.Model):\n    name = models.CharField(max_length=20)\n"
+        "    is_superuser = models.BooleanField(default=False)\n",
+    )
+    write(
+        tmp_path,
+        "accounts/forms.py",
+        "from django import forms\nfrom django.forms import ModelForm, ModelChoiceField\n"
+        "class UserForm(ModelForm):\n    class Meta:\n        model = PoliciesUser\n"
+        "        fields = ['username']\n\n"
+        "    designation = ModelChoiceField(queryset=Designation.objects.all())\n"
+        "class LimitedForm(ModelForm):\n    class Meta:\n        model = PoliciesUser\n"
+        "        fields = ['username']\n\n"
+        "    designation = ModelChoiceField(\n"
+        "        queryset=Designation.objects.filter(is_superuser=False))\n",
+    )
+    write(
+        tmp_path,
+        "accounts/urls.py",
+        "from django.urls import path\nfrom accounts import views\nurlpatterns = [\n"
+        "    path('user/', views.user_page), path('limited/', views.limited_page),\n]\n",
+    )
+    write(
+        tmp_path,
+        "accounts/views.py",
+        "from accounts import forms\n"
+        "@login_required\ndef user_page(request):\n"
+        "    form = forms.UserForm(request.POST or None)\n"
+        "@login_required\ndef limited_page(request):\n"
+        "    form = forms.LimitedForm(request.POST or None)\n",
+    )
+    [finding] = findings_for(tmp_path, "owasp", "OWASP-A01-PRIVILEGE-FIELDS")
+    assert finding.title == (
+        "UserForm lets its users set designation (a Designation, which sets is_superuser)"
+    )
+    assert str(finding.locations[0]) == "accounts/forms.py:8"

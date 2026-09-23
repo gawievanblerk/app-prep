@@ -11,6 +11,7 @@ import dpr.reviews.leaks_creds  # noqa: F401  (registers rules)
 import dpr.reviews.leaks_files  # noqa: F401  (registers rules)
 import dpr.reviews.leaks_logs  # noqa: F401  (registers rules)
 import dpr.reviews.leaks_pii  # noqa: F401  (registers rules)
+import dpr.reviews.leaks_requests  # noqa: F401  (registers rules)
 import dpr.reviews.leaks_settings  # noqa: F401  (registers rules)
 from dpr.facts import fact
 from dpr.model import Finding, Location, Part, ReviewSection, Tag

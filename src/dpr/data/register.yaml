@@ -1,7 +1,10 @@
 # Rules that describe one underlying issue are grouped into one register entry.
 # scope: app groups per app root; repo groups across the repository; linked groups the findings of
 # the first rule by the file of their first site and attaches findings of the other rules that
-# share a file with them; `joined` is added to the title when they do.
+# share a file with them; `joined` is added to the title when they do. `severity` limits a chain
+# to findings of that severity (the others stay in their rule's own issue). `fold` prints the
+# chain's findings in the report as one entry per app, with `detail` as its text and a line per
+# file; the JSON report keeps each finding.
 chains:
   - title: Accounts can be signed in to with passwords written in the repository
     scope: linked
@@ -56,3 +59,9 @@ chains:
   - title: Deploy files run as root, make files world-writable or ship the whole folder
     scope: repo
     rules: [BASE-DOCKERIGNORE-THIN, BASE-WORLD-WRITABLE, BASE-DOCKER-ROOT]
+  - title: Role-gated back-office routes load records with no owner check
+    scope: app
+    rules: [OWASP-A01-UNSCOPED-QUERY]
+    severity: low
+    fold: true
+    detail: Each route below checks a role (a permission, group, superuser or staff test) before it loads a record by an identifier from the request, and nothing ties the record to the caller. That is normal for back-office staff screens, so these are low. Confirm by design that every holder of each role may reach every record; the JSON report has the detail of each route.

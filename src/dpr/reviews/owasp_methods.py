@@ -175,7 +175,8 @@ def _querysets(fn: ast.AST) -> set[str]:
 
 
 def side_effects(fn: ast.AST) -> dict[str, int]:
-    """Jobs, sends in a loop, deletes and bulk writes the function makes itself."""
+    """Jobs, sends in a loop, deletes and bulk writes the function makes itself. `update` counts
+    only on a queryset: in a loop it is usually a dict being filled."""
     found: dict[str, int] = {}
     looped = _in_loop(fn)
     querysets = _querysets(fn)
@@ -184,6 +185,8 @@ def side_effects(fn: ast.AST) -> dict[str, int]:
     ):
         name = pyast.dotted(call.func) or ""
         receiver = ast.unparse(call.func.value) if isinstance(call.func, ast.Attribute) else ""
+        queryset = bool(BULK_QUERY.search(receiver) or ".objects." in receiver)
+        queryset = queryset or receiver in querysets
         if JOB.search(name):
             found.setdefault("job", call.lineno)
         elif SEND.search(name) and id(call) in looped:
@@ -192,8 +195,9 @@ def side_effects(fn: ast.AST) -> dict[str, int]:
             found.setdefault("delete", call.lineno)
         elif name.endswith((".bulk_create", ".bulk_update")) or (
             WRITE.search(name)
-            and (id(call) in looped or BULK_QUERY.search(receiver) or receiver in querysets)
+            and (id(call) in looped or queryset)
             and not name.endswith(".save")
+            and (queryset or not name.endswith(".update"))
         ):
             found.setdefault("bulk", call.lineno)
         elif name.endswith(".save") and id(call) in looped:
