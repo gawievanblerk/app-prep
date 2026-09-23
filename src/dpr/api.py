@@ -109,6 +109,7 @@ def review(
         with_audit=with_audit,
         semgrep=semgrep,
         db_dump=db_dump,
+        today=today or datetime.date.today(),
     )
     ask = ask_on_terminal if interactive and sys.stdin.isatty() else None
     results, warnings = resolve(
@@ -173,7 +174,7 @@ def review(
         project=index.root.name,
         scope=str(path),
         revision=detection.git.revision,
-        date=(today or datetime.date.today()).isoformat(),
+        date=options.today.isoformat(),
         reviews_run=tuple(slug for slug in REVIEWS if slug in sections),
         method="Static analysis of the repository",
         applicability=applicability,

@@ -15,3 +15,11 @@ OWASP-A05-DEBUG-ENDPOINT:
   blast: Internal host names, library versions and error detail that help plan other attacks.
   fix: Return only a status (ok or unavailable) from public health routes and log the detail on the server. Remove test and debug routes from production URLs or require staff sign-in.
   verify: Call ${method} ${path} with a failing dependency and confirm the body holds no exception text, versions or settings.
+OWASP-A06-EOL-COMPONENT:
+  title: ${component} ${version} is past its end of support
+  effort_minutes: 480
+  detail: ${component} ${version} stopped receiving security fixes ${when} (${source}), before this scan on ${today}. Flaws found since then are public and stay unfixed in this version. Dates come from the end-of-life table bundled with dpr, dated ${table_date}; no network was used.
+  attack: Look up the security advisories published for ${component} after its end of support and use one that applies to this app.
+  blast: Whatever the component runs, which is the whole application for a framework or runtime, the container for a base image.
+  fix: Upgrade to a supported release (for Django, the current LTS), run the test suite and deprecation warnings first, and pin exact versions so the upgrade is reproducible.
+  verify: Confirm the declared version in the files listed is a supported release on the vendor's support page.

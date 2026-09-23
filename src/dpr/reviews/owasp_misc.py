@@ -10,8 +10,10 @@ from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import SECRET_PARAM_NAMES, snippet
 from dpr.reviews.owasp_inject import REQUEST_VALUE
+from dpr.reviews.owasp_outbound import query_credentials
 from dpr.reviews.owasp_paths import request_params
 from dpr.reviews.paths import is_test
+from dpr.reviews.weak_passwords import weak_password_uses
 from dpr.rules import Context, make_finding, rule
 from dpr.vendored import is_vendored
 from dpr.walk import line_of
@@ -179,6 +181,25 @@ def weak_random_token(ctx: Context) -> Iterator[Finding]:
                 use = _secret_use(scope, name, node.lineno)
                 if use is not None:
                     yield _weak(ctx, entry.rel, node.lineno, name, weak[0], use)
+    for use in weak_password_uses(ctx):
+        sent = (
+            f" The same flow sends the password in plain text by email or SMS ({use.sent})."
+            if use.sent
+            else ""
+        )
+        yield make_finding(
+            "OWASP-A02-WEAK-RANDOM-TOKEN",
+            tag=Tag.CONFIRMED,
+            locations=[Location(use.rel, use.line), use.source],
+            detail=(
+                f"The password comes from {use.helper}(), which builds it with Python's random "
+                f"module ({use.source}); random is predictable and not meant for secrets, and "
+                f"the value is set as the account's password.{sent}"
+            ),
+            snippet=snippet(ctx.index.text(use.rel), use.line),
+            name="Password",
+            call=f"{use.helper}() (random)",
+        )
 
 
 def _secret_use(scope: ast.AST, name: str, after: int) -> str | None:
@@ -233,6 +254,18 @@ def secret_in_url(ctx: Context) -> Iterator[Finding]:
                 snippet=snippet(text, line),
                 param=match.group(1),
             )
+    yield from _query_credentials(ctx)
+
+
+def _query_credentials(ctx: Context) -> Iterator[Finding]:
+    for rel, line, key in query_credentials(ctx):
+        yield make_finding(
+            "OWASP-A02-SECRET-IN-URL",
+            tag=Tag.INFERRED,
+            locations=[Location(rel, line)],
+            snippet=snippet(ctx.index.text(rel), line),
+            param=key,
+        )
 
 
 @rule("OWASP-A04-CLIENT-PRICE", review="owasp", severity="high", exploitability="high", owasp="A04")

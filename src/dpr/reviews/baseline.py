@@ -5,6 +5,7 @@ from __future__ import annotations
 import dpr.reviews.baseline_accounts  # noqa: F401  (registers rules)
 import dpr.reviews.baseline_config  # noqa: F401  (registers rules)
 import dpr.reviews.baseline_debug  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_docker  # noqa: F401  (registers rules)
 import dpr.reviews.baseline_infra  # noqa: F401  (registers rules)
 import dpr.reviews.baseline_literals  # noqa: F401  (registers rules)
 import dpr.reviews.baseline_settings  # noqa: F401  (registers rules)

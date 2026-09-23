@@ -20,7 +20,9 @@ CLI_SECRET = re.compile(
     r"(?:([\"'])([^\"'\n]+)\2|(?![<$*{\[])([^\s\\'\"]+))",
     re.IGNORECASE,
 )
-SECRET_PARAM_NAMES = "password|passwd|pwd|apikey|api_key|secret|client_secret|access_token|token"
+SECRET_PARAM_NAMES = (
+    "password|passwd|pwd|pass|apikey|api_key|secret|client_secret|access_token|token"
+)
 SECRET_QUERY = re.compile(rf"""([?&](?:{SECRET_PARAM_NAMES})=)(?![$<{{%'"`])([^&#\s'"`]+)""")
 SECRET_WORD = r"(?:password|passwd|pwd|secret|token|api[_-]?key|salt)"
 # One string literal: triple quoted (possibly running on past the line), or single, double or

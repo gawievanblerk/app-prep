@@ -44,3 +44,15 @@ chains:
   - title: Provider callbacks accept forged requests
     scope: app
     rules: [OWASP-A01-UNSIGNED-CALLBACK]
+  - title: Signed-in actions can be started from other sites
+    scope: app
+    rules: [OWASP-A01-CSRF-EXEMPT, OWASP-A04-GET-SIDE-EFFECT]
+  - title: Uploads are unbounded or unchecked
+    scope: app
+    rules: [OWASP-A04-UPLOAD-LIMIT, OWASP-A04-UNCHECKED-UPLOAD]
+  - title: Credentials or personal data travel over plain HTTP or in URLs
+    scope: app
+    rules: [OWASP-A02-PLAIN-HTTP-CALL, OWASP-A02-SECRET-IN-URL]
+  - title: Deploy files run as root, make files world-writable or ship the whole folder
+    scope: repo
+    rules: [BASE-DOCKERIGNORE-THIN, BASE-WORLD-WRITABLE, BASE-DOCKER-ROOT]

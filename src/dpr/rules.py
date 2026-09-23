@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import os
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -30,6 +31,7 @@ class Options:
     with_audit: bool = False
     semgrep: str = "auto"
     db_dump: str | None = None
+    today: datetime.date | None = None  # the scan date; end-of-life checks compare with it
 
 
 @dataclass
