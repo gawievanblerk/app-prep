@@ -63,7 +63,7 @@ packages:
     label: gunicorn
     advisories:
       - {id: CVE-2024-1135, severity: high, affected: [["0", "22.0.0"]], summary: "HTTP request smuggling through conflicting Transfer-Encoding headers"}
-      - {id: CVE-2024-6827, severity: high, affected: [["0", "23.0.0"]], summary: "HTTP request smuggling (TE.CL) because Transfer-Encoding values are not validated"}
+      - {id: CVE-2024-6827, severity: high, affected: [["0", "22.0.0"]], summary: "HTTP request smuggling (TE.CL) because Transfer-Encoding values are not validated"}
   reportlab:
     ecosystem: pypi
     label: ReportLab
@@ -112,7 +112,7 @@ packages:
     ecosystem: pypi
     label: gevent
     advisories:
-      - {id: CVE-2023-41419, severity: medium, affected: [["0", "23.9.0"]], summary: "Privilege escalation through a crafted request to WSGIServer"}
+      - {id: CVE-2023-41419, severity: critical, affected: [["0", "23.9.0"]], summary: "Privilege escalation through a crafted request to WSGIServer"}
   wheel:
     ecosystem: pypi
     label: wheel
@@ -154,7 +154,7 @@ packages:
     advisories:
       - {id: CVE-2016-10735, severity: medium, affected: [["3.0.0", "3.4.0"]], summary: "Cross-site scripting through the data-target attribute"}
       - {id: CVE-2018-14040, severity: medium, affected: [["0", "3.4.0"], ["4.0.0", "4.1.2"]], summary: "Cross-site scripting through the data-parent attribute of collapse"}
-      - {id: CVE-2018-14041, severity: medium, affected: [["0", "3.4.0"], ["4.0.0", "4.1.2"]], summary: "Cross-site scripting through the data-target attribute of scrollspy"}
+      - {id: CVE-2018-14041, severity: medium, affected: [["4.0.0", "4.1.2"]], summary: "Cross-site scripting through the data-target attribute of scrollspy"}
       - {id: CVE-2018-14042, severity: medium, affected: [["0", "3.4.0"], ["4.0.0", "4.1.2"]], summary: "Cross-site scripting through the data-container attribute of tooltip"}
       - {id: CVE-2019-8331, severity: medium, affected: [["0", "3.4.1"], ["4.0.0", "4.3.1"]], summary: "Cross-site scripting through the tooltip or popover data-template attribute"}
   pdfjs-dist:
