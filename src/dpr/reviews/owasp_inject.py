@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
+from dpr.reviews.markup_values import markup_names, markup_safe
 from dpr.reviews.paths import is_test
 from dpr.reviews.sql_constants import js_constant, py_constant
 from dpr.reviews.sql_fixed import FixedSql, has_placeholder, unrouted_scripts
@@ -32,7 +33,6 @@ PY_COMMAND = re.compile(r"(?:os\.system|os\.popen|eval|exec)$")
 PY_SUBPROCESS = re.compile(r"subprocess\.(?:run|call|check_call|check_output|Popen)$")
 HTML_TAG = re.compile(r"<(?:p|div|h[1-6]|a|td|tr|table|span|strong|em|li|ul|br|body|html)\b", re.I)
 MAIL_CONTEXT = re.compile(r"(?i)e?mail|notif|smtp|sendgrid|postmark|resend")
-ESCAPES = re.compile(r"(?:^|\.)(?:escape|quote|bleach\.clean|clean)$")
 
 
 def _dynamic_string(node) -> bool:
@@ -224,8 +224,12 @@ def xss_sink(ctx: Context) -> Iterator[Finding]:
             continue
         tree = pyast.parse_file(ctx.index, entry.rel)
         for call in pyast.calls(tree, r"(?:\w+\.)*(mark_safe|Markup)") if tree else []:
-            if call.args and not isinstance(call.args[0], ast.Constant):
-                yield _xss(ctx, entry.rel, call.lineno, pyast.dotted(call.func))
+            if not call.args or isinstance(call.args[0], ast.Constant):
+                continue
+            fn = pyast.function_at(tree, call.lineno)
+            if markup_safe(call.args[0], markup_names(fn) if fn is not None else set()):
+                continue
+            yield _xss(ctx, entry.rel, call.lineno, pyast.dotted(call.func))
 
 
 @rule("OWASP-A03-COMMAND", review="owasp", severity="high", exploitability="high", owasp="A03")
@@ -274,16 +278,7 @@ def command(ctx: Context) -> Iterator[Finding]:
                 )
 
 
-TRUSTED = re.compile(r"(?i)settings|config")
 MARKUP_NAME = re.compile(r"(?i)^(?:content|body|html|template|rows|\w+_html|html_\w+|\w+_rows)$")
-
-
-def _safe_value(node: ast.AST) -> bool:
-    if isinstance(node, ast.Constant) or (isinstance(node, ast.Name) and node.id.isupper()):
-        return True
-    if isinstance(node, ast.Call) and ESCAPES.search(pyast.dotted(node.func) or ""):
-        return True
-    return isinstance(node, ast.Attribute) and bool(TRUSTED.search(ast.unparse(node)))
 
 
 def _constant_loop_names(fn: ast.AST) -> set[str]:
@@ -316,24 +311,6 @@ def _constant_loop_names(fn: ast.AST) -> set[str]:
 NUMERIC = re.compile(r"^(?:int|float|bool|Decimal|date|datetime|UUID)(?:\s*\|\s*None)?$")
 
 
-def _markup_safe(node: ast.AST, escaped: set[str]) -> bool:
-    """Constants, escaped values, and strings built only from them, including joined loops."""
-    if _safe_value(node) or (isinstance(node, ast.Name) and node.id in escaped):
-        return True
-    if isinstance(node, ast.JoinedStr):
-        values = [v.value for v in node.values if isinstance(v, ast.FormattedValue)]
-        return all(_markup_safe(v, escaped) for v in values)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        return _markup_safe(node.left, escaped) and _markup_safe(node.right, escaped)
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-        if node.func.attr == "join" and len(node.args) == 1:
-            arg = node.args[0]
-            if isinstance(arg, ast.GeneratorExp | ast.ListComp):
-                return _markup_safe(arg.elt, escaped)
-            return _markup_safe(arg, escaped)
-    return False
-
-
 def _escaped_names(fn: ast.AST) -> set[str]:
     names = {a.arg for a in fn.args.args if MARKUP_NAME.match(a.arg)} | _constant_loop_names(fn)
     names |= {
@@ -346,7 +323,7 @@ def _escaped_names(fn: ast.AST) -> set[str]:
     ]
     for _ in range(2):
         for node in assigns:
-            if _markup_safe(node.value, names) or MARKUP_NAME.match(node.targets[0].id):
+            if markup_safe(node.value, names) or MARKUP_NAME.match(node.targets[0].id):
                 names.add(node.targets[0].id)
     return names
 
@@ -361,7 +338,7 @@ def _unescaped(fn: ast.AST) -> list[ast.JoinedStr]:
         if not HTML_TAG.search(literal):
             continue
         for value in node.values:
-            if isinstance(value, ast.FormattedValue) and not _markup_safe(value.value, escaped):
+            if isinstance(value, ast.FormattedValue) and not markup_safe(value.value, escaped):
                 found.append(node)
                 break
     return found

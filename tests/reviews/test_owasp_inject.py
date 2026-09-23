@@ -421,6 +421,36 @@ def test_raw_sql_keeps_request_values_and_rates_what_is_left(tmp_path):
     ]
 
 
+def test_markup_over_numeric_formats_and_escaped_parts_is_not_reported(tmp_path):
+    write(
+        tmp_path,
+        "api/services/render.py",
+        "from markupsafe import Markup, escape\n"
+        "def money(n):\n"
+        "    return Markup(f'<span class=\"neg\">-{abs(n):,.0f}</span>')\n"
+        "def paras(v):\n"
+        "    parts = [Markup.escape(p.strip()) for p in v.split('\\n')]\n"
+        "    if not parts:\n"
+        "        parts = [Markup.escape(v)]\n"
+        "    return Markup(''.join(f'<p>{p}</p>' for p in parts))\n"
+        "def wrap(x):\n"
+        "    return Markup('<p>' + Markup.escape(x) + '</p>')\n"
+        "def items(values):\n"
+        "    return Markup(''.join('<li>' + escape(v) + '</li>' for v in values))\n"
+        "def name_tag(name):\n"
+        "    return Markup(f'<b>{name}</b>')\n"
+        "def padded(label):\n"
+        "    return Markup(f'<i>{label:>10}</i>')\n"
+        "def rows(values):\n"
+        "    return Markup(''.join(f'<li>{v}</li>' for v in values))\n",
+    )
+    assert [loc for loc, _ in locs(findings_for(tmp_path, "owasp", "OWASP-A03-XSS-SINK"))] == [
+        "api/services/render.py:14",
+        "api/services/render.py:16",
+        "api/services/render.py:18",
+    ]
+
+
 def test_raw_sql_helper_parameters_need_every_caller_to_be_visible(tmp_path):
     write(
         tmp_path,
