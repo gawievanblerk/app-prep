@@ -42,6 +42,12 @@ JOB_CALL = re.compile(
     r"\.(?:delay|apply_async|submit)$|(?:^|\.)(?:run_in_background|Thread|Process|start_new_thread)$"
 )
 WRITE_CALL = re.compile(r"\.(?:create|bulk_create|bulk_update|update|delete|update_or_create)$")
+LLM_CALL = re.compile(
+    r"(?:^|\.)(?:messages|completions|responses|embeddings)\.create$|\.generate_content$"
+)
+STORED_READ = re.compile(
+    r"\bopen\(|\.read_bytes\(|\b(?:db|session|conn|cursor)\.(?:execute|query|scalars?|fetch\w*)\("
+)
 INPUT = (
     r"(?:GET|POST|FGET|FPOST|data|query_params|body|FILES|headers|META|json|args|form|values"
     r"|get_json)\b"
@@ -126,6 +132,7 @@ def _own_kinds(fn: ast.AST, framework: str, keys: set[str]) -> tuple[dict[str, i
                 lines.setdefault("account", node.lineno)
         if FILE_CALL.search(name):
             lines.setdefault("file", node.lineno)
+            lines.setdefault("stored-file", node.lineno)
         for keyword in node.keywords:
             value = pyast.constant(keyword.value, None)
             if keyword.arg in ("content_type", "mimetype") and isinstance(value, str):
@@ -147,6 +154,9 @@ def _takes_input(fn: ast.AST, framework: str) -> bool:
     django = framework in ("django", "drf", "ninja")
     names = "|".join(re.escape(n) for n in request_names(fn, django))
     params = [a.arg for a in fn.args.args if a.arg not in ("self", "cls")]
+    params += [a.arg for a in fn.args.kwonlyargs]
+    if framework == "fastapi" and params:
+        return True  # every FastAPI parameter is a path, query, body, header or file value
     return len(params) > 1 or bool(re.search(rf"\b(?:{names})\.{INPUT}", ast.unparse(fn)))
 
 
@@ -161,9 +171,27 @@ def _helper_kinds(ctx: Context, rel: str, fn: ast.AST) -> dict[str, Location]:
             name = pyast.dotted(inner.func) or ""
             if JOB_CALL.search(name):
                 found.setdefault("job", Location(target[0], inner.lineno))
+            elif LLM_CALL.search(name):
+                continue
             elif WRITE_CALL.search(name) or name.endswith(".objects.create"):
                 found.setdefault("write", Location(target[0], inner.lineno))
     return found
+
+
+def _stored_text(text: str) -> bool:
+    return bool(PY_ORM.search(text) or STORED_READ.search(text))
+
+
+def _reads_stored(ctx: Context, route: Route) -> bool:
+    """The handler, or a helper it calls, reads a stored record or file."""
+    for fn in handler_functions(route.handler):
+        if _records(fn) or _stored_text(ast.unparse(fn)):
+            return True
+        for call in (n for n in _nodes(fn) if isinstance(n, ast.Call)):
+            target = py_target(ctx, route.file, call, fn)
+            if target is not None and _stored_text(ast.unparse(target[1])):
+                return True
+    return False
 
 
 def _record_list(ctx: Context, route: Route) -> tuple[Location, str, bool] | None:
@@ -183,11 +211,13 @@ def _sensitive(ctx: Context, route: Route, level: Access) -> Sensitive | None:
     if listed is not None:
         kinds["list"] = listed[0]
     keys = set(path_params(route))
-    takes_input = False
+    takes_input = stored_file = False
     for fn in handler_functions(route.handler):
         own, found = _own_kinds(fn, route.framework, keys)
+        stored_file = stored_file or "stored-file" in own
         for kind, line in own.items():
-            kinds.setdefault(kind, Location(route.file, line))
+            if kind != "stored-file":
+                kinds.setdefault(kind, Location(route.file, line))
         label = label or found
         takes_input = takes_input or bool(keys) or _takes_input(fn, route.framework)
         for kind, location in _helper_kinds(ctx, route.file, fn).items():
@@ -196,8 +226,12 @@ def _sensitive(ctx: Context, route: Route, level: Access) -> Sensitive | None:
         writes = [n for n in _nodes(fn) if isinstance(n, ast.Call)]
         for call in writes if not takes_input else []:
             name = pyast.dotted(call.func) or ""
+            if LLM_CALL.search(name):
+                continue
             if WRITE_CALL.search(name) and ".objects." in ast.unparse(call.func):
                 kinds.setdefault("write", Location(route.file, call.lineno))
+    if "file" in kinds and not stored_file and not _reads_stored(ctx, route):
+        del kinds["file"]  # rendered from the request alone, no stored record behind it
     if route in callback_routes(ctx):
         kinds = {k: v for k, v in kinds.items() if k not in ("job", "write")}
     if not kinds:
