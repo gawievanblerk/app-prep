@@ -258,3 +258,22 @@ def test_storage_settings_and_upload_bodies_are_not_personal_data(tmp_path):
     [finding] = findings_for(tmp_path, "inventory", "INV-SDK-RECEIVES-PII")
     assert [str(loc) for loc in finding.locations] == ["app/upload.py:6"]
     assert "(email)" in finding.detail and "region_name" not in finding.detail
+
+
+def test_class_based_view_fields_are_read_from_its_methods(tmp_path):
+    write(
+        tmp_path,
+        "shop/urls.py",
+        "from django.urls import path\nfrom . import views\n"
+        "urlpatterns = [path('contact/', views.ContactView.as_view())]\n",
+    )
+    write(
+        tmp_path,
+        "shop/views.py",
+        "from django.views import View\n"
+        "class ContactView(View):\n"
+        "    def post(self, request):\n"
+        "        return save(request.POST['email'], request.POST.get('message'))\n",
+    )
+    points = [c for c in collection_points(context(tmp_path)) if c.route is not None]
+    assert [c.fields for c in points] == [("email", "message")]
