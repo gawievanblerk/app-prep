@@ -347,3 +347,21 @@ def test_broad_response_needs_a_response_and_personal_data(tmp_path):
         "shop/views.py:10",
         "shop/views.py:14",
     ]
+
+
+def test_history_test_env_is_low(tmp_path):
+    git(tmp_path, "init", "-q")
+    write(tmp_path, "server/.env.test", "A=1\n")
+    write(tmp_path, "server/.env.production", "A=1\n")
+    write(tmp_path, "server/.env.sample", "A=\n")
+    git(tmp_path, "add", "-A")
+    git(tmp_path, "commit", "-q", "-m", "one")
+    git(tmp_path, "rm", "-q", "-r", "--cached", "server")
+    write(tmp_path, "a.py", "x = 1\n")
+    git(tmp_path, "add", "a.py")
+    git(tmp_path, "commit", "-q", "-m", "two")
+    found = {f.locations[0].file: f for f in findings_for(tmp_path, "leaks", "LEAK-ENV-IN-HISTORY")}
+    assert sorted(found) == ["server/.env.production", "server/.env.test"]
+    assert found["server/.env.production"].severity.value == "high"
+    assert found["server/.env.test"].severity.value == "low"
+    assert "test" in found["server/.env.test"].detail

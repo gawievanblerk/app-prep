@@ -20,6 +20,16 @@ from dpr.walk import SourceFile
 
 ENV_NAME = re.compile(r"^\.env(\..+)?$")
 ENV_EXAMPLE = re.compile(r"\.(example|sample|template)$")
+TEST_ENV = re.compile(r"^\.env\.(?:test|testing)(?:\.local)?$")
+TEST_ENV_DETAIL = (
+    "Commit {commit} added {path}. It is no longer tracked, but every clone still has it in "
+    "history. Its name marks it as a test environment file, which usually holds local test "
+    "values; confirm no real credential was in it."
+)
+TEST_ENV_FIX = (
+    "Check the values that were in {path}. Rotate any that worked against a real service; "
+    "local test values need no action."
+)
 ORM_READ = re.compile(
     r"(?:prisma|db|tx)\.(\w+)\.(findUnique|findUniqueOrThrow|findFirst|findFirstOrThrow|findMany)"
 )
@@ -142,10 +152,14 @@ def env_in_history(ctx: Context) -> Iterator[Finding]:
         if path and _is_real_env(path) and path not in tracked:
             first_seen.setdefault(path, commit)
     for path, sha in first_seen.items():
+        test = bool(TEST_ENV.match(PurePosixPath(path).name))
         yield make_finding(
             "LEAK-ENV-IN-HISTORY",
             tag=Tag.CONFIRMED,
             locations=[Location(path, 1)],
+            severity="low" if test else None,
+            detail=TEST_ENV_DETAIL.format(commit=sha, path=path) if test else None,
+            fix=TEST_ENV_FIX.format(path=path) if test else None,
             path=path,
             commit=sha,
         )
