@@ -17,7 +17,6 @@ findings:
   - {rule: LEAK-COMMITTED-DATA-FILE, file: docs/uat/order_report.pdf, line: 1, tag: INFERRED}
   - {rule: LEAK-COMMITTED-DATA-FILE, file: shop/tests/orders_cases.py, line: 5, tag: INFERRED}
   - {rule: LEAK-SENTRY-PII, file: shop/settings.py, line: 20, tag: CONFIRMED}
-  - {rule: OWASP-A01-GUESSABLE-ID, file: shop/views.py, line: 14, tag: CONFIRMED}
   - {rule: OWASP-A01-UNSCOPED-QUERY, file: shop/views.py, line: 14, tag: CONFIRMED}
   - {rule: OWASP-A06-VENDORED-LIB, file: shop/static/js/jquery-1.12.4.min.js, line: 1, tag: CONFIRMED}
   - {rule: OWASP-A03-RAW-SQL, file: shop/views.py, line: 21, tag: CONFIRMED}

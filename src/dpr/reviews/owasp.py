@@ -8,15 +8,18 @@ import re
 import dpr.reviews.owasp_a01  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_assign  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_audit  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_hooks  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_inject  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_integrity  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_misc  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_paths  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_public  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_vendored  # noqa: F401  (registers rules)
 from dpr.model import Finding, Part, ReviewSection, Route
 from dpr.parsing import jsts
 from dpr.reviews.access import ADMIN, PUBLIC, access
-from dpr.reviews.lookups import PY_ORM, route_lookups, subject_text
+from dpr.reviews.lookups import PY_ORM, subject_text
+from dpr.reviews.lookups_route import route_lookups
 from dpr.reviews.owasp_a01 import unscoped
 from dpr.rules import Context
 

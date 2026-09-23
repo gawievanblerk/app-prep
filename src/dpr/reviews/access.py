@@ -377,6 +377,8 @@ def _classify(ctx: Context, route: Route) -> Access:
         return _fastapi(ctx, route)
     if route.framework == "flask" and isinstance(route.handler, ast.AST):
         return frameworks.flask(ctx, route)
+    if route.framework == "ninja" and isinstance(route.handler, ast.AST):
+        return frameworks.ninja(ctx, route)
     if route.framework in ("django", "drf"):
         return frameworks.django(ctx, route)
     if route.framework.startswith("next"):

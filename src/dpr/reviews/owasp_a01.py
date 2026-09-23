@@ -1,4 +1,4 @@
-"""Review 5, OWASP A01: unscoped lookups, guessable IDs, unguarded methods, email ownership."""
+"""Review 5, OWASP A01: unscoped lookups, unguarded methods, email ownership."""
 
 from __future__ import annotations
 
@@ -9,9 +9,12 @@ from collections.abc import Iterator
 from dpr.model import Finding, Location, Route, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
-from dpr.reviews.access import ADMIN, PUBLIC, access, unread_guard
-from dpr.reviews.lookups import USER_MODELS, model_for, owned, route_lookups
+from dpr.reviews.access import ADMIN, AUTHENTICATED, PUBLIC, Access, access, unread_guard
+from dpr.reviews.lookups import USER_MODELS, Lookup, model_for, owned
+from dpr.reviews.lookups_route import handler_functions, route_lookups
+from dpr.reviews.owasp_public import public_sensitive_routes
 from dpr.reviews.paths import is_test
+from dpr.reviews.request_values import request_names
 from dpr.rules import Context, make_finding, rule
 
 WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
@@ -21,6 +24,12 @@ EMAIL_SUBJECT = re.compile(
 )
 MODEL_EMAIL = re.compile(r"\b([A-Z]\w*)\.email\b")
 PUBLIC_PROOF = "Confirm this record type is not meant to be public."
+ROLE_BODY = r"user\.(?:has_perms?|is_superuser|is_staff|groups)\b"
+ROLE_PROOF = (
+    "Role-gated back-office access ({role}): confirm by design that every holder of this role "
+    "may reach every record."
+)
+SEQUENTIAL = " {model} has an auto-increment integer key, so one working ID reveals the others."
 PUBLIC_ATTACK = (
     "1. Without signing in, request the route with one identifier. 2. Change the identifier. "
     "3. Read or change a record that was not meant to be public."
@@ -57,15 +66,46 @@ def unscoped(ctx: Context) -> list[tuple[Route, list, str]]:
     return ctx.facts["unscoped_lookups"]
 
 
+def role_gate(route: Route, level: Access) -> str:
+    """A check beyond sign-in: a role decorator or permission class, or a permission, staff,
+    superuser or group test on the caller (`request.user`, never a loaded user) in the
+    handler itself."""
+    if level.level != AUTHENTICATED:
+        return ""
+    if level.role:
+        return level.role
+    handler = route.handler if isinstance(route.handler, ast.AST) else None
+    for fn in handler_functions(handler) if handler is not None else []:
+        callers = "|".join(re.escape(name) for name in request_names(fn, True))
+        found = re.search(rf"\b(?:{callers})\.{ROLE_BODY}", ast.unparse(fn))
+        if found:
+            return found.group(0)
+    return ""
+
+
+def sequential_id(ctx: Context, lookup: Lookup) -> Location | None:
+    """The auto-increment integer key of an owned model looked up by primary key."""
+    model = model_for(ctx, lookup.model)
+    if not lookup.by_primary_key or model is None or not owned(ctx, lookup.model):
+        return None
+    id_field = next((f for f in model.fields if f.name in ("id", "pk")), None)
+    return id_field.location if id_field is not None and id_field.autoincrement else None
+
+
 @rule(
     "OWASP-A01-UNSCOPED-QUERY", review="owasp", severity="high", exploitability="high", owasp="A01"
 )
 def unscoped_query(ctx: Context) -> Iterator[Finding]:
+    reported = public_sensitive_routes(ctx)
     for route, items, check in unscoped(ctx):
         lookup = items[0]
         known = owned(ctx, lookup.model) is not None
         level = access(ctx, route)
-        proofs = []
+        if level.level == PUBLIC and route in reported:
+            continue
+        role = role_gate(route, level)
+        sequential = sequential_id(ctx, lookup)
+        proofs, extra = [], ""
         if check == "helper":
             proofs.append(
                 "A later call receives the caller; confirm it rejects other owners' records."
@@ -76,13 +116,25 @@ def unscoped_query(ctx: Context) -> Iterator[Finding]:
             )
         if level.level == PUBLIC:
             proofs.append(PUBLIC_PROOF)
+        if role:
+            proofs.append(ROLE_PROOF.format(role=role))
+        if sequential is not None:
+            extra = SEQUENTIAL.format(model=model_for(ctx, lookup.model).name)
         locations = [lookup.location, *([lookup.via] if lookup.via else [])]
         locations += [item.location for item in items[1:]]
+        locations += [sequential] if sequential is not None else []
+        severity = exploitability = None
+        if role:
+            severity = exploitability = "low"
+        elif level.level == PUBLIC and sequential is not None:
+            severity = "critical"
         yield make_finding(
             "OWASP-A01-UNSCOPED-QUERY",
             tag=Tag.INFERRED if proofs else Tag.CONFIRMED,
             locations=locations,
             snippet=snippet(ctx.index.text(route.file), lookup.location.line),
+            severity=severity,
+            exploitability=exploitability,
             proof_needed=" ".join(proofs) or None,
             attack=PUBLIC_ATTACK if level.level == PUBLIC else None,
             method=route.method,
@@ -91,37 +143,8 @@ def unscoped_query(ctx: Context) -> Iterator[Finding]:
             model=lookup.model or "record",
             level=level.level,
             attacker=attacker(level.evidence),
+            extra=extra,
         )
-
-
-@rule(
-    "OWASP-A01-GUESSABLE-ID",
-    review="owasp",
-    severity="medium",
-    exploitability="medium",
-    owasp="A01",
-)
-def guessable_id(ctx: Context) -> Iterator[Finding]:
-    seen = set()
-    for route in ctx.detection.routes:
-        level = access(ctx, route)
-        if level.level == ADMIN or is_test(route.file):
-            continue
-        for lookup, _check in route_lookups(ctx, route, level):
-            model = model_for(ctx, lookup.model)
-            if not lookup.by_primary_key or model is None or not owned(ctx, lookup.model):
-                continue
-            id_field = next((f for f in model.fields if f.name in ("id", "pk")), None)
-            key = (route.file, lookup.location.line)
-            if id_field is not None and id_field.autoincrement and key not in seen:
-                seen.add(key)
-                yield make_finding(
-                    "OWASP-A01-GUESSABLE-ID",
-                    tag=Tag.CONFIRMED,
-                    locations=[lookup.location, id_field.location],
-                    model=model.name,
-                    path=route.path,
-                )
 
 
 @rule(

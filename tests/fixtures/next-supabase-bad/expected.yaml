@@ -34,8 +34,6 @@ findings:
   - {rule: LEAK-SENTRY-PII, file: sentry.client.config.ts, line: 5, tag: CONFIRMED}
   - {rule: LEAK-SOURCEMAP, file: .next/static/chunks/main.js.map, line: 1, tag: CONFIRMED}
   - {rule: LEAK-SOURCEMAP, file: next.config.js, line: 2, tag: CONFIRMED}
-  - {rule: OWASP-A01-GUESSABLE-ID, file: "app/api/invoices/[id]/route.ts", line: 7, tag: CONFIRMED}
-  - {rule: OWASP-A01-GUESSABLE-ID, file: "app/api/users/[id]/route.ts", line: 5, tag: CONFIRMED}
   - {rule: OWASP-A01-MASS-ASSIGNMENT, file: app/api/signup/route.ts, line: 8, tag: INFERRED}
   - {rule: OWASP-A01-UNSCOPED-QUERY, file: "app/api/invoices/[id]/route.ts", line: 7, tag: CONFIRMED}
   - {rule: OWASP-A01-UNSCOPED-QUERY, file: "app/api/users/[id]/route.ts", line: 5, tag: INFERRED}

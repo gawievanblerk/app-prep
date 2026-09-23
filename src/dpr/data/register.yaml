@@ -36,3 +36,6 @@ chains:
   - title: Third-party libraries are copied into the repository
     scope: app
     rules: [OWASP-A06-VENDORED-LIB]
+  - title: Provider callbacks accept forged requests
+    scope: app
+    rules: [OWASP-A01-UNSIGNED-CALLBACK]

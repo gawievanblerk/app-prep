@@ -118,3 +118,37 @@ def test_django_routes_scale_linearly(tmp_path, monkeypatch):
     assert {r.file for r in routes if r.path == "/v7"} == {"app7/views.py"}
     assert elapsed < 5
     assert len(reads) <= 3 * len(index.py_files)
+
+
+def test_django_routes_use_the_view_the_urls_module_imports(tmp_path):
+    write(
+        tmp_path,
+        "app/fin/urls.py",
+        "from django.urls import path\nfrom fin import views\nfrom fin.views import cat22 as c22\n"
+        "from fin.api import report\nurlpatterns = [\n"
+        "    path('retrieve/<int:pk>/', views.retrieve_file),\n"
+        "    path('cat22/<int:pk>/', c22),\n"
+        "    path('report/', report),\n"
+        "    path('orphan/', views.orphan),\n]\n",
+    )
+    write(
+        tmp_path,
+        "app/fin/tasks.py",
+        "from celery import shared_task\n@shared_task\ndef retrieve_file(pk, user_id=None):\n    pass\n"
+        "@shared_task\ndef orphan():\n    pass\n",
+    )
+    write(
+        tmp_path,
+        "app/fin/views.py",
+        "from fin.helpers import report\n\n\ndef retrieve_file(request, pk):\n    pass\n"
+        "def cat22(request, pk):\n    pass\n",
+    )
+    write(tmp_path, "app/fin/api.py", "from fin.helpers import report\n")
+    write(tmp_path, "app/fin/helpers.py", "def report(request):\n    pass\n")
+    got = sorted((r.path, r.file, r.line) for r in django_routes(RepoIndex(tmp_path)))
+    assert got == [
+        ("/cat22/<int:pk>", "app/fin/views.py", 6),
+        ("/orphan", "app/fin/urls.py", 9),
+        ("/report", "app/fin/helpers.py", 1),
+        ("/retrieve/<int:pk>", "app/fin/views.py", 4),
+    ]

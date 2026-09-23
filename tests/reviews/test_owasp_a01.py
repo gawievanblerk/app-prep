@@ -1,3 +1,4 @@
+from dpr import rules
 from tests.reviews.helpers import findings_for, write
 
 MODELS = (
@@ -104,7 +105,7 @@ def test_fastapi_unscoped_queries(tmp_path):
     assert by_line[32].title.startswith("GET /files/notes/{note_id} loads Note")
 
 
-def test_django_views_and_guessable_ids(tmp_path):
+def test_django_views_and_sequential_ids(tmp_path):
     write(
         tmp_path,
         "shop/models.py",
@@ -127,9 +128,9 @@ def test_django_views_and_guessable_ids(tmp_path):
     )
     [unscoped] = findings_for(tmp_path, "owasp", "OWASP-A01-UNSCOPED-QUERY")
     assert (str(unscoped.locations[0]), unscoped.tag.value) == ("shop/views.py:4", "CONFIRMED")
-    guessable = findings_for(tmp_path, "owasp", "OWASP-A01-GUESSABLE-ID")
-    assert [str(f.locations[0]) for f in guessable] == ["shop/views.py:4"]
-    assert guessable[0].severity.value == "medium"
+    assert str(unscoped.locations[-1]) == "shop/models.py:2"
+    assert "auto-increment integer key" in unscoped.detail
+    assert "OWASP-A01-GUESSABLE-ID" not in rules.SPECS
 
 
 def test_next_and_express_lookups(tmp_path):
@@ -164,12 +165,12 @@ def test_next_and_express_lookups(tmp_path):
         ("app/api/invoices/[id]/route.ts:3", "CONFIRMED"),
         ("server/orders.js:2", "INFERRED"),
     ]
-    guessable = findings_for(tmp_path, "owasp", "OWASP-A01-GUESSABLE-ID")
-    assert sorted(str(f.locations[0]) for f in guessable) == [
-        "app/api/invoices/[id]/route.ts:12",
-        "app/api/invoices/[id]/route.ts:3",
-    ]
-    assert str(guessable[0].locations[1]) == "prisma/schema.prisma:2"
+    invoice = next(f for f in found if f.locations[0].file.startswith("app/"))
+    assert str(invoice.locations[-1]) == "prisma/schema.prisma:2"
+    assert invoice.detail.endswith(
+        "Invoice has an auto-increment integer key, so one working ID reveals the others."
+    )
+    assert invoice.severity.value == "high"
 
 
 def test_unguarded_method(tmp_path):
