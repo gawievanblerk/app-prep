@@ -1,7 +1,7 @@
 BASE-DOCKER-ROOT:
   title: Container runs as root
   effort_minutes: 30
-  detail: The final stage of this Dockerfile ${now}, so the application process runs as root inside the container.
+  detail: The final stage of this Dockerfile ${now}, so the application process runs as root inside the container.${dev}
   attack: Use any code execution or file write bug in the app (a vulnerable PDF or image library, a path traversal) and act as root in the container, with write access to the code and every mounted volume.
   blast: The container's code, secrets and mounted volumes, and a stronger position for escaping to the host.
   fix: Create an unprivileged user (RUN useradd --system app), give it only the folders it must write, and add USER app before CMD.

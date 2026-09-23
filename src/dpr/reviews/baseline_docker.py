@@ -1,9 +1,11 @@
 """Review 4, baseline: container images and file permissions.
 
-`BASE-DOCKER-ROOT`: a Dockerfile whose final stage never switches to a non-root `USER`.
+`BASE-DOCKER-ROOT`: a Dockerfile whose final stage never switches to a non-root `USER` (low
+when it is only for development; a stock nginx final stage is skipped).
 `BASE-WORLD-WRITABLE`: `chmod` to world-writable modes in Dockerfiles, shell and Python scripts.
-`BASE-DOCKERIGNORE-THIN`: `COPY . ` with a `.dockerignore` that is missing or lets the git
-history, env files, database dumps, uploads or ignored local settings into the image.
+`BASE-DOCKERIGNORE-THIN`: a `COPY . ` that ends in the image while the build context's
+`.dockerignore` is missing or lets the git history, env files, database dumps, uploads or
+ignored local settings in.
 """
 
 from __future__ import annotations
@@ -15,12 +17,12 @@ from pathlib import PurePosixPath
 
 from dpr.model import Finding, Location, Tag
 from dpr.redact import snippet
+from dpr.reviews.docker_builds import builds_of, dev_only, shipped_copies, stages, stock_nginx
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 from dpr.vendored import is_vendored
 
 DOCKERFILES = ("Dockerfile", "Dockerfile.*", "*.dockerfile", "Containerfile")
-FROM = re.compile(r"^\s*FROM\s", re.I)
 USER = re.compile(r"^\s*USER\s+(\S+)", re.I)
 OCTAL = r"0?[0-7]?[0-7][0-7][2367]"
 SYMBOLIC = r"[ugoa]*[oa][ugoa]*[+=][rwxXst]*w[rwxXst]*"
@@ -35,6 +37,10 @@ MUST_EXCLUDE = (
     ("database dumps (*.sql, *.dump)", "backup/dump.sql"),
 )
 UPLOAD_DIRS = ("media", "uploads", "upload")
+DEV_DETAIL = (
+    " It is named for development or built only by a development compose file, so it is not "
+    "expected to run in production."
+)
 SECRET_IGNORED = re.compile(
     r"(?:^|/)(?:local_settings\.py|[\w.-]*\.pem|[\w.-]*\.key|secrets?[\w.-]*)$"
 )
@@ -51,22 +57,25 @@ def _dockerfiles(ctx: Context) -> list[str]:
 @rule("BASE-DOCKER-ROOT", review="baseline", severity="medium", exploitability="low", owasp="A05")
 def docker_root(ctx: Context) -> Iterator[Finding]:
     for rel in _dockerfiles(ctx):
-        rows = ctx.index.text(rel).splitlines()
-        starts = [i for i, row in enumerate(rows, start=1) if FROM.match(row)]
-        if not starts:
+        all_stages = stages(ctx.index.text(rel))
+        if not all_stages:
             continue
-        final = rows[starts[-1] - 1 :]
-        if "nonroot" in final[0].lower():
+        final = all_stages[-1]
+        if "nonroot" in final.base.lower() or stock_nginx(final):
             continue
-        users = [m.group(1) for row in final if (m := USER.match(row))]
+        users = [m.group(1) for _, row in final.rows if (m := USER.match(row))]
         if users and users[-1].split(":")[0] not in ("root", "0"):
             continue
+        dev = dev_only(ctx, rel)
+        now = "switches back to root" if users else "has no USER instruction"
         yield make_finding(
             "BASE-DOCKER-ROOT",
             tag=Tag.CONFIRMED,
-            locations=[Location(rel, starts[-1])],
-            snippet=snippet(ctx.index.text(rel), starts[-1]),
-            now="switches back to root" if users else "has no USER instruction",
+            locations=[Location(rel, final.line)],
+            severity="low" if dev else None,
+            snippet=snippet(ctx.index.text(rel), final.line),
+            now=now,
+            dev=DEV_DETAIL if dev else "",
         )
 
 
@@ -134,8 +143,9 @@ def _ignored(patterns: list[str], path: str) -> bool:
 
 def _required(ctx: Context, folder: str) -> list[tuple[str, str]]:
     """(what, a sample path) the build context should keep out of the image."""
-    needed = list(MUST_EXCLUDE)
     root = ctx.index.root / folder if folder != "." else ctx.index.root
+    # Only a context that holds the repository's .git folder can copy the history.
+    needed = [item for item in MUST_EXCLUDE if item[1] != ".git" or (root / ".git").exists()]
     for name in UPLOAD_DIRS:
         found = [p for p in (root / name, *sorted(root.glob(f"*/{name}"))) if p.is_dir()]
         if found:
@@ -164,32 +174,33 @@ def _required(ctx: Context, folder: str) -> list[tuple[str, str]]:
 def dockerignore_thin(ctx: Context) -> Iterator[Finding]:
     for rel in _dockerfiles(ctx):
         text = ctx.index.text(rel)
-        copy = COPY_ALL.search(text)
-        if copy is None:
+        lines = shipped_copies(text, COPY_ALL)
+        if not lines:
             continue
-        line = text.count("\n", 0, copy.start()) + 1
+        line = lines[0]
         folder = PurePosixPath(rel).parent.as_posix()
-        candidates = [f"{folder}/.dockerignore" if folder != "." else ".dockerignore"]
-        if folder != ".":
-            candidates.append(".dockerignore")
-        ignore = next((c for c in candidates if (ctx.index.root / c).is_file()), None)
-        patterns = []
-        if ignore is not None:
-            patterns = _ignore_patterns((ctx.index.root / ignore).read_text(errors="replace"))
-        context = PurePosixPath(ignore).parent.as_posix() if ignore else folder
-        missing = [
-            label for label, sample in _required(ctx, context) if not _ignored(patterns, sample)
-        ]
-        if not missing:
-            continue
-        where = [Location(rel, line)] + ([Location(ignore, 1)] if ignore else [])
-        yield make_finding(
-            "BASE-DOCKERIGNORE-THIN",
-            tag=Tag.CONFIRMED,
-            locations=where,
-            snippet=snippet(text, line),
-            state=f"{ignore} does not exclude"
-            if ignore
-            else "There is no .dockerignore, so nothing excludes",
-            missing="; ".join(missing),
-        )
+        # The build context is the compose service's, else the Dockerfile's folder.
+        contexts = sorted({b.context for b in builds_of(ctx, rel)}) or [folder]
+        for context in contexts:
+            candidate = f"{context}/.dockerignore" if context != "." else ".dockerignore"
+            ignore = candidate if (ctx.index.root / candidate).is_file() else None
+            patterns = []
+            if ignore is not None:
+                patterns = _ignore_patterns((ctx.index.root / ignore).read_text(errors="replace"))
+            missing = [
+                label for label, sample in _required(ctx, context) if not _ignored(patterns, sample)
+            ]
+            if not missing:
+                continue
+            where = [Location(rel, line)] + ([Location(ignore, 1)] if ignore else [])
+            yield make_finding(
+                "BASE-DOCKERIGNORE-THIN",
+                tag=Tag.CONFIRMED,
+                locations=where,
+                snippet=snippet(text, line),
+                state=f"{ignore} does not exclude"
+                if ignore
+                else "there is no .dockerignore, so nothing excludes",
+                missing="; ".join(missing),
+            )
+            break
