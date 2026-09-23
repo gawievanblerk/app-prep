@@ -17,6 +17,7 @@ from dpr.reviews.auth_axes import axes_for
 from dpr.reviews.auth_flows import flows_of
 from dpr.reviews.paid import PaidRoute, costs, paid_routes
 from dpr.reviews.paths import is_test
+from dpr.reviews.service_calls import ServiceCall, service_calls
 from dpr.rules import Context, make_finding, rule
 
 LIMITER_WORD = re.compile(r"(?i)rate_?limit|limiter|\.limit\(|throttle|slowdown")
@@ -24,6 +25,7 @@ KILL_SWITCH = re.compile(
     r"(?i)\w*_enabled\b|\benabled\b|\bdisable_?\w*|kill_?switch|feature_?flag|is_?feature_?enabled"
     r"|isEnabled\(|unleash|launchdarkly|growthbook|flagsmith"
 )
+CREDIT_NAME = re.compile(r"(?i)(?:require|check|deduct|consume|charge|spend|reserve)\w*credit")
 CHALLENGE = re.compile(r"(?i)turnstile|hcaptcha|recaptcha|captcha|honeypot")
 
 
@@ -130,6 +132,46 @@ def paid_unlimited(ctx: Context) -> Iterator[Finding]:
                 window=cost.get("window", "1 h"),
                 **_paid_detail(paid),
             )
+    for call in service_calls(ctx):
+        if not _caller_limited(ctx, call):
+            yield _service_finding(ctx, call)
+
+
+def _caller_limited(ctx: Context, call: ServiceCall) -> bool:
+    """A limiter or credit check in the route's middleware, its code, or its mounts."""
+    names = call.route.wrappers
+    if any(LIMITER_WORD.search(n) or CREDIT_NAME.search(n) for n in names):
+        return True
+    return call.credited or is_limited(ctx, call.route)
+
+
+def _service_finding(ctx: Context, call: ServiceCall) -> Finding:
+    route, first = call.route, call.targets[0]
+    cost = costs().get(first.sdk.category, {})
+    named = [
+        f"{f'{helper}() and ' if helper else ''}the internal route {t.route.method} "
+        f"{t.route.path} ({t.route.file}:{t.route.line})"
+        for t, helper in zip(call.targets, call.helpers, strict=True)
+    ]
+    public = access(ctx, route).level == PUBLIC
+    return make_finding(
+        "ABUSE-PAID-UNLIMITED",
+        tag=Tag.CONFIRMED if call.exact else Tag.INFERRED,
+        severity=None if public else "medium",
+        locations=[
+            Location(route.file, route.line),
+            *(Location(t.route.file, t.route.line) for t in call.targets),
+        ],
+        snippet=snippet(ctx.index.text(route.file), route.line),
+        per_user=cost.get("per_user", 20),
+        per_ip=cost.get("per_ip", 40),
+        window=cost.get("window", "1 h"),
+        method=route.method,
+        path=route.path,
+        sdk=first.sdk.name,
+        via=" through " + "; ".join(named),
+        cost=costs().get(first.sdk.category, {"note": "provider pricing"})["note"],
+    )
 
 
 @rule("ABUSE-GATE-FAIL-OPEN", review="abuse", severity="low", exploitability="low", owasp="A07")
