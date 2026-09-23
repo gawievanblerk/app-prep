@@ -7,11 +7,16 @@ inside that finding instead, so one route gives one finding.
 
 from __future__ import annotations
 
+import ast
+import re
+
 from dpr.model import Location, Route
+from dpr.parsing import pyast
 from dpr.reviews.access import ADMIN, access
+from dpr.reviews.access_decorators import decorator_source
 from dpr.reviews.leaks_logs import words
 from dpr.reviews.lookups import Lookup, model_for, owned
-from dpr.reviews.lookups_route import route_lookups
+from dpr.reviews.lookups_route import handler_functions, route_lookups
 from dpr.reviews.paths import is_test
 from dpr.rules import Context
 
@@ -22,6 +27,17 @@ TENANT_WORDS = frozenset(
      "agency", "tenant", "workspace", "firm", "franchise", "practice", "team"}
 )  # fmt: skip
 KEY_WORDS = frozenset({"id", "pk", "uuid", "code", "slug"})
+# A back-office gate: superuser or staff tests, and permissions or groups named for
+# administering (`brokerage.brokerage_admin`, `manage_brokerages`, a group "Admin").
+ADMIN_TEST = re.compile(r"\bis_superuser\b|\bis_staff\b")
+MEMBER_TEST = re.compile(
+    r"\b(?:u|user)\.is_(?!superuser\b|staff\b|authenticated\b|anonymous\b|active\b)\w+"
+)
+PERMISSION = re.compile(r"""['"]([a-z_]\w*)\.(\w+)['"]""")
+GROUP_NAMES = re.compile(r"groups\.filter\(\s*name\w*\s*=\s*([^)]*)\)")
+ADMIN_WORDS = frozenset({"admin", "administrator", "administer", "superuser", "staff", "manage"})
+MANAGE_VERBS = frozenset({"add", "change", "delete"})
+ROLE_TEST = re.compile(r"\.(?:has_perms?|is_superuser|is_staff|groups)\b|\.is_\w+")
 
 
 def tenant_key(key: str) -> bool:
@@ -35,6 +51,50 @@ def tenant_key(key: str) -> bool:
 
 def tenant_lookup(lookup: Lookup) -> str:
     return next((key for key in lookup.keys if tenant_key(key)), "")
+
+
+def _gate_text(ctx: Context, route: Route) -> tuple[str, list[str]]:
+    """The role checks guarding a route: its decorators (and the source of the repository's own
+    decorators), a class view's permission attribute, and role tests in the handler; and the
+    names of its decorators and bases."""
+    handler = route.handler if isinstance(route.handler, ast.AST) else None
+    if handler is None:
+        return "", []
+    parts, names = [], []
+    for dec in getattr(handler, "decorator_list", []):
+        name = pyast.dotted(dec.func if isinstance(dec, ast.Call) else dec) or ""
+        names.append(name)
+        parts += [ast.unparse(dec), decorator_source(ctx, route.file, name)]
+    if isinstance(handler, ast.ClassDef):
+        names += pyast.base_names(handler)
+        value = pyast.assignments(handler.body).get("permission_required")
+        parts += [ast.unparse(value)] if value is not None else []
+    for fn in handler_functions(handler):
+        for node in ast.walk(fn):
+            if isinstance(node, ast.If | ast.Assert) and ROLE_TEST.search(ast.unparse(node.test)):
+                parts.append(ast.unparse(node.test))
+    return "\n".join(parts), names
+
+
+def admin_gate(ctx: Context, route: Route, key: str) -> bool:
+    """Every role check on the route is back-office administration: a superuser or staff test, a
+    permission or group named for administering, or a permission to add, change or delete the
+    tenant model itself (`change_brokerage` for `brokerage_id`). A permission or role an ordinary
+    member or agent may hold (`view_commission`, `is_advisor`) is not, even beside an admin test."""
+    text, names = _gate_text(ctx, route)
+    kind = words(key)
+    kind = kind[:-1] if kind and kind[-1] in KEY_WORDS else kind
+    checks = [True for _ in ADMIN_TEST.finditer(text)]
+    checks += [False for _ in MEMBER_TEST.finditer(text)]
+    checks += [bool(set(words(n)) & ADMIN_WORDS) for n in names if set(words(n)) & ADMIN_WORDS]
+    for _app, codename in PERMISSION.findall(text):
+        parts = words(codename)
+        managed = parts[:1] and parts[0] in MANAGE_VERBS and bool(set(kind) & set(parts[1:]))
+        checks.append(bool(set(parts) & ADMIN_WORDS) or bool(managed))
+    for group in GROUP_NAMES.findall(text):
+        literals = re.findall(r"""['"]([^'"]+)['"]""", group)
+        checks += [bool(set(words(name)) & ADMIN_WORDS) for name in literals]
+    return bool(checks) and all(checks)
 
 
 def unscoped(ctx: Context) -> list[tuple[Route, list[Lookup], str]]:

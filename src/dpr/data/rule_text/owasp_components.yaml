@@ -23,3 +23,11 @@ OWASP-A06-EOL-COMPONENT:
   blast: Whatever the component runs, which is the whole application for a framework or runtime, the container for a base image.
   fix: Upgrade to a supported release (for Django, the current LTS), run the test suite and deprecation warnings first, and pin exact versions so the upgrade is reproducible.
   verify: Confirm the declared version in the files listed is a supported release on the vendor's support page.
+OWASP-A06-KNOWN-ADVISORY:
+  title: ${component} ${version} has ${count}
+  effort_minutes: 60
+  detail: "${component} ${version} is pinned or copied into the repository, and dpr's bundled advisory table (dated ${table_date}) lists ${count} for it: ${listed}. The table is a small offline list, not a live advisory database, so other advisories may apply; whether the app reaches the affected code was not checked."
+  attack: Look up the published details of ${advisories}, find a page or endpoint that reaches the affected code, and use the flaw.
+  blast: Whatever the affected component handles, which for a framework or web server is every request, and for a browser library every page that loads it.
+  fix: ${upgrade}. Run the test suite after the upgrade, and for a library copied into the repository, install it with the package manager instead so audits see it.
+  verify: Confirm the version declared or copied at the locations listed is at or above the fixed version of each advisory, and run pip-audit or npm audit (dpr --with-audit) for a full check.

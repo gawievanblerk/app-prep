@@ -14,6 +14,7 @@ from dpr.reviews.lookups import (
     Lookup,
     py_checked_after,
     py_lookups,
+    reference_models,
     request_keys,
     statement_target,
     statements,
@@ -118,21 +119,20 @@ def _passes_caller(value: ast.AST) -> bool:
 def _py_route(
     ctx: Context, route: Route, fn: ast.AST, subjects: tuple[str, ...]
 ) -> list[tuple[Lookup, str]]:
-    if quiet_handler(fn):
+    if quiet_handler(fn, reference_models(ctx)):
         return []
     if route.framework in ("django", "drf"):
         # The caller is request.user whatever the route's access: a public route (or one behind
         # an unread mixin) that compares the record with it is scoped all the same.
         callers = sorted(f"{name}.user" for name in request_names(fn, True))
         subjects = tuple(dict.fromkeys((*subjects, *callers)))
-    derived = tuple(
-        statement_target(s)
-        for s in statements(fn)
-        if statement_target(s)
-        and subject_text(ast.unparse(s.value), subjects)
-        and not _passes_caller(s.value)
-    )
-    subjects = (*subjects, *derived)
+    # Names derived from the caller, in line order and through each other: `user = request.user`
+    # then `rows = rows.filter(agent=user)` (also in a branch) makes `rows` the caller's.
+    for stmt in statements(fn):
+        target = statement_target(stmt)
+        if target and target not in subjects and not _passes_caller(stmt.value):
+            if subject_text(ast.unparse(stmt.value), subjects):
+                subjects = (*subjects, target)
     keys = request_keys(route, fn)
     taint = trace(fn, {k: k for k in keys}, route.framework)
     checked = [

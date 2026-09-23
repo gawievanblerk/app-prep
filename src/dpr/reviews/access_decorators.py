@@ -84,3 +84,9 @@ def custom_decorator(ctx: Context, rel: str, name: str) -> Access | None:
         fn = _definition(ctx, rel, name) if name else None
         memo[(rel, name)] = _read(fn, name.split(".")[-1]) if fn is not None else None
     return memo[(rel, name)]
+
+
+def decorator_source(ctx: Context, rel: str, name: str) -> str:
+    """The source of a decorator the repository defines, or "" when it is not found."""
+    fn = _definition(ctx, rel, name) if name else None
+    return ast.unparse(fn) if fn is not None else ""

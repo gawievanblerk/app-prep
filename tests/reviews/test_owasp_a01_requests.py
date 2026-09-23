@@ -78,7 +78,10 @@ def by_path(found):
 
 
 def test_request_values_reach_unscoped_lookups(tmp_path):
-    found = by_path(findings_for(app(tmp_path), "owasp", "OWASP-A01-UNSCOPED-QUERY"))
+    items = findings_for(app(tmp_path), "owasp", "OWASP-A01-UNSCOPED-QUERY")
+    found = by_path(f for f in items if f.severity.value != "low")
+    [gated] = [f for f in items if f.severity.value == "low"]
+    assert "/staff/<int:pk>" in gated.detail and "/perm/<int:pk>" in gated.detail
     assert set(found) == {
         "/by-get",
         "/by-post",
@@ -88,8 +91,6 @@ def test_request_values_reach_unscoped_lookups(tmp_path):
         "/claim/<str:hashed_pk>",
         "/api/policy/<int:policy_id>",
         "/api/policies/<int:pk>",
-        "/staff/<int:pk>",
-        "/perm/<int:pk>",
         "/admin-check/<int:pk>",
         "/profile/<int:pk>",
     }
@@ -101,15 +102,17 @@ def test_request_values_reach_unscoped_lookups(tmp_path):
 
 
 def test_role_gated_routes_are_lowered(tmp_path):
-    found = by_path(findings_for(app(tmp_path), "owasp", "OWASP-A01-UNSCOPED-QUERY"))
+    items = findings_for(app(tmp_path), "owasp", "OWASP-A01-UNSCOPED-QUERY")
+    found = by_path(f for f in items if f.severity.value != "low")
+    [item] = [f for f in items if f.severity.value == "low"]
+    assert (item.severity.value, item.exploitability.value, item.tag.value) == (
+        "low",
+        "low",
+        "INFERRED",
+    )
+    assert "Role-gated back-office access" in item.proof_needed
     for path in ("/staff/<int:pk>", "/perm/<int:pk>"):
-        item = found[path]
-        assert (item.severity.value, item.exploitability.value, item.tag.value) == (
-            "low",
-            "low",
-            "INFERRED",
-        )
-        assert "Role-gated back-office access" in item.proof_needed
+        assert path in item.detail
     for path in ("/admin-check/<int:pk>", "/profile/<int:pk>"):
         assert found[path].severity.value == "high"
     assert found["/admin-check/<int:pk>"].tag.value == "CONFIRMED"

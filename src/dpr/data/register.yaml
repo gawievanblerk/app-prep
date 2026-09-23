@@ -4,7 +4,8 @@
 # share a file with them; `joined` is added to the title when they do. `severity` limits a chain
 # to findings of that severity (the others stay in their rule's own issue). `fold` prints the
 # chain's findings in the report as one entry per app, with `detail` as its text and a line per
-# file; the JSON report keeps each finding.
+# file; the JSON report keeps each finding. Role-gated OWASP-A01-UNSCOPED-QUERY lookups are
+# already one finding per app that lists every route, so their chain does not fold.
 chains:
   - title: Accounts can be signed in to with passwords written in the repository
     scope: linked
@@ -44,6 +45,9 @@ chains:
   - title: Third-party libraries are copied into the repository
     scope: app
     rules: [OWASP-A06-VENDORED-LIB]
+  - title: Pinned or copied dependencies have published security advisories
+    scope: app
+    rules: [OWASP-A06-KNOWN-ADVISORY]
   - title: Provider callbacks accept forged requests
     scope: app
     rules: [OWASP-A01-UNSIGNED-CALLBACK]
@@ -63,8 +67,6 @@ chains:
     scope: app
     rules: [OWASP-A01-UNSCOPED-QUERY]
     severity: low
-    fold: true
-    detail: Each route below checks a role (a permission, group, superuser or staff test) before it loads a record by an identifier from the request, and nothing ties the record to the caller. That is normal for back-office staff screens, so these are low. Confirm by design that every holder of each role may reach every record; the JSON report has the detail of each route.
   - title: Role-gated routes reach any brokerage, company or branch by its id
     scope: app
     rules: [OWASP-A01-UNSCOPED-QUERY]

@@ -49,8 +49,13 @@ def _table(columns: tuple[str, ...], rows: list[tuple[str, ...]] | tuple) -> str
     return "\n".join(lines)
 
 
+WHERE_LIMIT = 20
+
+
 def _block(label: str, position: int, f: Finding) -> str:
-    where = ", ".join(f"`{loc}`" for loc in f.locations) or "not tied to a file"
+    where = ", ".join(f"`{loc}`" for loc in f.locations[:WHERE_LIMIT]) or "not tied to a file"
+    if len(f.locations) > WHERE_LIMIT:
+        where += f" and {len(f.locations) - WHERE_LIMIT} more (all in the JSON report)"
     lines = [
         f"#### {label} {position}: {f.title}",
         "",

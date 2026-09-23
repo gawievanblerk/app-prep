@@ -18,12 +18,18 @@ from dpr.rules import Context, make_finding, rule
 
 CALLBACK_NAME = re.compile(
     r"(?i)webhook|callback|(?:^|[/_-])(?:hooks?|push|ipn|notify|notification|dlr)(?:$|[/_-])"
-    r"|result|response|confirmation"
+    r"|result|response|confirmation|(?:^|[/_-])(?:delivery|delivered|receipts?)(?:$|[/_-])"
+)
+# A provider reports the status of what it was sent: `/report_sms_status`, `payment_status`.
+STATUS_NAME = re.compile(r"(?i)(?:^|[/_-])(?:status|report)(?:$|[/_-])")
+CHANNEL_NAME = re.compile(
+    r"(?i)(?:^|[/_-])(?:sms|message|messages|mail|email|whatsapp|ussd|payment|payments"
+    r"|transaction|transactions)(?:$|[/_-])"
 )
 CHANGE_CALL = re.compile(
     r"\.(?:save|create|update|delete|bulk_create|bulk_update|get_or_create|update_or_create"
     r"|accept|decline|approve|reject|confirm|cancel|delay|apply_async)$"
-    r"|\.(?:create|update|set|mark|process|record|save)_\w+$"
+    r"|\.(?:create|update|set|mark|process|record|save)_\w+$|(?:^|\.)run_in_background$"
 )
 CALLER_CHECK = re.compile(
     r"(?i)hmac|signature|signed|compare_digest|verify|secret|token|api_?key|REMOTE_ADDR"
@@ -56,6 +62,14 @@ def _named(route: Route, pattern: re.Pattern) -> bool:
     return bool(pattern.search(route.path) or pattern.search(getattr(route.handler, "name", "")))
 
 
+def _callback_named(route: Route) -> bool:
+    """Named like a provider callback, or like a status or delivery report on a message or
+    payment channel."""
+    return (
+        _named(route, CALLBACK_NAME) or _named(route, STATUS_NAME) and _named(route, CHANNEL_NAME)
+    )
+
+
 def _decorators(route: Route) -> str:
     return " ".join(ast.unparse(d) for d in getattr(route.handler, "decorator_list", []))
 
@@ -75,7 +89,7 @@ def unsigned_callbacks(ctx: Context) -> list[tuple[Route, ast.Call]]:
     if "unsigned_callbacks" not in ctx.facts:
         found = []
         for route, fns in _public(ctx):
-            if not _named(route, CALLBACK_NAME):
+            if not _callback_named(route):
                 continue
             body = [stmt for fn in fns for stmt in reachable(fn)]
             text = " ".join(ast.unparse(stmt) for stmt in body) + " " + _decorators(route)

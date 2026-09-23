@@ -325,16 +325,16 @@ def test_role_gated_unscoped_lookups_form_their_own_issue_per_app():
     ]
 
 
-def test_markdown_folds_role_gated_findings_into_one_entry():
+def test_markdown_folds_role_gated_tenant_findings_into_one_entry():
     gated = [
         finding(
             "OWASP-A01-UNSCOPED-QUERY",
             f"api/app/{name}.py",
             line,
-            severity="low",
+            severity="medium",
             tag="INFERRED",
             review="owasp",
-            title=f"ANY /staff/{line} loads Policy by policy_id with no owner check",
+            title=f"ANY /staff/{line} loads Brokerage by brokerage_id with no owner check",
         )
         for name, line in (("views", 3), ("views", 9), ("admin", 20))
     ]
@@ -359,7 +359,7 @@ def test_markdown_folds_role_gated_findings_into_one_entry():
     body = text[text.index("## 5. OWASP") :]
     assert body.count("#### FINDING") == 2
     assert (
-        "#### FINDING 2: Role-gated back-office routes load records with no owner check "
+        "#### FINDING 2: Role-gated routes reach any brokerage, company or branch by its id "
         "(3 findings)" in body
     )
     assert "- `api/app/views.py`: ANY /staff/3 (line 3), ANY /staff/9 (line 9)" in body

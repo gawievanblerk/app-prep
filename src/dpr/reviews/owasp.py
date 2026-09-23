@@ -6,6 +6,7 @@ import ast
 import re
 
 import dpr.reviews.owasp_a01  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_advisories  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_assign  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_audit  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_eol  # noqa: F401  (registers rules)
@@ -44,10 +45,11 @@ NOTES = {
     "A04": "Missing rate limits and bot protection are reported in review 7.",
     "A05": "Debug mode and missing headers are reported in review 4 (BASE-DEBUG-ON, "
     "BASE-HEADER-MISSING-*); error text and CORS in review 7 (ABUSE-ERROR-LEAK, ABUSE-CORS-*).",
-    "A06": "Libraries copied into the repository are listed (OWASP-A06-VENDORED-LIB), and "
+    "A06": "Libraries copied into the repository are listed (OWASP-A06-VENDORED-LIB), "
     "declared framework, runtime and base image versions are checked against a bundled "
-    "end-of-life table (OWASP-A06-EOL-COMPONENT); the dependency audit adapters arrive in a "
-    "later version.",
+    "end-of-life table (OWASP-A06-EOL-COMPONENT), and exact pins and copied library versions "
+    "against a small bundled advisory table (OWASP-A06-KNOWN-ADVISORY); a full dependency audit "
+    "(pip-audit, npm audit) runs only with --with-audit.",
     "A07": "Session and account failure paths are reported in review 3 (AUTH-* findings); "
     "committed passwords in review 4.",
 }

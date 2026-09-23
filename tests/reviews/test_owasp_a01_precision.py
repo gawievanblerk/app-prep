@@ -169,7 +169,8 @@ def test_role_gated_tenant_lookup_stays_medium(tmp_path):
     assert "does not tie" in item.proof_needed
     # A date from the path is not an identifier, so the later query is not a second lookup.
     assert [str(loc) for loc in item.locations] == ["desk/views.py:59"]
-    assert found["/staff/<int:pk>"].severity.value == "low"
+    [gated] = [f for f in found.values() if f.severity.value == "low"]
+    assert "/staff/<int:pk>" in gated.detail
     issues = {i.title: i for i in review(tmp_path, reviews=["owasp"]).register}
     tenant = issues["Role-gated routes reach any brokerage, company or branch by its id"]
     assert (tenant.count, tenant.severity.value) == (1, "medium")

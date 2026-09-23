@@ -25,4 +25,5 @@ findings:
   - {rule: INV-UNUSED-FIELD, file: prisma/schema.prisma, line: 10, tag: INFERRED}
   - {rule: INV-UNUSED-FIELD, file: prisma/schema.prisma, line: 22, tag: INFERRED}
   - {rule: OWASP-A01-UNSCOPED-QUERY, file: src/routes/orders.ts, line: 8, tag: CONFIRMED}
+  - {rule: OWASP-A06-KNOWN-ADVISORY, file: package.json, line: 10, tag: CONFIRMED}
   - {rule: OWASP-A09-NO-AUTH-FAIL-LOG, file: src/routes/auth.ts, line: 20, tag: INFERRED}

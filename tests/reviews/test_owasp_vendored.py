@@ -78,5 +78,6 @@ def test_vendored_libraries_are_one_register_issue_per_app(tmp_path):
     [issue] = [i for i in report.register if "OWASP-A06-VENDORED-LIB" in i.findings]
     assert issue.title == "Third-party libraries are copied into the repository"
     assert (issue.count, issue.severity.value) == (3, "low")
+    # Both jQuery copies also match the bundled advisory table (OWASP-A06-KNOWN-ADVISORY).
     categories = next(p for p in report.sections["owasp"].parts if p.title == "Categories reviewed")
-    assert "- A06 Vulnerable and outdated components: 3 finding(s) above." in categories.body
+    assert "- A06 Vulnerable and outdated components: 5 finding(s) above." in categories.body

@@ -4,6 +4,8 @@ A lookup is quiet when it only checks that a record exists or counts records (`.
 `.count()`), or when the handler writes nothing and every response it returns is a redirect, an
 error status, or a body built only from literals, numbers, comparisons and fields whose names
 the personal data classifier does not mark, with no serializer, form, template or record dump.
+Prices (premiums, rates, amounts) are not personal here, and neither is anything read from a
+record of a model that holds no personal data (a rate table, a plan or product catalogue).
 """
 
 from __future__ import annotations
@@ -12,8 +14,9 @@ import ast
 import re
 
 from dpr.parsing import pyast
-from dpr.reviews.lookups import PY_ORM
-from dpr.reviews.personal import classify
+from dpr.reviews.leaks_logs import words
+from dpr.reviews.lookups import PY_MODEL, PY_ORM
+from dpr.reviews.personal import PRICE_WORDS, classify_value
 
 REDIRECTS = frozenset({"redirect", "HttpResponseRedirect", "HttpResponsePermanentRedirect"})
 STATUS_RESPONSES = frozenset(
@@ -30,6 +33,8 @@ DUMPS = re.compile(
     r"(?:^|_)(?:as_table|as_p|as_ul|serialize\w*|values|values_list|to_dict|as_dict|dict|data"
     r"|render\w*)$|model_to_dict|__dict__"
 )
+# The caller's own input echoed back discloses nothing stored about anyone else.
+REQUEST_INPUT = re.compile(r"^\w+\.(?:POST|GET|data|query_params|json)$")
 BUILDERS = re.compile(r"(?:Form|Serializer|model_to_dict|render_to_string|vars)\b")
 # A call whose name starts with one of these verbs may change data or send it somewhere.
 WRITE_VERBS = frozenset(
@@ -64,8 +69,9 @@ def _own_nodes(fn: ast.AST) -> list[ast.AST]:
 class _Values:
     """What each local name of a handler is built from."""
 
-    def __init__(self, fn: ast.AST) -> None:
+    def __init__(self, fn: ast.AST, reference: frozenset[str] = frozenset()) -> None:
         self.parts: dict[str, list[ast.AST]] = {}
+        self.reference = reference
         for node in _own_nodes(fn):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
@@ -96,8 +102,28 @@ class _Values:
         return " ".join(ast.unparse(v) for v in self.parts.get(name, []))
 
 
+def _priced(name: str) -> bool:
+    return bool(set(words(name)) & PRICE_WORDS) and classify_value(name) is None
+
+
 def _personal(name: object) -> bool:
-    return not isinstance(name, str) or classify(name) is not None
+    return not isinstance(name, str) or classify_value(name) is not None
+
+
+def _reference(node: ast.AST, values: _Values, seen: frozenset[str] = frozenset()) -> bool:
+    """A record or queryset of a model with no personal data, or a value read from one:
+    `PolicyPlan.objects.get(...)`, `plans.filter(...)`, `plan.cover_options`."""
+    if not values.reference:
+        return False
+    text = ast.unparse(node)
+    match = PY_MODEL.search(text) if PY_ORM.search(text) else None
+    if match is not None:
+        return next(g for g in match.groups() if g) in values.reference
+    root = pyast.name_root(node.func if isinstance(node, ast.Call) else node)
+    if root is None or root in seen:
+        return root is not None
+    parts = values.parts.get(root)
+    return bool(parts) and all(_reference(p, values, seen | {root}) for p in parts)
 
 
 def _quiet(node: ast.AST | None, values: _Values, seen: frozenset[str] = frozenset()) -> bool:
@@ -120,12 +146,14 @@ def _quiet(node: ast.AST | None, values: _Values, seen: frozenset[str] = frozens
     if isinstance(node, ast.Dict):
         return all(_entry(k, v, values, seen) for k, v in zip(node.keys, node.values, strict=True))
     if isinstance(node, ast.Subscript):
+        if REQUEST_INPUT.match(ast.unparse(node.value)):
+            return True
         key = pyast.constant(node.slice, None)
         if not isinstance(key, str | int) or isinstance(key, str) and _personal(key):
             return False
         return _quiet(node.value, values, seen)
     if isinstance(node, ast.Attribute):
-        return _field(node.attr, node.value, values)
+        return _field(node.attr, node.value, values) or _reference(node, values, seen)
     if isinstance(node, ast.Call):
         return _call(node, values, seen)
     if isinstance(node, ast.Name):
@@ -158,7 +186,7 @@ def _entry(key: ast.AST | None, value: ast.AST, values: _Values, seen: frozenset
 
 
 def _field(attr: str, owner: ast.AST, values: _Values) -> bool:
-    if classify(attr) is not None or DUMPS.search(attr):
+    if classify_value(attr) is not None or DUMPS.search(attr):
         return False
     root = pyast.name_root(owner)
     return not (root and BUILDERS.search(values.built(root)))
@@ -170,9 +198,16 @@ def _call(node: ast.Call, values: _Values, seen: frozenset[str]) -> bool:
     if name in COUNTS:
         return True
     if PY_ORM.search(text) or BUILDERS.search(pyast.dotted(node.func) or ""):
-        return False
+        return _reference(node, values, seen)
     if name in WRAPPERS:
         return all(_quiet(a, values, seen) for a in node.args)
+    if not isinstance(node.func, ast.Attribute):
+        # A helper named for a price (`get_grocery_education_premium(age, option)`), or one given
+        # only values read from reference records (`name_and_description_list(plan.options)`).
+        if _priced(name):
+            return True
+        arguments = [*node.args, *(k.value for k in node.keywords)]
+        return bool(arguments) and all(_reference(a, values, seen) for a in arguments)
     if isinstance(node.func, ast.Attribute):
         display = re.fullmatch(r"get_(\w+)_display", name)
         field = display.group(1) if display else name
@@ -224,13 +259,14 @@ def _writes(name: str) -> bool:
     return first in WRITE_VERBS or name.endswith("_or_create")
 
 
-def quiet_handler(fn: ast.AST) -> bool:
-    """The handler writes nothing and none of its responses carries personal data."""
+def quiet_handler(fn: ast.AST, reference: frozenset[str] = frozenset()) -> bool:
+    """The handler writes nothing and none of its responses carries personal data. `reference`
+    names the models that hold no personal data."""
     nodes = _own_nodes(fn)
     if any(isinstance(n, ast.Call) and _writes(_last(n.func)) for n in nodes):
         return False
     returns = [n for n in nodes if isinstance(n, ast.Return)]
-    values = _Values(fn)
+    values = _Values(fn, reference)
     return bool(returns) and all(_response(r.value, values) for r in returns)
 
 

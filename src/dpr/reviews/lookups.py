@@ -10,6 +10,7 @@ from dpr.model import DataModel, Location, Route
 from dpr.parsing import pyast
 from dpr.parsing.schemas import find_model
 from dpr.reviews.access import path_params
+from dpr.reviews.personal import is_person_model, personal_fields
 from dpr.reviews.request_values import Taint, identifier, reads
 from dpr.reviews.visibility import py_visible, py_written_after
 from dpr.rules import Context
@@ -99,6 +100,23 @@ def owned(ctx: Context, name: str | None) -> bool | None:
             if _columns(parent) & OWNER_COLUMNS:
                 return True
     return False
+
+
+def reference_models(ctx: Context) -> frozenset[str]:
+    """Models that hold no personal data: not a user or person model, no field the classifier
+    marks personal, no file, and no owner or tenant column. Rate tables, plan and product
+    catalogues."""
+    if "reference_models" not in ctx.facts:
+        personal = {p.model.name for p in personal_fields(ctx)}
+        ctx.facts["reference_models"] = frozenset(
+            model.name
+            for model in ctx.detection.models
+            if model.name not in personal
+            and not is_person_model(model)
+            and not any(f.type.endswith("FileField") for f in model.fields)
+            and owned(ctx, model.name) is False
+        )
+    return ctx.facts["reference_models"]
 
 
 def request_keys(route: Route, fn: ast.AST | None = None) -> set[str]:
