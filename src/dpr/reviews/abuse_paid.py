@@ -12,6 +12,8 @@ from dpr.parsing import jsts
 from dpr.parsing.mounts import limiter_mounts
 from dpr.redact import snippet
 from dpr.reviews.access import PUBLIC, access, unread_guard
+from dpr.reviews.auth_axes import axes_for
+from dpr.reviews.auth_flows import flows_of
 from dpr.reviews.paid import PaidRoute, costs, paid_routes
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
@@ -158,7 +160,10 @@ def form_no_challenge(ctx: Context) -> Iterator[Finding]:
     for rel, routes in sorted(by_file.items()):
         if CHALLENGE.search(ctx.index.text(rel)):
             continue
-        limited = all(is_limited(ctx, r) for r in routes)
+        locked = {
+            (f.route.file, f.route.line) for f in flows_of(ctx, "login") if axes_for(ctx, rel)
+        }
+        limited = all(is_limited(ctx, r) or (r.file, r.line) in locked for r in routes)
         yield make_finding(
             "ABUSE-FORM-NO-CHALLENGE",
             tag=Tag.INFERRED,

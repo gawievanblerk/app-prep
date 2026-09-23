@@ -11,6 +11,7 @@ from dpr.model import Finding, Location, Tag
 from dpr.parsing import pyast
 from dpr.redact import snippet
 from dpr.reviews.abuse_paid import is_limited
+from dpr.reviews.auth_axes import axes_for
 from dpr.reviews.auth_code import call_names
 from dpr.reviews.auth_flows import Flow, flows_of, lifetimes, record_pass, user_models_in
 from dpr.reviews.deploy_env import declared_for
@@ -151,6 +152,11 @@ def _lockout_evidence(ctx: Context, flow: Flow) -> Location | None:
 @rule("AUTH-NO-LOCKOUT", review="auth", severity="medium", exploitability="high", owasp="A07")
 def no_lockout(ctx: Context) -> Iterator[Finding]:
     for flow in flows_of(ctx, "login"):
+        axes = axes_for(ctx, flow.route.file)
+        if axes is not None:
+            text = "Failed sign-ins lock the account (django-axes)"
+            record_pass(ctx, 1, Tag.CONFIRMED, text, axes.enabled)
+            continue
         if declared_for(ctx, flow.route.file, LOCKOUT_PACKAGES):
             continue
         if is_limited(ctx, flow.route):

@@ -192,3 +192,24 @@ def test_redact_masks_every_email_address_and_keeps_url_password_labels():
     assert redact(url) == "postgres://app:<redacted:password>@db.corpmail.io/main"
     assert redact("@router.get('/users/{user_id}')") == "@router.get('/users/{user_id}')"
     assert redact('"lodash": "npm:lodash@4.17.21"') == '"lodash": "npm:lodash@4.17.21"'
+
+
+def test_env_defaults_auth_pairs_and_salts_are_masked():
+    value = "fall" + "back-" + "90210x"
+    lines = [
+        f'SECRET_KEY = os.environ.get("SECRET_KEY", "{value}")',
+        f"KEY = getenv('PARTNER_API_KEY', default='{value}')",
+        f'PASSWORD = os.environ.get("SYNC_PASSWORD") or "{value}"',
+        f'KEYS = {{"A": env.str("A_TOKEN", "{value}")}}',
+        f'requests.post(url, auth=("api", "{value}"))',
+        f'headers = {{"Authorization": "Bearer {value}"}}',
+        f'HASHER = Hashids(salt="{value}", min_length=6)',
+    ]
+    for line in lines:
+        masked = redact(line)
+        assert value not in masked, line
+        assert "<redacted:" in masked, line
+    assert redact('DOMAIN = os.environ.get("DOMAIN", "app.example.invalid")').endswith(
+        '"app.example.invalid")'
+    )
+    assert redact("auth = f'Bearer {token}'") == "auth = f'Bearer {token}'"

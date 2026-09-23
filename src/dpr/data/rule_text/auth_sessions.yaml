@@ -25,3 +25,11 @@ AUTH-NO-LOCKOUT:
   blast: Every account with a weak or reused password.
   fix: Limit sign-in per IP and per account (for example 5 per minute per IP, 10 per 15 minutes per account) with a shared store, and add backoff after repeated failures without revealing the lock in the response.
   verify: Send eleven wrong passwords in a minute and confirm the later requests are refused.
+AUTH-LOCKOUT-WEAK:
+  title: The django-axes sign-in lockout is set too weakly
+  effort_minutes: 20
+  detail: django-axes locks sign-in after failed attempts, but ${weaknesses}. Sign-ins that bypass Django's authenticate() (API logins that call check_password directly) are not counted at all.
+  attack: Send a few wrong passwords for a staff user name to keep that account locked, or try one common password against many accounts from one address, or spread guesses over many addresses, depending on which setting is weak.
+  blast: Accounts with weak or reused passwords, and the availability of any account whose user name is known.
+  fix: Set AXES_COOLOFF_TIME (for example 15 minutes), keep AXES_FAILURE_LIMIT low, and lock on the user name and address together plus the address alone (AXES_LOCKOUT_PARAMETERS = [["username", "ip_address"], "ip_address"]). Route every login, including API logins, through authenticate(request=...).
+  verify: Fail sign-in past the limit for one account from one address and confirm the lock clears after the cool-off, that another address can still sign in to it, and that one address trying many accounts is locked.

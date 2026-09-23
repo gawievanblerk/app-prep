@@ -172,7 +172,7 @@ def _title(key: tuple, members: list[Finding], lead: Finding) -> str:
     anchors = [f for f in members if f.rule_id == spec["rules"][0]]
     title = anchors[0].title if anchors else lead.title
     if anchors and len({f.rule_id for f in members}) > 1:
-        title += ", and a start command runs it"
+        title += spec.get("joined", "")
     return title
 
 
