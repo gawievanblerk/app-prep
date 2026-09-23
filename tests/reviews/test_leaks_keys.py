@@ -87,3 +87,30 @@ def test_sentry_pii(tmp_path):
         ("sentry.client.config.ts", 4),
         ("sentry.server.config.ts", 2),
     ]
+
+
+AWS = "AK" + "IA" + "Q3EGRTZ7NBW4KXPL"
+AWS_DOC = "AK" + "IA" + "IOSFODNN7" + "EXAMPLE"
+
+
+def test_hardcoded_key_skips_test_named_files(tmp_path):
+    write(tmp_path, "scripts/test-check-secrets.sh", f"run_case detect '{AWS}'\n")
+    write(tmp_path, "scripts/test_keys.py", f'KEY = "{AWS}"\n')
+    write(tmp_path, "tools/scan_test.go", f'const k = "{AWS}"\n')
+    write(tmp_path, "src/scan.test.ts", f'const k = "{AWS}"\n')
+    write(tmp_path, "tests/conf.py", f'KEY = "{AWS}"\n')
+    write(tmp_path, "scripts/latest-deploy.sh", f"export AWS_ACCESS_KEY_ID={AWS}\n")
+    found = [str(f.locations[0]) for f in findings_for(tmp_path, "leaks", "LEAK-HARDCODED-KEY")]
+    assert found == ["scripts/latest-deploy.sh:1"]
+
+
+def test_hardcoded_key_skips_placeholder_in_comment(tmp_path):
+    write(
+        tmp_path,
+        "scripts/check.sh",
+        f"# Not the documented {AWS_DOC}: it is an example key.\n"
+        f"# deploy key {AWS}\n"
+        f"KEY='{AWS_DOC}'\n",
+    )
+    found = [str(f.locations[0]) for f in findings_for(tmp_path, "leaks", "LEAK-HARDCODED-KEY")]
+    assert found == ["scripts/check.sh:2", "scripts/check.sh:3"]

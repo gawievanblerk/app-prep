@@ -19,6 +19,7 @@ from dpr.parsing import jsts, pyast
 from dpr.redact import find_keys, is_secret_name, public_prefix, snippet
 from dpr.reviews import leaks_code  # noqa: F401  (registers the leaks_code rules)
 from dpr.reviews.leaks_summary import summary_parts
+from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 from dpr.vendored import is_vendored
 from dpr.walk import line_of
@@ -33,6 +34,11 @@ LOAD_ORDER = {
     "next": [".js", ".mjs", ".ts", ".cjs", ".mts", ".cts"],
 }
 VITE_SOURCEMAPS = re.compile(r"\bsourcemap\s*:\s*(?:true|['\"](?:inline|hidden)['\"])")
+# Test scripts in any folder (test-*.sh, test_*.py, *_test.go, *.test.ts): they feed
+# key-shaped values to the code under test.
+TEST_NAME = re.compile(r"(?:^|/)(?:test[-_][^/]*|[^/]*_test\.[^/]+|[^/]*\.test\.[^/]+)$")
+COMMENT = re.compile(r"^\s*(?:#|//|/\*|\*|--|<!--|;|rem\s)", re.I)
+PLACEHOLDER_WORD = re.compile(r"(?i)example|sample|placeholder|dummy|fake")
 
 
 @rule("LEAK-PUBLIC-SECRET", review="leaks", severity="critical", exploitability="high")
@@ -53,8 +59,14 @@ def public_secret(ctx: Context) -> Iterator[Finding]:
 @rule("LEAK-HARDCODED-KEY", review="leaks", severity="critical", exploitability="high")
 def hardcoded_key(ctx: Context) -> Iterator[Finding]:
     for entry in ctx.index.files:
+        if is_test(entry.rel) or TEST_NAME.search(entry.rel):
+            continue
         text = ctx.index.text(entry.rel)
+        rows = text.splitlines()
         for hit in find_keys(text):
+            row = rows[hit.line - 1] if hit.line <= len(rows) else ""
+            if COMMENT.match(row) and PLACEHOLDER_WORD.search(row):
+                continue
             yield make_finding(
                 "LEAK-HARDCODED-KEY",
                 tag=Tag.CONFIRMED,
