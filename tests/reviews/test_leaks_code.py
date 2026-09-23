@@ -300,3 +300,50 @@ def test_env_tracked_stays_critical_when_an_unprefixed_name_holds_a_secret(tmp_p
     git(tmp_path, "commit", "-q", "-m", "env")
     [found] = findings_for(tmp_path, "leaks", "LEAK-ENV-TRACKED")
     assert found.severity.value == "critical"
+
+
+def test_broad_response_needs_a_response_and_personal_data(tmp_path):
+    write(
+        tmp_path,
+        "shop/models.py",
+        "from django.db import models\n\n"
+        "class Designation(models.Model):\n    title = models.CharField(max_length=20)\n"
+        "    rank = models.IntegerField()\n\n"
+        "class Member(models.Model):\n    first_name = models.CharField(max_length=20)\n"
+        "    email = models.EmailField()\n",
+    )
+    write(
+        tmp_path,
+        "shop/serializers.py",
+        "from rest_framework import serializers\n\n"
+        "class DesignationSerializer(serializers.ModelSerializer):\n"
+        '    class Meta:\n        model = Designation\n        fields = "__all__"\n\n'
+        "class MemberSerializer(serializers.ModelSerializer):\n"
+        '    class Meta:\n        model = Member\n        fields = "__all__"\n',
+    )
+    write(
+        tmp_path,
+        "shop/urls.py",
+        "from django.urls import path\nfrom . import views\n"
+        "urlpatterns = [path('edit/', views.edit), path('show/', views.show),"
+        " path('raw/', views.raw), path('managers/', views.managers)]\n",
+    )
+    write(
+        tmp_path,
+        "shop/views.py",
+        "from django.forms.models import model_to_dict\n\n"
+        "def edit(request):\n    before = model_to_dict(member)\n    form.save()\n"
+        "    after = model_to_dict(member)\n    log_changes(diff(before, after))\n"
+        "    return render(request, 'edit.html', {'form': form})\n"
+        "def show(request):\n    data = model_to_dict(member)\n    payload = {'member': data}\n"
+        "    return JsonResponse(payload)\n"
+        "def raw(request):\n    return vars(member)\n"
+        "def managers(request):\n    data = model_to_dict(member)\n"
+        "    picked = dict((k, data[k]) for k in data if 'manager' in k)\n"
+        "    return HttpResponse(json.dumps(picked))\n",
+    )
+    assert locs(findings_for(tmp_path, "leaks", "LEAK-BROAD-RESPONSE")) == [
+        "shop/serializers.py:11",
+        "shop/views.py:10",
+        "shop/views.py:14",
+    ]

@@ -11,6 +11,7 @@ from dpr.parsing import jsts, pyast
 from dpr.parsing.routes_js import response_calls
 from dpr.redact import snippet
 from dpr.reviews.access import PUBLIC, access
+from dpr.reviews.leaks_code import sent
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
@@ -29,6 +30,7 @@ RESPONSE_CALLS = re.compile(
     r"(?:\w+\.)*(?:HTTPException|JSONResponse|Response|PlainTextResponse|HTMLResponse|JsonResponse"
     r"|HttpResponse|jsonify|make_response|abort)"
 )
+TASK_DECORATOR = re.compile(r"(?:^|\.)(?:shared_task|task|periodic_task|actor)$")
 JS_ERROR_TEXT = re.compile(r"\b(?:err|error|e|ex|exception)\.(?:message|stack)\b")
 
 
@@ -184,28 +186,59 @@ def _error_names(handler: ast.ExceptHandler) -> set[str]:
     return names
 
 
-def _py_error_leaks(tree: ast.Module) -> Iterator[int]:
-    for fn in pyast.functions(tree):
-        for handler in [n for n in ast.walk(fn) if isinstance(n, ast.ExceptHandler)]:
-            kind = pyast.dotted(handler.type) if handler.type is not None else None
-            if kind not in BROAD_EXCEPTIONS:
+def _leaks_in(fn: ast.AST) -> Iterator[tuple[int, bool]]:
+    """Lines where a catch-all exception's text is returned (True) or put in a response call
+    (False), one per except clause."""
+    for handler in [n for n in ast.walk(fn) if isinstance(n, ast.ExceptHandler)]:
+        kind = pyast.dotted(handler.type) if handler.type is not None else None
+        if kind not in BROAD_EXCEPTIONS:
+            continue
+        names = _error_names(handler)
+        for node in ast.walk(fn):
+            if getattr(node, "lineno", 0) < handler.lineno:
                 continue
-            names = _error_names(handler)
-            for node in ast.walk(fn):
-                if getattr(node, "lineno", 0) < handler.lineno:
-                    continue
-                if isinstance(node, ast.Return) and node.value is not None:
-                    value = node.value
-                elif isinstance(node, ast.Call) and RESPONSE_CALLS.fullmatch(
-                    pyast.dotted(node.func) or ""
-                ):
-                    value = node
-                else:
-                    continue
-                text = ast.unparse(value)
-                if pyast.names_in(value) & names or "format_exc()" in text:
-                    yield node.lineno
-                    break
+            if isinstance(node, ast.Return) and node.value is not None:
+                value = node.value
+            elif isinstance(node, ast.Call) and RESPONSE_CALLS.fullmatch(
+                pyast.dotted(node.func) or ""
+            ):
+                value = node
+            else:
+                continue
+            text = ast.unparse(value)
+            if pyast.names_in(value) & names or "format_exc()" in text:
+                yield node.lineno, isinstance(node, ast.Return)
+                break
+
+
+def _task(fn: ast.AST) -> bool:
+    return any(
+        TASK_DECORATOR.search(pyast.dotted(d.func if isinstance(d, ast.Call) else d) or "")
+        for d in fn.decorator_list
+    )
+
+
+def _returned_to_client(fn: ast.AST, handlers: list[ast.AST]) -> bool:
+    """A handler in the same file calls `fn` and sends its result in the response."""
+    for handler in handlers:
+        for call in ast.walk(handler):
+            if isinstance(call, ast.Call) and isinstance(call.func, ast.Name | ast.Attribute):
+                name = call.func.id if isinstance(call.func, ast.Name) else call.func.attr
+                if name == fn.name and sent(handler, call):
+                    return True
+    return False
+
+
+def _py_error_leaks(tree: ast.Module, handlers: list[ast.AST]) -> Iterator[int]:
+    """Error text that reaches an HTTP response: put in a response call, returned by a route
+    handler, or returned by a helper whose result a handler sends. Celery task results and
+    other internal return values are not responses."""
+    for fn in pyast.functions(tree):
+        if _task(fn):
+            continue
+        for line, returned in _leaks_in(fn):
+            if not returned or fn in handlers or _returned_to_client(fn, handlers):
+                yield line
 
 
 @rule("ABUSE-ERROR-LEAK", review="abuse", severity="medium", exploitability="medium", owasp="A05")
@@ -215,7 +248,8 @@ def error_leak(ctx: Context) -> Iterator[Finding]:
         if entry.rel not in route_files or is_test(entry.rel):
             continue
         tree = pyast.parse_file(ctx.index, entry.rel)
-        for line in sorted(set(_py_error_leaks(tree))) if tree else []:
+        handlers = [r.handler for r in ctx.detection.routes if r.file == entry.rel]
+        for line in sorted(set(_py_error_leaks(tree, handlers))) if tree else []:
             yield make_finding(
                 "ABUSE-ERROR-LEAK",
                 tag=Tag.CONFIRMED,

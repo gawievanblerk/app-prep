@@ -19,6 +19,7 @@ from dpr.reviews.access_names import (
 )
 from dpr.reviews.paths import is_test
 from dpr.rules import Context
+from dpr.vendored import is_vendored
 
 PY_HOOK = re.compile(r"(?:\w+\.)*(?:middleware|before_request|before_app_request)")
 HOOK_AUTH = re.compile(
@@ -35,7 +36,7 @@ DJANGO_DECORATORS = re.compile(
 DJANGO_MIXINS = re.compile(r"(LoginRequired|PermissionRequired|UserPassesTest)Mixin")
 DRF_VIEW = re.compile(r"(?:APIView|ViewSet|GenericAPIView)$")
 READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-LOCAL_SETTINGS = frozenset({"test", "tests", "testing", "local", "dev", "development"})
+LOCAL_SETTINGS = frozenset({"test", "tests", "testing", "ci", "local", "dev", "development"})
 VIEW_ACTIONS = {
     "get": "GET", "head": "HEAD", "options": "OPTIONS", "list": "GET", "retrieve": "GET",
     "post": "POST", "create": "POST", "put": "PUT", "update": "PUT", "patch": "PATCH",
@@ -147,8 +148,8 @@ def _drf_default(node: ast.AST) -> ast.AST | None:
 
 
 def _local_settings(rel: str) -> bool:
-    """A test, local or development settings module (settings/local.py, dev_settings.py) or
-    any settings file under a tests folder."""
+    """A test, CI, local or development settings module (settings/local.py, ci_settings.py,
+    tests_settings.py) or any settings file under a tests folder."""
     words = set(re.split(r"[_.-]", PurePosixPath(rel).stem.lower()))
     return is_test(rel) or bool(words & LOCAL_SETTINGS)
 
@@ -178,6 +179,23 @@ def _settings_module(ctx: Context, rel: str) -> dict | None:
             elif not value.startswith("django.") and auth_middleware(value.split(".")[-1]):
                 found["unread"] = found["unread"] or f"{value} in {rel}"
     return found
+
+
+def non_production_settings(ctx: Context, rel: str) -> bool:
+    """A Django settings module that production never loads: one inside a vendored package
+    (a copied app's own settings, used by its tests), or a test, CI, local or development
+    module while another settings module holding INSTALLED_APPS exists."""
+    if is_vendored(ctx.index, rel):
+        return True
+    if not _local_settings(rel):
+        return False
+    return any(
+        entry.rel != rel
+        and not _local_settings(entry.rel)
+        and not is_vendored(ctx.index, entry.rel)
+        and "INSTALLED_APPS" in ctx.index.text(entry.rel)
+        for entry in ctx.index.py_files
+    )
 
 
 def django_settings(ctx: Context) -> tuple[bool, str | None, str]:

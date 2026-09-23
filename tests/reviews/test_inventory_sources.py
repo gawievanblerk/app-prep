@@ -243,3 +243,18 @@ def test_method_passed_to_run_in_executor_is_followed_for_sent_dicts(tmp_path):
     [finding] = findings_for(tmp_path, "inventory", "INV-SDK-RECEIVES-PII")
     assert (finding.tag.value, str(finding.locations[0])) == ("CONFIRMED", "app/email.py:9")
     assert "identifying fields (recipients, to, address, displayName)" in finding.detail
+
+
+def test_storage_settings_and_upload_bodies_are_not_personal_data(tmp_path):
+    write(tmp_path, "requirements.txt", "boto3\n")
+    write(
+        tmp_path,
+        "app/upload.py",
+        "import boto3\n\ndef upload(path, body, member):\n"
+        "    client = boto3.client('s3', region_name=REGION, endpoint_url=URL)\n"
+        "    client.put_object(Bucket=BUCKET, Key=path, Body=body, ContentMD5=digest(body))\n"
+        "    client.put_object(Bucket=BUCKET, Key=path, Metadata={'email': member.email})\n",
+    )
+    [finding] = findings_for(tmp_path, "inventory", "INV-SDK-RECEIVES-PII")
+    assert [str(loc) for loc in finding.locations] == ["app/upload.py:6"]
+    assert "(email)" in finding.detail and "region_name" not in finding.detail

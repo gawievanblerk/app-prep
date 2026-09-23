@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
+from dpr.reviews.access_frameworks import non_production_settings
 from dpr.reviews.access_names import name_tokens
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import line_of
@@ -286,7 +287,11 @@ def weak_hash(ctx: Context) -> Iterator[Finding]:
                     algorithm=algorithm,
                 )
         hashers = pyast.assignments(tree.body).get("PASSWORD_HASHERS")
-        if isinstance(hashers, ast.List | ast.Tuple) and hashers.elts:
+        if (
+            isinstance(hashers, ast.List | ast.Tuple)
+            and hashers.elts
+            and not non_production_settings(ctx, entry.rel)
+        ):
             first = pyast.constant(hashers.elts[0], "")
             if isinstance(first, str) and WEAK_HASHERS.search(first.rsplit(".", 1)[-1]):
                 yield make_finding(

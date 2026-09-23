@@ -10,6 +10,7 @@ from dpr.discovery.approots import same_root
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import pyast
 from dpr.redact import snippet
+from dpr.reviews.access_frameworks import non_production_settings
 from dpr.reviews.deploy_env import all_false
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
@@ -155,7 +156,7 @@ def debug_on(ctx: Context) -> Iterator[Finding]:
         tree = pyast.parse_file(ctx.index, entry.rel)
         if tree is None:
             continue
-        if "INSTALLED_APPS" in text:
+        if "INSTALLED_APPS" in text and not non_production_settings(ctx, entry.rel):
             for stmt in tree.body:
                 if (
                     isinstance(stmt, ast.Assign)

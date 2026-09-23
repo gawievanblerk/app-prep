@@ -14,6 +14,7 @@ from dpr.parsing import jsts, pyast
 from dpr.parsing.routes_js import response_calls
 from dpr.parsing.schemas import find_model
 from dpr.redact import has_token_phrase, is_public_value, is_secret_name, public_prefix, snippet
+from dpr.reviews.personal import personal_fields
 from dpr.rules import Context, make_finding, rule
 from dpr.walk import SourceFile
 
@@ -25,6 +26,10 @@ ORM_READ = re.compile(
 SUPABASE_ALL = re.compile(r"\.select\(\s*(?:['\"`]\*['\"`])?\s*\)")
 SUPABASE_TABLE = re.compile(r"\.from\(\s*['\"`](\w+)['\"`]\s*\)")
 SELECT_STAR = re.compile(r"select\s+\*", re.IGNORECASE)
+RESPONSE_CALLS = re.compile(
+    r"(?:^|\.)(?:JsonResponse|JSONResponse|Response|HttpResponse|StreamingHttpResponse|jsonify"
+    r"|make_response|ORJSONResponse|UJSONResponse)$"
+)
 JS_ROUTE_FRAMEWORKS = ("next-app", "next-pages", "next-action", "express", "fastify")
 PY_ROUTE_FRAMEWORKS = ("django", "drf", "fastapi", "flask")
 PUBLIC_ENV_DETAIL = (
@@ -244,6 +249,58 @@ def _js_responses(ctx: Context) -> Iterator[Finding]:
                 yield _broad(ctx, route.file, jsts.line(route.tree, node), source, name)
 
 
+def _without_personal_data(ctx: Context, name: str | None) -> bool:
+    """The serializer's model is read and the classifier finds no personal field on it, such
+    as a lookup table. An unknown model (Django's User, a model the parser cannot read) is
+    still reported."""
+    model = find_model(ctx.detection.models, name) if name else None
+    if model is None:
+        return False
+    return not any(p.model is model for p in personal_fields(ctx))
+
+
+def _selects(value: ast.AST) -> bool:
+    """A comprehension with a condition, also wrapped in dict() or list()."""
+    if isinstance(value, ast.Call) and len(value.args) == 1:
+        value = value.args[0]
+    comprehensions = ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp
+    return isinstance(value, comprehensions) and any(g.ifs for g in value.generators)
+
+
+def sent(handler: ast.AST, node: ast.AST) -> bool:
+    """`node` is part of the handler's HTTP response: returned by it, passed to a response call,
+    or assigned to a name that is. A value kept for a diff, a log or a template is not, and
+    neither is a filtered comprehension over it, which picks some keys only."""
+    names: set[str] = set()
+    for stmt in ast.walk(handler):
+        if isinstance(stmt, ast.Assign) and any(n is node for n in ast.walk(stmt.value)):
+            names |= {t.id for t in stmt.targets if isinstance(t, ast.Name)}
+    changed = True
+    while changed:
+        changed = False
+        for stmt in ast.walk(handler):
+            if isinstance(stmt, ast.Assign) and _selects(stmt.value):
+                continue
+            if isinstance(stmt, ast.Assign) and pyast.names_in(stmt.value) & names:
+                targets = {t.id for t in stmt.targets if isinstance(t, ast.Name)}
+                changed = changed or not targets <= names
+                names |= targets
+
+    def carries(value: ast.AST) -> bool:
+        return any(n is node for n in ast.walk(value)) or bool(pyast.names_in(value) & names)
+
+    for item in ast.walk(handler):
+        if isinstance(item, ast.Call) and RESPONSE_CALLS.search(pyast.dotted(item.func) or ""):
+            if any(carries(a) for a in [*item.args, *(k.value for k in item.keywords)]):
+                return True
+        if isinstance(item, ast.Return) and item.value is not None:
+            value = item.value
+            # A returned render(...) or helper call sends a page, not the dump itself.
+            if value is node or (not isinstance(value, ast.Call) and carries(value)):
+                return True
+    return False
+
+
 def _py_responses(ctx: Context) -> Iterator[Finding]:
     for entry in ctx.index.py_files:
         if "ModelSerializer" not in ctx.index.text(entry.rel):
@@ -257,9 +314,13 @@ def _py_responses(ctx: Context) -> Iterator[Finding]:
             values = pyast.assignments(meta.body) if meta else {}
             if pyast.constant(values.get("fields")) == "__all__":
                 model = (pyast.dotted(values.get("model")) or "").split(".")[-1] or None
+                if _without_personal_data(ctx, model):
+                    continue
                 yield _broad(ctx, entry.rel, values["fields"].lineno, "Django", model)
     for route in ctx.detection.routes:
         if route.framework not in PY_ROUTE_FRAMEWORKS or route.handler is None:
+            continue
+        if not isinstance(route.handler, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         for node in ast.walk(route.handler):
             dumps_all = isinstance(node, ast.Call) and pyast.dotted(node.func) in (
@@ -267,7 +328,7 @@ def _py_responses(ctx: Context) -> Iterator[Finding]:
                 "vars",
             )
             whole = dumps_all or (isinstance(node, ast.Attribute) and node.attr == "__dict__")
-            if whole:
+            if whole and sent(route.handler, node):
                 yield _broad(ctx, route.file, node.lineno, "Django", None)
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
                 if SELECT_STAR.search(node.value):

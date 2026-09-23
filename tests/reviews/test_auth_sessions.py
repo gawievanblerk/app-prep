@@ -161,3 +161,29 @@ def test_lockout_column_on_a_shared_library_user_model_passes_sign_in(tmp_path):
         "class User(Base):\n    __tablename__ = 'users'\n    failed_login_attempts = Column(Integer)\n",
     )
     assert findings_for(tmp_path, "auth", "AUTH-NO-LOCKOUT") == []
+
+
+def test_django_logout_view_and_token_expiry_revoke(tmp_path):
+    write(
+        tmp_path,
+        "site/urls.py",
+        "from django.urls import path\nfrom . import views\nurlpatterns = [\n"
+        "    path('logout/', views.LogoutView.as_view()),\n"
+        "    path('api/logout/', views.AgentLogoutView.as_view()),\n"
+        "    path('web/logout/', views.web_logout),\n]\n",
+    )
+    write(
+        tmp_path,
+        "site/views.py",
+        "from django.contrib.auth import views as auth_views\n"
+        "from rest_framework.views import APIView\n\n"
+        "class LogoutView(auth_views.LogoutView):\n    next_page = '/'\n\n"
+        "class AgentLogoutView(APIView):\n    def post(self, request):\n"
+        "        token = request.META.get('HTTP_X_AUTHTOKEN')\n"
+        "        LoginToken.expire_token(auth_token_string=token)\n"
+        "        return Response(status=200)\n\n"
+        "def web_logout(request):\n    response = redirect('/')\n"
+        "    response.delete_cookie('sessionid')\n    return response\n",
+    )
+    found = findings_for(tmp_path, "auth", "AUTH-LOGOUT-NO-REVOKE")
+    assert [str(f.locations[0]) for f in found] == ["site/views.py:13"]

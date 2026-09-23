@@ -16,7 +16,15 @@ from dpr.rules import Context, make_finding, rule
 from dpr.vendored import is_vendored
 from dpr.walk import line_of
 
-TOKEN_NAME = re.compile(r"(?i)token|secret|code|otp|reset|nonce|password|salt|api_?key")
+# Names that say the value is a secret. A bare "code" is not one: codes are often identifiers
+# (an advisor or product code), so only one-time and verification codes count.
+TOKEN_NAME = re.compile(
+    r"(?i)token|secret|otp|reset|nonce|passw|passcode|salt|api_?key|(?:private|signing|access)_?key"
+    r"|(?:verif\w*|confirm\w*|auth|login|activation|one_?time|security)_?code|(?:^|_)pin$"
+)
+# Calls that use their argument as a password or a cookie value.
+SECRET_CALLS = re.compile(r"(?:^|\.)(?:set_password|make_password|set_cookie|set_signed_cookie)$")
+LINK_PARAM = re.compile(r"[?&](?:token|code|key|otp)=")
 PY_RANDOM = re.compile(r"random\.(?:random|choice|choices|randint|randrange|sample|getrandbits)")
 SECRET_PARAM = re.compile(rf"[?&]({SECRET_PARAM_NAMES})=")
 ONE_TIME_LINK = re.compile(r"(?i)reset|verif|confirm|invite|magic|activate|unsubscribe")
@@ -110,11 +118,17 @@ def _fixed_host_js(node) -> bool:
     return False
 
 
-def _weak(ctx: Context, rel: str, line: int, name: str, call: str) -> Finding:
+def _weak(ctx: Context, rel: str, line: int, name: str, call: str, use: str = "") -> Finding:
+    detail = (
+        f"{name} comes from {call}, which is predictable and not meant for secrets, and {use}."
+        if use
+        else None
+    )
     return make_finding(
         "OWASP-A02-WEAK-RANDOM-TOKEN",
-        tag=Tag.INFERRED,
+        tag=Tag.CONFIRMED if use else Tag.INFERRED,
         locations=[Location(rel, line)],
+        detail=detail,
         snippet=snippet(ctx.index.text(rel), line),
         name=name,
         call=call,
@@ -156,8 +170,41 @@ def weak_random_token(ctx: Context) -> Iterator[Finding]:
                     pyast.dotted(c.func) for c in ast.walk(node.value) if isinstance(c, ast.Call)
                 ]
                 weak = [c for c in calls if c and PY_RANDOM.fullmatch(c)]
-                if weak and TOKEN_NAME.search(name):
+                if not weak:
+                    continue
+                if TOKEN_NAME.search(name):
                     yield _weak(ctx, entry.rel, node.lineno, name, weak[0])
+                    continue
+                scope = pyast.function_at(tree, node.lineno) or tree
+                use = _secret_use(scope, name, node.lineno)
+                if use is not None:
+                    yield _weak(ctx, entry.rel, node.lineno, name, weak[0], use)
+
+
+def _secret_use(scope: ast.AST, name: str, after: int) -> str | None:
+    """How a value with a neutral name is used as a secret later in the same function: passed
+    to set_password or a cookie, put in a reset or verification link, or sent as an
+    Authorization header."""
+    for node in ast.walk(scope):
+        if getattr(node, "lineno", 0) <= after or name not in pyast.names_in(node):
+            continue
+        if isinstance(node, ast.Call):
+            called = pyast.dotted(node.func) or ""
+            used = [*node.args, *(k.value for k in node.keywords)]
+            if SECRET_CALLS.search(called) and any(name in pyast.names_in(a) for a in used):
+                return f"it is passed to {called.split('.')[-1]}()"
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values, strict=True):
+                header = pyast.constant(key, None)
+                if header == "Authorization" and name in pyast.names_in(value):
+                    return "it is sent as an Authorization header"
+        if isinstance(node, ast.JoinedStr | ast.BinOp):
+            text = " ".join(
+                str(c.value) for c in ast.walk(node) if isinstance(pyast.constant(c, None), str)
+            )
+            if LINK_PARAM.search(text) or (ONE_TIME_LINK.search(text) and "/" in text):
+                return "it is put in a link"
+    return None
 
 
 @rule(

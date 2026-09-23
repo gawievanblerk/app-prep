@@ -237,10 +237,60 @@ def test_raw_sql_is_confirmed_only_when_a_request_value_is_interpolated(tmp_path
         "    cursor.execute(f'select * from {TABLE} where id = %s', [request.GET['id']])\n"
         "    cursor.execute('select * from %s where name = %s' % (TABLE, request.GET['name']))\n",
     )
+    # Line 3 of each file interpolates only the TABLE constant, which is not injectable.
     assert locs(findings_for(tmp_path, "owasp", "OWASP-A03-RAW-SQL")) == [
-        ("shop/views.py:3", "INFERRED"),
         ("shop/views.py:4", "CONFIRMED"),
-        ("src/server.js:3", "INFERRED"),
         ("src/server.js:5", "CONFIRMED"),
         ("src/server.js:6", "CONFIRMED"),
     ]
+
+
+def test_raw_sql_built_only_from_constants_is_not_reported(tmp_path):
+    write(
+        tmp_path,
+        "reports/commissions.py",
+        "from django.db import connection\n"
+        "STATUSES = ('active', 'lapsed')\n"
+        "def run(kind):\n"
+        "    debits = ('debit', 'debit_private')\n"
+        "    orders = tuple(Extract.STOP_ORDER_PLUS)\n"
+        "    with connection.cursor() as cursor:\n"
+        "        cursor.execute(f'select * from p where m in {debits} and o in {orders} and s in {STATUSES}')\n"
+        "        cursor.execute(f\"select * from p where s in ({', '.join(STATUSES)})\")\n"
+        "        cursor.execute(f'select * from p where kind = {kind}')\n"
+        "        label = 'x'\n        label = kind\n"
+        "        cursor.execute(f'select * from p where label = {label}')\n",
+    )
+    assert locs(findings_for(tmp_path, "owasp", "OWASP-A03-RAW-SQL")) == [
+        ("reports/commissions.py:12", "INFERRED"),
+        ("reports/commissions.py:9", "INFERRED"),
+    ]
+
+
+def test_weak_random_needs_a_secret_name_or_a_secret_use(tmp_path):
+    write(
+        tmp_path,
+        "app/advisors.py",
+        "import random\n"
+        "def advisor_code(n):\n"
+        "    code = 'SBP' + str(random.randint(0, 10 ** n)).zfill(n)\n    return code\n"
+        "def product_code():\n    code = random.choice(CODES)\n    return code\n"
+        "def new_user(user):\n"
+        "    initial = ''.join(random.choice(ALPHABET) for _ in range(8))\n"
+        "    user.set_password(initial)\n"
+        "def verify(user):\n"
+        "    number = random.randint(1000, 9999)\n"
+        "    send(user, f'{BASE}/verify?code={number}')\n"
+        "def headers():\n"
+        "    value = random.getrandbits(64)\n"
+        "    return {'Authorization': f'Bearer {value}'}\n"
+        "def verify_code():\n    verification_code = random.randint(1000, 9999)\n",
+    )
+    found = findings_for(tmp_path, "owasp", "OWASP-A02-WEAK-RANDOM-TOKEN")
+    assert sorted((str(f.locations[0]), f.tag.value) for f in found) == [
+        ("app/advisors.py:12", "CONFIRMED"),
+        ("app/advisors.py:15", "CONFIRMED"),
+        ("app/advisors.py:18", "INFERRED"),
+        ("app/advisors.py:9", "CONFIRMED"),
+    ]
+    assert "passed to set_password()" in next(f.detail for f in found if f.locations[0].line == 9)

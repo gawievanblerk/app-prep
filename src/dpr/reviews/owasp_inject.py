@@ -10,6 +10,7 @@ from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
 from dpr.reviews.paths import is_test
+from dpr.reviews.sql_constants import js_constant, py_constant
 from dpr.rules import Context, make_finding, rule
 from dpr.vendored import is_vendored
 from dpr.walk import line_of
@@ -154,6 +155,8 @@ def raw_sql(ctx: Context) -> Iterator[Finding]:
                 )
                 if not (unsafe or built):
                     continue
+                if built and all(js_constant(p) for p in _js_parts(first)):
+                    continue
                 what = f"{name} receives SQL built from values at runtime."
                 from_request = _js_from_request(call, first)
                 yield _sql(ctx, entry.rel, jsts.line(tree, call), from_request, what)
@@ -165,6 +168,9 @@ def raw_sql(ctx: Context) -> Iterator[Finding]:
             if not call.args or not _py_dynamic(call.args[0]):
                 continue
             fn = pyast.function_at(tree, call.lineno)
+            module = pyast.assignments(tree.body)
+            if all(py_constant(p, fn, module) for p in _py_parts(call.args[0])):
+                continue
             name = pyast.dotted(call.func) or "execute"
             what = f"{name} receives SQL built with string formatting."
             from_request = _py_from_request(fn, call.args[0])
