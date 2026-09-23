@@ -57,3 +57,11 @@ def tracked_files(root: Path, notes: list[str] | None = None) -> list[str] | Non
     if output is None:
         return None
     return [name for name in output.split("\0") if name]
+
+
+def untracked_files(root: Path, notes: list[str] | None = None) -> list[str] | None:
+    """Files git does not track and does not ignore."""
+    output = run_git(root, "ls-files", "--others", "--exclude-standard", "-z", notes=notes)
+    if output is None:
+        return None
+    return [name for name in output.split("\0") if name]

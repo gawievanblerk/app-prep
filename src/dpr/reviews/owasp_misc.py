@@ -13,6 +13,7 @@ from dpr.reviews.owasp_inject import REQUEST_VALUE
 from dpr.reviews.owasp_paths import request_params
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
+from dpr.vendored import is_vendored
 from dpr.walk import line_of
 
 TOKEN_NAME = re.compile(r"(?i)token|secret|code|otp|reset|nonce|password|salt|api_?key")
@@ -129,7 +130,9 @@ def _weak(ctx: Context, rel: str, line: int, name: str, call: str) -> Finding:
 )
 def weak_random_token(ctx: Context) -> Iterator[Finding]:
     for entry in ctx.index.js_files:
-        if is_test(entry.rel) or "Math.random" not in ctx.index.text(entry.rel):
+        if is_test(entry.rel) or is_vendored(ctx.index, entry.rel):
+            continue
+        if "Math.random" not in ctx.index.text(entry.rel):
             continue
         for tree in jsts.parse_file(ctx.index, entry.rel):
             for node in jsts.walk(tree.root, {"variable_declarator", "assignment_expression"}):
@@ -141,7 +144,9 @@ def weak_random_token(ctx: Context) -> Iterator[Finding]:
                 if "Math.random" in value and TOKEN_NAME.search(name):
                     yield _weak(ctx, entry.rel, jsts.line(tree, node), name, "Math.random()")
     for entry in ctx.index.py_files:
-        if is_test(entry.rel) or "random" not in ctx.index.text(entry.rel):
+        if is_test(entry.rel) or is_vendored(ctx.index, entry.rel):
+            continue
+        if "random" not in ctx.index.text(entry.rel):
             continue
         tree = pyast.parse_file(ctx.index, entry.rel)
         for node in ast.walk(tree) if tree else []:
@@ -164,7 +169,7 @@ def weak_random_token(ctx: Context) -> Iterator[Finding]:
 )
 def secret_in_url(ctx: Context) -> Iterator[Finding]:
     for entry in [*ctx.index.js_files, *ctx.index.py_files]:
-        if is_test(entry.rel):
+        if is_test(entry.rel) or is_vendored(ctx.index, entry.rel):
             continue
         text = ctx.index.text(entry.rel)
         for match in SECRET_PARAM.finditer(text):

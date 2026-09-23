@@ -17,6 +17,7 @@ from dpr.redact import find_keys, is_secret_name, public_prefix, snippet
 from dpr.reviews import leaks_code  # noqa: F401  (registers the leaks_code rules)
 from dpr.reviews.leaks_summary import summary_parts
 from dpr.rules import Context, make_finding, rule
+from dpr.vendored import is_vendored
 from dpr.walk import line_of
 
 ROTATE = (
@@ -77,7 +78,11 @@ def key_in_build(ctx: Context) -> Iterator[Finding]:
 
 @rule("LEAK-SOURCEMAP", review="leaks", severity="medium", exploitability="medium")
 def sourcemaps(ctx: Context) -> Iterator[Finding]:
-    maps = [f for f in ctx.index.build_files if f.name.endswith(".map")]
+    maps = [
+        f
+        for f in ctx.index.build_files
+        if f.name.endswith(".map") and not is_vendored(ctx.index, f.rel)
+    ]
     if maps:
         yield make_finding(
             "LEAK-SOURCEMAP",

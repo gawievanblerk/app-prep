@@ -54,8 +54,8 @@ def test_route_table_and_categories(tmp_path):
     body = parts["Categories reviewed"].body
     assert "- A01 Broken access control: 1 finding(s) above." in body
     assert (
-        "- A06 Vulnerable and outdated components: no finding from this review's own rules. Not run"
-        in body
+        "- A06 Vulnerable and outdated components: no finding from this review's own rules. "
+        "Libraries copied into the repository are listed" in body
     )
     text = render_markdown(report)
     assert "## 5. OWASP sweep" in text and "#### FINDING 1:" in text

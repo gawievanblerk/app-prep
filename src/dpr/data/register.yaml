@@ -33,3 +33,6 @@ chains:
   - title: Cookie flags leave sessions exposed
     scope: app
     rules: [BASE-COOKIE-HTTPONLY, BASE-COOKIE-SECURE, BASE-COOKIE-SAMESITE, BASE-SAMESITE-NONE-NO-CSRF]
+  - title: Third-party libraries are copied into the repository
+    scope: app
+    rules: [OWASP-A06-VENDORED-LIB]

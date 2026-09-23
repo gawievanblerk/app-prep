@@ -48,6 +48,11 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--format", default="md,json", help="comma separated: md, json, sarif")
     scan.add_argument("--out", metavar="DIR")
     scan.add_argument("--fail-on", default="none", choices=list(FAIL_LEVELS))
+    scan.add_argument(
+        "--include-untracked",
+        action="store_true",
+        help="in a git repository, also scan untracked files that git does not ignore",
+    )
 
     questions = commands.add_parser("questions", help="write a starter answers file")
     questions.add_argument("path", nargs="?", default=".")
@@ -122,6 +127,7 @@ def _scan(args: argparse.Namespace) -> int:
         with_audit=args.with_audit,
         semgrep=args.semgrep,
         db_dump=args.db_dump,
+        include_untracked=args.include_untracked,
     )
     root = Path(args.path)
     out_dir = Path(args.out) if args.out else root / "data-protection-review"

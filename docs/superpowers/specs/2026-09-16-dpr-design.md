@@ -76,6 +76,14 @@ Found while planning and reviewing reviews 4, 5 and 7. The tables in section 10 
 21. **tree-sitter 0.26 `Point.row`** corrupts memory past line 256. Helpers index points (`start_point[0]`) rather than read `.row` or `.column`.
 22. **Rules added beyond the original tables**, from gaps found against a private comparison run: `BASE-LITERAL-PASSWORD-HASH`, `BASE-SEED-ON-START`, `BASE-SHORT-PASSWORD-MIN`, `BASE-SAMESITE-NONE-NO-CSRF`, `BASE-DB-NETWORK-OPEN`, `BASE-DB-ADMIN-LOGIN`, `BASE-HTTPS-NOT-ENFORCED`, `OWASP-A01-EMAIL-OWNERSHIP`, `OWASP-A01-PATH-TRAVERSAL`, `OWASP-A03-HTML-EMAIL`, `OWASP-A05-XML-PARSER`, `OWASP-A08-UNPINNED-DEPS`, `OWASP-A08-UNPINNED-INSTALL`, `ABUSE-LIMITER-NOT-APPLIED`, `ABUSE-LIMITER-PROXY-IP`, `ABUSE-UPLOAD-UNBOUNDED`, `LEAK-PUBLIC-GATE-KEY` and `LEAK-DEFAULT-CREDENTIAL`. Their rows are in sections 10.1 and 10.4 to 10.6.
 
+### v0.2 refinements to this spec
+
+Found by comparing v0.1.0 with a manual audit of a large Django repository, where about 95% of the findings were noise. The tables in section 10 already include them.
+
+23. **Scan scope follows git.** In a git repository the index holds tracked files only (`git ls-files`). `--include-untracked` (`dpr.review(include_untracked=True)`) adds untracked files that git does not ignore (`git ls-files --others --exclude-standard`); ignored files are never read. A repository that tracks no file under the scanned folder yet is scanned as if the flag were set. When untracked files were left out, `not_covered` gives their count and three examples. Outside a git repository, or when git is unavailable, every file under the folder is walked as before and `not_covered` says so. Skipped directories and size limits are unchanged. Build output folders (section 7.1) are read whatever git says, because they are generated and usually ignored.
+24. **"Committed" means tracked.** `INV-PII-FILE-IN-REPO` says a file is committed only when git tracks it (high). An untracked file scanned on request is "in the working folder, not committed" (medium, with a fix that moves the data out of the folder instead of rewriting history), and outside git the finding says whether it is committed is not known. `LEAK-COMMITTED-DATA-FILE` counts tracked files only, including the email check in tests and documentation. Any finding whose every location is an untracked file scanned on request ends its detail with "not tracked by git: it is in this working folder only". `LEAK-ENV-TRACKED` and `LEAK-ENV-IN-HISTORY` already read git directly and are unchanged.
+25. **Vendored code.** A JS or CSS file is a copied library when its name matches `vendored_libs.yaml` (jQuery, Bootstrap, Select2, DataTables, PDF.js, Moment.js, Lodash and about 40 more; the version and `.min` are removed first), it is minified (`.min.js`, `.min.css`, or at least 4 KB with lines over 300 characters on average), or its header is a library banner (`/*!` at the start, `@license`, `@preserve`, a webpack bootstrap). A whole folder is vendored when it is named after a known library and holds no `.py`, `.ts`, `.tsx`, `.jsx`, `.vue` or `.svelte` file, is a child of a third-party folder (`third-party`, `third_party`, `vendors`, `bower_components` and similar), or holds its own `LICENSE` or `COPYING` file with no project manifest (`package.json`, `pyproject.toml`, `setup.py`, `requirements.txt`, `manage.py` and similar) anywhere below it, such as a Django app copied from another project. Collected static output (`staticfiles`, or a `static` folder that holds Django admin's collected `admin/js/core.js`) is vendored too, but only the libraries inside it are named. Sink rules skip vendored files: `OWASP-A03-XSS-SINK`, `OWASP-A03-COMMAND`, `OWASP-A03-RAW-SQL`, `OWASP-A02-SECRET-IN-URL`, `OWASP-A02-WEAK-RANDOM-TOKEN`, `OWASP-A08-UNSAFE-DESERIALISE`, `OWASP-A08-NO-SRI`, `LEAK-LOGGED-PII`, and `LEAK-SOURCEMAP` for maps under a vendored folder. Key patterns (`LEAK-HARDCODED-KEY`, `LEAK-KEY-IN-BUILD`) and route, settings and access rules still read them. Each library is reported once as `OWASP-A06-VENDORED-LIB` (section 10.5), keyed by name and version, or by folder; the register groups them into one issue per app root.
+
 ## 4. Non-negotiable rules, enforced in code
 
 | Skill rule | Enforcement |
@@ -105,6 +113,7 @@ report = dpr.review(
     with_audit=False,
     semgrep="auto",                # "auto" | "off" | path to local rules dir
     db_dump=None,                  # path to pasted pg_tables / pg_policies output
+    include_untracked=False,       # in git, also scan untracked files git does not ignore
 )
 
 report.findings        # list[Finding], ranked
@@ -278,6 +287,7 @@ Each review returns a `ReviewSection` holding the tables and text blocks its par
 
 - Skipped directories: `node_modules`, `.git`, `.next`, `dist`, `build`, `out`, `vendor`, `.venv`, `venv`, `__pycache__`, `.turbo`, `coverage`, `.pytest_cache`, `.mypy_cache`, `data-protection-review`, `site-packages`, and any directory that holds a `pyvenv.cfg` file (a virtualenv under any name, such as `.env/` or `env/`).
 - Build output directories (`dist`, `build`, `out`, `.next/static`) are indexed separately as `build_files` and read only by the leaks review.
+- In a git repository only tracked files are indexed, plus untracked files that git does not ignore with `--include-untracked`; outside git every file is walked (refinement 23 in section 3). Build output directories are read whatever git says.
 - Symlinks are not followed.
 - Binary files (null byte in the first 8 KB) are skipped.
 - Source files over 1 MB are skipped and listed in `not_covered`. Build files up to 10 MB are scanned with key regexes only.
@@ -427,7 +437,7 @@ Each subsection lists rule ids with default tag, severity and exploitability. Ef
 | `LEAK-KEY-IN-BUILD` | Same patterns in `build_files` | CONFIRMED | critical | high |
 | `LEAK-ENV-TRACKED` | `git ls-files` lists `.env*` other than `.example`, `.sample`, `.template`. The file's variable names are read (never values) | CONFIRMED | critical when a name is not public-prefixed or looks secret, or the file cannot be read (for example tracked but deleted from the working tree); low when every name is public-prefixed and not secret-like, with the note that frameworks such as Next.js commit these on purpose | high |
 | `LEAK-ENV-IN-HISTORY` | `git log --all --diff-filter=A --name-only` shows such a file was ever added | CONFIRMED | high | medium |
-| `LEAK-SOURCEMAP` | `*.map` in build output, `productionBrowserSourceMaps: true`, Vite `build.sourcemap: true` | CONFIRMED | medium | medium |
+| `LEAK-SOURCEMAP` | `*.map` in build output (not under a vendored library folder), `productionBrowserSourceMaps: true`, Vite `build.sourcemap: true` | CONFIRMED | medium | medium |
 | `LEAK-BROAD-RESPONSE` | Route returns a whole record: `NextResponse.json(x)` / `res.json(x)` where `x` comes from an ORM call without `select`; DRF serializer `fields = "__all__"`; `select *` or Supabase `.select('*')` in a route | INFERRED | high if the model has a sensitive column (`password`, `hash`, `token`, `secret`, `stripe_customer_id`, `role`), else medium | medium |
 | `LEAK-SSR-PROPS` | `getServerSideProps` / loader returning an ORM result without `select` | INFERRED | medium | medium |
 | `LEAK-LOGGED-PII` | `console.log/error`, `logger.*`, `print`, `logging.*` with an argument named or rooted in `req`, `request`, `body`, `user`, `token`, `payload`, `headers`, `err` / `e` of a DB call; `traceback.print_exc()` | INFERRED | medium | low |
@@ -550,6 +560,9 @@ Own rules:
 | `OWASP-A05-XML-PARSER` | XML or spreadsheet parsing when the project does not declare `defusedxml` | INFERRED | low | low |
 | `OWASP-A08-UNPINNED-DEPS` | `requirements*.txt` with at least half its entries unpinned and no lock file or hashes beside it; `package.json` with dependencies and no lock file in its folder or above | CONFIRMED | low | low |
 | `OWASP-A08-UNPINNED-INSTALL` | `pip install` of unpinned packages in start scripts or CI, unpinned `npx` of scoped packages, `npm install` (not `npm ci`) in CI | CONFIRMED | low | low |
+| `OWASP-A06-VENDORED-LIB` | A third-party library copied into the repository (refinement 25 in section 3), once per library: name, version when a file name, banner, `package.json`, `bower.json` or `__version__` shows it, and up to 10 file locations. Fix: manage it as a dependency and keep it updated | CONFIRMED when the name comes from the library list or a banner; INFERRED when only the file's shape, a third-party folder or a licence file marks it | low | low |
+
+Sink rules (`OWASP-A03-XSS-SINK`, `OWASP-A03-COMMAND`, `OWASP-A03-RAW-SQL`, `OWASP-A02-SECRET-IN-URL`, `OWASP-A02-WEAK-RANDOM-TOKEN`, `OWASP-A08-UNSAFE-DESERIALISE`, `OWASP-A08-NO-SRI`) skip vendored files.
 
 Shared findings: A05 debug and error exposure use `BASE-DEBUG-ON` and `ABUSE-ERROR-LEAK`; CORS uses the abuse rules; A07 references the auth review. These are cross-references, not duplicates.
 
@@ -557,7 +570,7 @@ Route classification table: every route marked public, authenticated, authentica
 
 **Semgrep adapter.** When `semgrep` is `"auto"` and the binary exists, or a local rules path is given: `semgrep scan --json --metrics=off --timeout 30 --config p/owasp-top-ten --config p/javascript --config p/typescript --config p/python` (or `--config <local dir>`), scoped to the repo with the same skipped directories, overall timeout 300 seconds. Each result becomes a `Finding` with `source="semgrep:<check_id>"`, tag INFERRED, `owasp` parsed from `extra.metadata.owasp`, severity from `extra.severity` (`ERROR` high, `WARNING` medium, `INFO` low). Results without an OWASP mapping are kept under `A05`. The `lines` field is dropped for rules whose id or metadata mentions secrets. Semgrep's rules are downloaded from the Semgrep registry unless a local path is given; code is scanned locally.
 
-**Audits.** With `with_audit`: `npm audit --omit=dev --json` when `package-lock.json` exists, `pip-audit -f json` against requirements or the project. Advisories become `OWASP-A06-VULN-DEP` findings, tag INFERRED, `proof_needed` "call path from the app to the vulnerable function was not traced". Without the flag, A06 is listed as not run.
+**Audits.** With `with_audit`: `npm audit --omit=dev --json` when `package-lock.json` exists, `pip-audit -f json` against requirements or the project. Advisories become `OWASP-A06-VULN-DEP` findings, tag INFERRED, `proof_needed` "call path from the app to the vulnerable function was not traced". Without the flag, A06 lists only `OWASP-A06-VENDORED-LIB` findings and notes that the audit adapters did not run.
 
 Section shape: finding blocks in the skill's format (`FINDING n`, Where, Attack, Blast, Fix) ordered by score, the route classification table, then categories reviewed with no finding.
 
@@ -596,7 +609,7 @@ Matching: names split on camelCase and underscores into tokens, matched against 
 | `INV-UNUSED-FIELD` | Personal data field whose name appears only in schema, migrations and at most one write | INFERRED | low | low |
 | `INV-NO-DELETION-PATH` | Table with personal data and no delete path: no cascade, no scheduled job deleting it (`vercel.json` crons, Celery beat, GitHub `schedule`, `cron` libraries), no TTL | INFERRED | medium | low |
 | `INV-SDK-RECEIVES-PII` | Call to a data-recipient SDK whose argument object has personal data keys (CONFIRMED) or is a whole user object (INFERRED) | CONFIRMED or INFERRED | medium | low |
-| `INV-PII-FILE-IN-REPO` | Committed `.csv` / `.json` / `.xlsx` whose header row or top-level keys match personal data terms | CONFIRMED | high | medium |
+| `INV-PII-FILE-IN-REPO` | `.csv` / `.json` whose header row or top-level keys match personal data terms. Called committed only when git tracks it (refinement 24 in section 3) | CONFIRMED | high; medium for an untracked file scanned with `--include-untracked` | medium |
 
 Section shape: the data map table (`Field | What it is | Where collected | Where it lives | Third parties with a copy | Retention | Who internally can read it | Evidence`), one flow line per collection point (`signup form (file) -> users table -> Stripe customers.create -> Sentry on error`, tagged INFERRED because flows are joined by shared model and file references, not traced), "collected with no clear reason", "not covered by this repo", and the lawyer questions (section 9). Retention is "retained indefinitely, no deletion path found" or UNKNOWN; a period is never invented. Who can read: admin routes and roles found, remainder UNKNOWN.
 
@@ -632,6 +645,7 @@ dpr scan [PATH]
     --format md,json,sarif        (default md,json)
     --out DIR
     --fail-on critical|high|medium|none   (default none)
+    --include-untracked           in git, also scan untracked files git does not ignore
 
 dpr questions [PATH] [--out FILE]  (default FILE: <PATH>/dpr-answers.yaml)
 ```

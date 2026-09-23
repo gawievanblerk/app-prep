@@ -7,7 +7,7 @@ INV-UNUSED-FIELD:
   fix: Stop writing the fields, drop the columns in a migration after a backup review, and remove them from request schemas.
   verify: Remove the fields in a branch and run the test suite and main screens.
 INV-PII-FILE-IN-REPO:
-  title: Personal data file committed to the repository
+  title: Personal data file ${where}
   effort_minutes: 30
   detail: ${file} is committed and its columns or keys look like personal data (${columns});${size} every clone and fork holds a copy, and git history keeps it after deletion.
   blast: Every person listed in the file, exposed to anyone with repository access.

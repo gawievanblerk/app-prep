@@ -11,6 +11,7 @@ from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
+from dpr.vendored import is_vendored
 from dpr.walk import line_of
 
 REQUEST_VALUE = re.compile(
@@ -138,7 +139,7 @@ def _sql(ctx: Context, rel: str, line: int, from_request: bool, what: str) -> Fi
 @rule("OWASP-A03-RAW-SQL", review="owasp", severity="high", exploitability="high", owasp="A03")
 def raw_sql(ctx: Context) -> Iterator[Finding]:
     for entry in ctx.index.js_files:
-        if is_test(entry.rel):
+        if is_test(entry.rel) or is_vendored(ctx.index, entry.rel):
             continue
         for tree in jsts.parse_file(ctx.index, entry.rel):
             for call in jsts.calls(tree, JS_SQL):
@@ -157,7 +158,7 @@ def raw_sql(ctx: Context) -> Iterator[Finding]:
                 from_request = _js_from_request(call, first)
                 yield _sql(ctx, entry.rel, jsts.line(tree, call), from_request, what)
     for entry in ctx.index.py_files:
-        if is_test(entry.rel) or MIGRATIONS.search(entry.rel):
+        if is_test(entry.rel) or MIGRATIONS.search(entry.rel) or is_vendored(ctx.index, entry.rel):
             continue
         tree = pyast.parse_file(ctx.index, entry.rel)
         for call in pyast.calls(tree, PY_SQL) if tree else []:
@@ -183,7 +184,7 @@ def _xss(ctx: Context, rel: str, line: int, sink: str) -> Finding:
 @rule("OWASP-A03-XSS-SINK", review="owasp", severity="high", exploitability="medium", owasp="A03")
 def xss_sink(ctx: Context) -> Iterator[Finding]:
     for entry in ctx.index.js_files:
-        if is_test(entry.rel):
+        if is_test(entry.rel) or is_vendored(ctx.index, entry.rel):
             continue
         text = ctx.index.text(entry.rel)
         for match in re.finditer(
@@ -201,7 +202,7 @@ def xss_sink(ctx: Context) -> Iterator[Finding]:
                 if left.endswith((".innerHTML", ".outerHTML")) and _dynamic_string(right):
                     yield _xss(ctx, entry.rel, jsts.line(tree, node), "innerHTML")
     for entry in ctx.index.py_files:
-        if is_test(entry.rel):
+        if is_test(entry.rel) or is_vendored(ctx.index, entry.rel):
             continue
         tree = pyast.parse_file(ctx.index, entry.rel)
         for call in pyast.calls(tree, r"(?:\w+\.)*(mark_safe|Markup)") if tree else []:
@@ -212,7 +213,7 @@ def xss_sink(ctx: Context) -> Iterator[Finding]:
 @rule("OWASP-A03-COMMAND", review="owasp", severity="high", exploitability="high", owasp="A03")
 def command(ctx: Context) -> Iterator[Finding]:
     for entry in ctx.index.js_files:
-        if is_test(entry.rel):
+        if is_test(entry.rel) or is_vendored(ctx.index, entry.rel):
             continue
         for tree in jsts.parse_file(ctx.index, entry.rel):
             for call in jsts.calls(tree, JS_COMMAND):
@@ -237,7 +238,7 @@ def command(ctx: Context) -> Iterator[Finding]:
                         call="new Function",
                     )
     for entry in ctx.index.py_files:
-        if is_test(entry.rel):
+        if is_test(entry.rel) or is_vendored(ctx.index, entry.rel):
             continue
         tree = pyast.parse_file(ctx.index, entry.rel)
         for call in pyast.calls(tree, r"[\w.]+") if tree else []:

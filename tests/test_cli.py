@@ -121,3 +121,25 @@ def test_write_failure_exits_2(tmp_path, capsys, monkeypatch):
     monkeypatch.delenv("DPR_STRICT")
     assert main(["scan", str(root), "--out", str(blocker)]) == 2
     assert capsys.readouterr().err.startswith("dpr: error: FileExistsError: ")
+
+
+def test_include_untracked_scans_files_git_does_not_ignore(tmp_path):
+    root = app(tmp_path)
+    git(root, "init", "-q")
+    git(root, "add", "-A")
+    git(root, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "initial")
+    write(root, "scripts/people.csv", "full_name,phone\nA,0\n")
+    out = tmp_path / "out"
+
+    def pii_files(*flags):
+        assert main(["scan", str(root), "--format", "json", "--out", str(out), *flags]) == 0
+        [report] = out.glob("report-*.json")
+        data = json.loads(report.read_text())
+        return data, [f for f in data["findings"] if f["rule_id"] == "INV-PII-FILE-IN-REPO"]
+
+    data, found = pii_files()
+    assert found == []
+    assert any("--include-untracked" in note for note in data["not_covered"])
+    data, [local] = pii_files("--include-untracked")
+    assert local["title"] == "Personal data file in the working folder, not committed"
+    assert not any("--include-untracked" in note for note in data["not_covered"])

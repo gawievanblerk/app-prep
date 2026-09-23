@@ -7,6 +7,7 @@ from dpr.report.markdown import render_markdown
 from dpr.report.sarif import render_sarif
 from dpr.reviews.inventory_retention import iac_retention, readers, retention_text
 from dpr.walk import RepoIndex
+from tests.fixture_builder import git
 from tests.reviews.helpers import findings_for, write
 
 PERSONAL_VALUES = (
@@ -241,3 +242,55 @@ def test_a_line_that_writes_a_key_and_reads_the_field_counts_as_a_read(tmp_path)
         "def row(subscriber):\n    return {'home_phone': subscriber.home_phone}\n",
     )
     assert findings_for(tmp_path, "inventory", "INV-UNUSED-FIELD") == []
+
+
+def _pii_repo(root):
+    write(root, ".gitignore", "media/\n")
+    write(root, "exports/customers.csv", "first_name,email,plan\nA,a@example.invalid,x\n")
+    git(root, "init", "-q")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "initial")
+    write(root, "scripts/leads.csv", "full_name,phone\nA,0\n")
+    write(root, "media/uploads/people.csv", "full_name,phone\nA,0\n")
+
+
+def test_personal_data_file_is_committed_only_when_git_tracks_it(tmp_path):
+    _pii_repo(tmp_path)
+    [finding] = findings_for(tmp_path, "inventory", "INV-PII-FILE-IN-REPO")
+    assert str(finding.locations[0]) == "exports/customers.csv:1"
+    assert finding.title == "Personal data file committed to the repository"
+    assert finding.severity.value == "high"
+
+
+def test_untracked_personal_data_file_is_reported_as_local_when_asked(tmp_path):
+    _pii_repo(tmp_path)
+    found = {
+        str(f.locations[0]): f
+        for f in findings_for(tmp_path, "inventory", "INV-PII-FILE-IN-REPO", include_untracked=True)
+    }
+    assert sorted(found) == ["exports/customers.csv:1", "scripts/leads.csv:1"]
+    local = found["scripts/leads.csv:1"]
+    assert local.title == "Personal data file in the working folder, not committed"
+    assert local.severity.value == "medium"
+    assert "committed" not in local.detail and "git history" not in local.fix
+
+
+def test_personal_data_file_outside_git_does_not_claim_a_commit(tmp_path):
+    write(tmp_path, "exports/customers.csv", "first_name,email\nA,a@example.invalid\n")
+    [finding] = findings_for(tmp_path, "inventory", "INV-PII-FILE-IN-REPO")
+    assert finding.title == "Personal data file in the scanned folder"
+    assert "git is not available" in finding.detail
+
+
+def test_untracked_file_findings_say_so_in_the_report(tmp_path):
+    _pii_repo(tmp_path)
+    write(tmp_path, "app/requirements.txt", "fastapi\n")
+    write(tmp_path, "app/main.py", "app = None\n")
+    report = review(tmp_path, include_untracked=True)
+    [local] = [f for f in report.findings if f.locations[0].file == "scripts/leads.csv"]
+    assert local.detail.endswith(
+        "scripts/leads.csv is not tracked by git: it is in this working folder only, not in "
+        "the repository."
+    )
+    assert not any("not tracked by git" in n for n in report.not_covered)
+    assert not any("media/uploads" in str(loc) for f in report.findings for loc in f.locations)

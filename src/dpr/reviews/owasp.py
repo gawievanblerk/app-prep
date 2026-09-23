@@ -12,6 +12,7 @@ import dpr.reviews.owasp_inject  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_integrity  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_misc  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_paths  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_vendored  # noqa: F401  (registers rules)
 from dpr.model import Finding, Part, ReviewSection, Route
 from dpr.parsing import jsts
 from dpr.reviews.access import ADMIN, PUBLIC, access
@@ -35,7 +36,8 @@ NOTES = {
     "A04": "Missing rate limits and bot protection are reported in review 7.",
     "A05": "Debug mode and missing headers are reported in review 4 (BASE-DEBUG-ON, "
     "BASE-HEADER-MISSING-*); error text and CORS in review 7 (ABUSE-ERROR-LEAK, ABUSE-CORS-*).",
-    "A06": "Not run: the dependency audit adapters arrive in a later version.",
+    "A06": "Libraries copied into the repository are listed (OWASP-A06-VENDORED-LIB); the "
+    "dependency audit adapters arrive in a later version.",
     "A07": "Session and account failure paths are reported in review 3 (AUTH-* findings); "
     "committed passwords in review 4.",
 }

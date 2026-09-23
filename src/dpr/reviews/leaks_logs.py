@@ -14,6 +14,7 @@ from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
+from dpr.vendored import is_vendored
 
 LOG_CALL = re.compile(
     r"console\.(?:log|error|warn|info|debug)|(?:logger|log)\.(?:info|error|warn|debug|log|fatal)"
@@ -339,10 +340,11 @@ def _per_file(ctx: Context, rel: str, hits: list[Hit]) -> Iterator[Finding]:
 def _all_hits(ctx: Context) -> dict[str, list[Hit]]:
     found: dict[str, list[Hit]] = {}
     for entry in ctx.index.js_files:
-        if not is_test(entry.rel):
+        if not is_test(entry.rel) and not is_vendored(ctx.index, entry.rel):
             found[entry.rel] = list(_javascript(ctx, entry.rel))
     for entry in ctx.index.py_files:
-        if not is_test(entry.rel) and PurePosixPath(entry.rel).name != "conftest.py":
+        own = not is_test(entry.rel) and not is_vendored(ctx.index, entry.rel)
+        if own and PurePosixPath(entry.rel).name != "conftest.py":
             found[entry.rel] = list(_python(ctx, entry.rel))
     return {rel: hits for rel, hits in found.items() if hits}
 

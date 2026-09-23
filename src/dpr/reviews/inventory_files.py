@@ -8,6 +8,7 @@ import json
 import re
 from collections.abc import Iterator
 from pathlib import PurePosixPath
+from string import Template
 
 from dpr.model import Finding, Location, Tag
 from dpr.parsing.pymigrations import migration_folders
@@ -122,6 +123,39 @@ def _csv_keys(text: str) -> list[str]:
         return []
 
 
+LOCAL_DETAIL = (
+    "${file} is in the working folder and its columns or keys look like personal data "
+    "(${columns});${size} anyone who can read this machine, its backups or a copy of the folder "
+    "can read the records."
+)
+LOCAL_FIX = (
+    "Confirm whether the records are real. If they are, move them out of the project folder to "
+    "storage approved for personal data, delete the local copy, and keep the path in .gitignore "
+    "so it is never committed."
+)
+NO_GIT_DETAIL = (
+    "${file} has columns or keys that look like personal data (${columns});${size} git is not "
+    "available, so whether the file is committed is not known."
+)
+
+
+def _where(ctx: Context, rel: str) -> dict:
+    """Title, severity and text for a data file by what git knows about it: only a tracked
+    file is called committed."""
+    tracked = ctx.index.tracked
+    if tracked is None:
+        return {"where": "in the scanned folder", "detail_text": NO_GIT_DETAIL}
+    if rel in tracked:
+        return {"where": "committed to the repository"}
+    return {
+        "where": "in the working folder, not committed",
+        "detail_text": LOCAL_DETAIL,
+        "severity": "medium",
+        "fix": LOCAL_FIX,
+        "verify": "Search the project folder for the file name and confirm it is gone.",
+    }
+
+
 @rule("INV-PII-FILE-IN-REPO", review="inventory", severity="high", exploitability="medium")
 def pii_file_in_repo(ctx: Context) -> Iterator[Finding]:
     for entry in ctx.index.files:
@@ -134,11 +168,14 @@ def pii_file_in_repo(ctx: Context) -> Iterator[Finding]:
         if len(personal) >= 2 and any(STRONG_KEYS.search(k) for k in personal):
             rows = text.count("\n") if suffix == ".csv" else None
             size = f" about {rows} rows," if rows else ""
+            where = _where(ctx, entry.rel)
+            fmt = {"file": entry.rel, "columns": ", ".join(personal[:8]), "size": size}
+            template = where.pop("detail_text", None)
             yield make_finding(
                 "INV-PII-FILE-IN-REPO",
                 tag=Tag.CONFIRMED,
                 locations=[Location(entry.rel, 1)],
-                file=entry.rel,
-                columns=", ".join(personal[:8]),
-                size=size,
+                detail=Template(template).safe_substitute(fmt) if template else None,
+                **where,
+                **fmt,
             )

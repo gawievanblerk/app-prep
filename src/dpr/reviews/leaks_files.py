@@ -113,10 +113,13 @@ def real_looking(domain: str, own: set[str]) -> bool:
 
 
 def email_sites(ctx: Context) -> list[tuple[str, int, int]]:
-    """(file, first line, count) for test and documentation files with real-looking addresses."""
+    """(file, first line, count) for test and documentation files with real-looking addresses.
+    Untracked files scanned on request are left out: this rule is about committed files."""
     own = own_domains(ctx)
     sites = []
     for entry in ctx.index.files:
+        if entry.rel in ctx.index.untracked:
+            continue
         docs = entry.rel.startswith("docs/") or "/docs/" in entry.rel
         if not (is_test(entry.rel) or docs) or not entry.rel.endswith(TEXT_SUFFIXES):
             continue
