@@ -12,6 +12,7 @@ from dpr.redact import snippet
 from dpr.reviews.access_frameworks import non_production_settings
 from dpr.reviews.access_names import name_tokens
 from dpr.rules import Context, make_finding, rule
+from dpr.vendored import is_vendored
 from dpr.walk import line_of
 
 SESSION_LIKE = re.compile(r"(?i)sid|session|token|auth|jwt")
@@ -342,7 +343,7 @@ def weak_hash(ctx: Context) -> Iterator[Finding]:
 @rule("BASE-MIXED-CONTENT", review="baseline", severity="low", exploitability="low", owasp="A02")
 def mixed_content(ctx: Context) -> Iterator[Finding]:
     for entry in ctx.index.files:
-        if not entry.rel.lower().endswith(MARKUP):
+        if not entry.rel.lower().endswith(MARKUP) or is_vendored(ctx.index, entry.rel):
             continue
         text = ctx.index.text(entry.rel)
         lines = sorted({line_of(text, m.start()) for m in MIXED.finditer(text)})

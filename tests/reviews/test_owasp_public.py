@@ -129,10 +129,14 @@ def test_public_sensitive_actions(tmp_path):
     assert "returns a file" in doc.detail
 
 
-def test_confirmed_public_sensitive_route_replaces_the_unscoped_finding(tmp_path):
-    unscoped = findings_for(app(tmp_path), "owasp", "OWASP-A01-UNSCOPED-QUERY")
-    assert not any("/claim/" in f.title for f in unscoped)
-    assert any("/doc/" in f.title for f in unscoped)
+def test_public_sensitive_route_replaces_the_unscoped_finding(tmp_path):
+    root = app(tmp_path)
+    unscoped = findings_for(root, "owasp", "OWASP-A01-UNSCOPED-QUERY")
+    assert not any("/claim/" in f.title or "/doc/" in f.title for f in unscoped)
+    doc = next(
+        f for f in findings_for(root, "owasp", "OWASP-A01-PUBLIC-SENSITIVE") if "/doc/" in f.title
+    )
+    assert doc.tag.value == "INFERRED"
 
 
 def test_unsigned_callbacks(tmp_path):

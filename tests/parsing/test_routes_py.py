@@ -92,6 +92,19 @@ def test_extract_routes_sets_public_form_flag(tmp_path):
     assert routes == sorted(routes, key=lambda r: (r.file, r.line, r.method))
 
 
+def test_token_links_and_done_pages_are_not_public_forms(tmp_path):
+    write(
+        tmp_path,
+        "web/app.py",
+        "from flask import Flask\napp = Flask(__name__)\n"
+        "@app.route('/reset/<uid>/<token>', methods=['POST'])\ndef confirm(uid, token): pass\n"
+        "@app.route('/reset/done')\ndef done(): pass\n"
+        "@app.route('/reset', methods=['POST'])\ndef reset(): pass\n",
+    )
+    public = sorted(r.path for r in extract_routes(RepoIndex(tmp_path)) if r.is_public_form)
+    assert public == ["/reset"]
+
+
 def test_django_routes_scale_linearly(tmp_path, monkeypatch):
     patterns = []
     for i in range(400):

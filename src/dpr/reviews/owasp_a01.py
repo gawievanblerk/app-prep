@@ -9,13 +9,15 @@ from collections.abc import Iterator
 from dpr.model import Finding, Location, Route, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
-from dpr.reviews.access import ADMIN, AUTHENTICATED, PUBLIC, Access, access, unread_guard
-from dpr.reviews.lookups import USER_MODELS, Lookup, model_for, owned, user_model
-from dpr.reviews.lookups_route import handler_functions, route_lookups
+from dpr.reviews.access import AUTHENTICATED, PUBLIC, Access, access, unread_guard
+from dpr.reviews.lookups import USER_MODELS, model_for, owned, user_model
+from dpr.reviews.lookups_route import handler_functions
+from dpr.reviews.owasp_hooks import callback_routes
 from dpr.reviews.owasp_public import public_sensitive_routes
 from dpr.reviews.paths import is_test
 from dpr.reviews.record_lists import personal_model, route_lists
 from dpr.reviews.request_values import request_names
+from dpr.reviews.unscoped import sequential_id, tenant_lookup, unscoped
 from dpr.rules import Context, make_finding, rule
 
 WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
@@ -29,6 +31,10 @@ ROLE_BODY = r"user\.(?:has_perms?|is_superuser|is_staff|groups)\b"
 ROLE_PROOF = (
     "Role-gated back-office access ({role}): confirm by design that every holder of this role "
     "may reach every record."
+)
+TENANT_PROOF = (
+    "The role check ({role}) does not tie {key} to the caller's own {kind}: confirm every "
+    "holder of this role may reach every {kind}, or compare it with the caller's."
 )
 LIST_PROOF = (
     "Confirm that every signed-in account (staff, advisors, partners) may see every {model} "
@@ -49,28 +55,6 @@ def attacker(evidence: str) -> str:
     return f"any {role} account" if role else "any signed-in user"
 
 
-def unscoped(ctx: Context) -> list[tuple[Route, list, str]]:
-    """Unscoped lookups on owned or unknown models, grouped per route, first lookup first."""
-    if "unscoped_lookups" not in ctx.facts:
-        found = []
-        for route in ctx.detection.routes:
-            level = access(ctx, route)
-            if level.level == ADMIN or is_test(route.file):
-                continue
-            items = [
-                (lookup, check)
-                for lookup, check in route_lookups(ctx, route, level)
-                if check != "owner" and not lookup.visible and owned(ctx, lookup.model) is not False
-            ]
-            if items:
-                checks = {check for _, check in items}
-                found.append(
-                    (route, [lookup for lookup, _ in items], "helper" if "helper" in checks else "")
-                )
-        ctx.facts["unscoped_lookups"] = found
-    return ctx.facts["unscoped_lookups"]
-
-
 def role_gate(route: Route, level: Access) -> str:
     """A check beyond sign-in: a role decorator or permission class, or a permission, staff,
     superuser or group test on the caller (`request.user`, never a loaded user) in the
@@ -88,27 +72,20 @@ def role_gate(route: Route, level: Access) -> str:
     return ""
 
 
-def sequential_id(ctx: Context, lookup: Lookup) -> Location | None:
-    """The auto-increment integer key of an owned model looked up by primary key."""
-    model = model_for(ctx, lookup.model)
-    if not lookup.by_primary_key or model is None or not owned(ctx, lookup.model):
-        return None
-    id_field = next((f for f in model.fields if f.name in ("id", "pk")), None)
-    return id_field.location if id_field is not None and id_field.autoincrement else None
-
-
 @rule(
     "OWASP-A01-UNSCOPED-QUERY", review="owasp", severity="high", exploitability="high", owasp="A01"
 )
 def unscoped_query(ctx: Context) -> Iterator[Finding]:
-    reported = public_sensitive_routes(ctx)
+    reported = public_sensitive_routes(ctx) | callback_routes(ctx)
     for route, items, check in unscoped(ctx):
-        lookup = items[0]
-        known = owned(ctx, lookup.model) is not None
         level = access(ctx, route)
         if level.level == PUBLIC and route in reported:
             continue
         role = role_gate(route, level)
+        tenant = next((i for i in items if tenant_lookup(i)), None) if role else None
+        lookup = tenant or items[0]
+        items = [lookup, *(i for i in items if i is not lookup)]
+        known = owned(ctx, lookup.model) is not None
         sequential = sequential_id(ctx, lookup)
         proofs, extra = [], ""
         if check == "helper":
@@ -121,7 +98,11 @@ def unscoped_query(ctx: Context) -> Iterator[Finding]:
             )
         if level.level == PUBLIC:
             proofs.append(PUBLIC_PROOF)
-        if role:
+        if tenant is not None:
+            key = tenant_lookup(tenant)
+            kind = key.rsplit("_", 1)[0].replace("_", " ") if "_" in key else key
+            proofs.append(TENANT_PROOF.format(role=role, key=key, kind=kind))
+        elif role:
             proofs.append(ROLE_PROOF.format(role=role))
         if sequential is not None:
             extra = SEQUENTIAL.format(model=model_for(ctx, lookup.model).name)
@@ -129,7 +110,9 @@ def unscoped_query(ctx: Context) -> Iterator[Finding]:
         locations += [item.location for item in items[1:]]
         locations += [sequential] if sequential is not None else []
         severity = exploitability = None
-        if role:
+        if tenant is not None:
+            severity = exploitability = "medium"
+        elif role:
             severity = exploitability = "low"
         elif level.level == PUBLIC and sequential is not None:
             severity = "critical"

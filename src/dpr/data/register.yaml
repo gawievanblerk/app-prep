@@ -65,3 +65,9 @@ chains:
     severity: low
     fold: true
     detail: Each route below checks a role (a permission, group, superuser or staff test) before it loads a record by an identifier from the request, and nothing ties the record to the caller. That is normal for back-office staff screens, so these are low. Confirm by design that every holder of each role may reach every record; the JSON report has the detail of each route.
+  - title: Role-gated routes reach any brokerage, company or branch by its id
+    scope: app
+    rules: [OWASP-A01-UNSCOPED-QUERY]
+    severity: medium
+    fold: true
+    detail: Each route below checks a role before it loads a record by a tenant id from the request (a brokerage, company, branch, organisation, account or agency), and nothing ties that id to the caller's own tenant. A role says what a caller may do, not which tenant they belong to, so a holder of the role in one tenant can read another's records. Confirm the role is only ever given to staff who may see every tenant, or compare the id with the caller's.

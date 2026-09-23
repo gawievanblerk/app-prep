@@ -30,6 +30,11 @@ PLACEHOLDER = re.compile(
 HASHIDS = r"(?:hashids\.)?Hashids"
 BASIC_AUTH = r"(?:[\w.]+\.)?(?:HTTPBasicAuth|HTTPDigestAuth|HTTPProxyAuth|BasicAuth|DigestAuth)"
 AUTH_HEADER = re.compile(r"(?i)^(?:basic|bearer|token|apikey|key)\s+\S{4,}")
+# Django signing calls whose `salt=` only namespaces a signature made with SECRET_KEY.
+SIGNING_CALL = re.compile(
+    r"(?:^|\.)(?:Signer|TimestampSigner|dumps|loads|get_signed_cookie|set_signed_cookie"
+    r"|get_cookie_signer)$"
+)
 
 
 @dataclass(frozen=True)
@@ -78,20 +83,50 @@ def _salts(tree: ast.Module) -> Iterator[tuple[int, object]]:
         yield call.lineno, pyast.constant(salt)
 
 
+def _salt_uses(ctx: Context) -> dict[str, bool]:
+    """Salt-named settings read in code: True while every read is the `salt=` of a Django
+    signing call (`Signer(salt=settings.X)`, `signing.dumps(value, salt=X)`)."""
+    uses: dict[str, bool] = {}
+    for entry in ctx.index.py_files:
+        if "SALT" not in ctx.index.text(entry.rel):
+            continue
+        tree = pyast.parse_file(ctx.index, entry.rel)
+        signing = set()
+        for call in [n for n in ast.walk(tree) if isinstance(n, ast.Call)] if tree else []:
+            salt = pyast.kwarg(call, "salt")
+            if salt is not None and SIGNING_CALL.search(pyast.dotted(call.func) or ""):
+                signing.add(id(salt))
+        for node in ast.walk(tree) if tree else []:
+            name = node.attr if isinstance(node, ast.Attribute) else getattr(node, "id", None)
+            if isinstance(node, ast.Name | ast.Attribute) and name and "SALT" in name:
+                if isinstance(node.ctx, ast.Load):
+                    uses[name] = uses.get(name, True) and id(node) in signing
+    return uses
+
+
+def signing_salts(ctx: Context) -> set[str]:
+    return {name for name, only in fact(ctx, "salt_uses", _salt_uses).items() if only}
+
+
 def file_fallbacks(ctx: Context, rel: str) -> list[Fallback]:
     text = ctx.index.text(rel)
     tree = pyast.parse_file(ctx.index, rel)
     if tree is None:
         return []
     found: dict[tuple[str, int], Fallback] = {}
+    salts = signing_salts(ctx)
 
     def add(name: str, line: int, value: object) -> None:
         kind = _kind(value)
+        if name in salts:
+            return  # a Django signing salt namespaces signatures; SECRET_KEY is the secret
         if kind is not None:
             fallback = Fallback(name, line, kind == "placeholder", signing_name(name))
             found.setdefault((name, line), fallback)
 
     for env, target, node, value in _env_fallbacks(tree):
+        if target in salts:
+            continue
         name = env if secret_name(env) else target if secret_name(target) else ""
         if name:
             add(target if signing_name(target) else name, node.lineno, value)

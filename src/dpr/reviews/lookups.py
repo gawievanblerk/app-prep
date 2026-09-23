@@ -42,6 +42,13 @@ VIEW_METHODS = frozenset(
      "partial_update", "destroy"}
 )  # fmt: skip
 FOREIGN_KEYS = frozenset({"ForeignKey", "OneToOneField"})
+# A call named like a check raises or answers whether the caller may act: `has_access`,
+# `check_policy_access`, `user_owns_policy`, `policy.assert_owner`; `log_access` is not one.
+CHECK_WORDS = frozenset(
+    {"has", "can", "check", "verify", "assert", "ensure", "require", "validate", "allowed",
+     "authorize", "authorise", "permitted", "owns"}
+)  # fmt: skip
+DATE_PARAM = re.compile(r"(?i)(?:^|_)(?:date|from|to|year|month|day|time)$")
 USER_MODELS = {"user", "users", "profile", "profiles", "account", "accounts", "customer", "member"}
 
 
@@ -95,7 +102,8 @@ def owned(ctx: Context, name: str | None) -> bool | None:
 
 
 def request_keys(route: Route, fn: ast.AST | None = None) -> set[str]:
-    keys = set(path_params(route))
+    """Path parameters (not dates) and identifier-named handler parameters."""
+    keys = {p for p in path_params(route) if not DATE_PARAM.search(p)}
     fn = fn or route.handler
     if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
         params = [*fn.args.posonlyargs, *fn.args.args, *fn.args.kwonlyargs]
@@ -293,9 +301,26 @@ def py_lookups(
     return found
 
 
+def _guards(fn: ast.AST) -> set[int]:
+    """Nodes inside a guard: the test of an `if` whose branch returns or raises (a redirect, a
+    404 or a 403 on mismatch), or of an `assert`."""
+    found: set[int] = set()
+    for node in ast.walk(fn):
+        test = None
+        if isinstance(node, ast.If):
+            exits = [s for s in [*node.body, *node.orelse] if isinstance(s, ast.Return | ast.Raise)]
+            test = node.test if exits else None
+        elif isinstance(node, ast.Assert):
+            test = node.test
+        found |= {id(sub) for sub in ast.walk(test)} if test is not None else set()
+    return found
+
+
 def py_checked_after(fn: ast.AST, lookup: Lookup, subjects: tuple[str, ...]) -> str:
-    """'owner' when a later comparison or call uses both the subject and the record, 'helper'
-    when a later call receives only the subject, else ''."""
+    """'owner' when a later guard (an `if` that returns or raises, an `assert`, or a call named
+    like a check such as `has_access`) uses both the subject and the record, 'helper' when a
+    later call receives the subject without such a guard, else ''."""
+    guards = _guards(fn)
     targets = {lookup.target} if lookup.target else set()
     for stmt in statements(fn):
         if stmt.lineno > lookup.location.line and statement_target(stmt):
@@ -318,7 +343,11 @@ def py_checked_after(fn: ast.AST, lookup: Lookup, subjects: tuple[str, ...]) -> 
             continue
         if not subject_text(text, subjects):
             continue
-        if pattern is None or pattern.search(text):
+        record_text = re.sub("|".join(rf"(?<![\w.]){re.escape(s)}\b" for s in subjects), " ", text)
+        called = (pyast.dotted(node.func) or "") if isinstance(node, ast.Call) else ""
+        named = set(re.split(r"[._]", called.split(".")[-1].lower())) & CHECK_WORDS
+        guard = id(node) in guards or bool(named)
+        if guard and (pattern is None or pattern.search(record_text)):
             return "owner"
         if isinstance(node, ast.Call):
             result = "helper"

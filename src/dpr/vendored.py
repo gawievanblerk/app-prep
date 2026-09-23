@@ -6,7 +6,9 @@ minified (`.min.js`, or very long lines on average), or its header is a library 
 holds no app source, sits under a third-party folder, holds its own licence file and no project
 manifest anywhere below it (a copied package such as a Django app), or is collected static
 output (`staticfiles`, or a `static` folder that holds Django admin's collected files). Sink
-rules skip vendored files; the owasp review reports each library once instead.
+rules skip vendored files; the owasp review reports each library once instead. Copies inside a
+documentation folder (`docs`, `doc`, `documentation`), such as a saved web page, are vendored but
+not reported as libraries.
 """
 
 from __future__ import annotations
@@ -45,7 +47,13 @@ BANNER_NAME = re.compile(
     r"/\*[!*]?\s*(?:\*\s*)?([A-Za-z][\w.-]*(?: [A-Z][\w.-]*)?)\s+v?(\d+\.\d+(?:\.\d+)?)\b"
 )
 PY_VERSION = re.compile(r"^__version__\s*=\s*(['\"])([^'\"]+)\1", re.M)
+# A version constant in the code: `var pdfjsVersion = '2.2.222'`, `version = "1.12.4"`.
+VERSION_CONST = re.compile(
+    r"(?<![\w.])(\w*?)_?(?:[Vv]ersion|VERSION)['\"]?\s*[=:]\s*['\"]v?(\d+\.\d+(?:\.\d+)?)['\"]"
+)
+DOC_DIRS = frozenset({"docs", "doc", "documentation"})
 HEAD = 2048
+CONST_HEAD = 65536
 LONG_LINES_MIN_BYTES = 4096
 LONG_LINE_AVERAGE = 300
 
@@ -103,6 +111,16 @@ def _banner_version(head: str, banner: str) -> str | None:
     return found.group(1) if found else None
 
 
+def _constant_version(text: str, library: str) -> str | None:
+    """A version constant named for the library, or a bare `version`, near the top."""
+    own = re.sub(r"[^a-z0-9]", "", library.lower())
+    for found in VERSION_CONST.finditer(text[:CONST_HEAD]):
+        prefix = re.sub(r"[^a-z0-9]", "", found.group(1).lower())
+        if not prefix or prefix == own or own.startswith(prefix):
+            return found.group(2)
+    return None
+
+
 def _long_lines(text: str) -> bool:
     return len(text) >= LONG_LINES_MIN_BYTES and len(text) / (text.count("\n") + 1) > (
         LONG_LINE_AVERAGE
@@ -119,8 +137,9 @@ def file_library(rel: str, text: str) -> tuple[str, str | None, str, bool] | Non
     entry = _known_file(stem)
     if entry is not None:
         banner = entry.get("banner", entry["name"])
-        version = version or _banner_version(head, banner)
-        return entry["name"].format(file=stem), version, "known library file name", True
+        name = entry["name"].format(file=stem)
+        version = version or _banner_version(head, banner) or _constant_version(text, name)
+        return name, version, "known library file name", True
     named = BANNER_NAME.search(head)
     if BANNER.search(head):
         if named:
@@ -138,8 +157,8 @@ def file_library(rel: str, text: str) -> tuple[str, str | None, str, bool] | Non
 def _folder_version(
     index, folder: str, names: set[str], library: str, files: list[str]
 ) -> str | None:
-    """From the folder's package.json, bower.json or __version__, else from the banner of one of
-    its files that names the same library."""
+    """From the folder's package.json, bower.json or __version__, else from the banner or version
+    constant of one of its files that names the same library."""
     for manifest in ("package.json", "bower.json"):
         if f"{folder}/{manifest}" in names:
             try:
@@ -152,7 +171,8 @@ def _folder_version(
         found = PY_VERSION.search(index.text(f"{folder}/__init__.py"))
         if found:
             return found.group(2)
-    for rel in files:
+    below = sorted(n for n in names if n.startswith(folder + "/") and n not in files)
+    for rel in [*files, *below]:  # build output such as pdfjs/build/ is read as well
         if rel.endswith(LIB_EXTS):
             found = file_library(rel, index.text(rel))
             if found and found[0].lower() == library.lower() and found[1]:
@@ -198,6 +218,10 @@ class _Folders:
         if any(LICENSE_FILE.match(f) for f in files) and folder not in self.projects:
             return name, "own licence file and no project manifest", False
         return None
+
+
+def _documentation(rel: str) -> bool:
+    return any(part.lower() in DOC_DIRS for part in rel.split("/"))
 
 
 def detect_vendored(index) -> Vendored:
@@ -249,6 +273,9 @@ def detect_vendored(index) -> Vendored:
         Library(name, version, evidence, known, tuple(files))
         for (_, version), (name, evidence, known, files) in by_name.items()
     ]
+    # A saved web page or a site generator's assets in a documentation folder are vendored, so
+    # sink rules skip them, but the app does not serve them: they are not a library it ships.
+    libraries = [lib for lib in libraries if not _documentation(lib.folder or lib.files[0])]
     return Vendored(
         frozenset(vendored),
         tuple(sorted(marked)),

@@ -19,7 +19,8 @@ from dpr.reviews.lookups import (
     statements,
     subject_text,
 )
-from dpr.reviews.request_values import trace
+from dpr.reviews.lookups_quiet import counted, quiet_handler
+from dpr.reviews.request_values import request_names, trace
 from dpr.reviews.visibility import js_visible, js_written_after
 from dpr.rules import Context
 
@@ -117,6 +118,13 @@ def _passes_caller(value: ast.AST) -> bool:
 def _py_route(
     ctx: Context, route: Route, fn: ast.AST, subjects: tuple[str, ...]
 ) -> list[tuple[Lookup, str]]:
+    if quiet_handler(fn):
+        return []
+    if route.framework in ("django", "drf"):
+        # The caller is request.user whatever the route's access: a public route (or one behind
+        # an unread mixin) that compares the record with it is scoped all the same.
+        callers = sorted(f"{name}.user" for name in request_names(fn, True))
+        subjects = tuple(dict.fromkeys((*subjects, *callers)))
     derived = tuple(
         statement_target(s)
         for s in statements(fn)
@@ -130,6 +138,7 @@ def _py_route(
     checked = [
         (item, py_checked_after(fn, item, subjects))
         for item in py_lookups(ctx, route.file, fn, keys, subjects, taint=taint)
+        if not counted(fn, item.location.line)
     ]
     verified = {k for item, check in checked if check == "owner" for k in item.keys}
     return [(item, check) for item, check in checked if not set(item.keys) <= verified]

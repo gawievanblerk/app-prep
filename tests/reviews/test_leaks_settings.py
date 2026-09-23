@@ -137,3 +137,32 @@ def test_long_value_with_a_placeholder_prefix_is_a_secret(tmp_path):
     )
     [finding] = findings_for(tmp_path, "leaks", "LEAK-SECRET-ENV-DEFAULT")
     assert finding.severity.value == "high" and "placeholder" not in finding.detail
+
+
+def test_a_salt_used_only_by_django_signing_is_not_a_secret(tmp_path):
+    media = "media" + "-salt-" + "2231"
+    write(
+        tmp_path,
+        "proj/settings/media_settings.py",
+        "import os\n"
+        f'MEDIA_SIGNING_SALT = os.environ.get("MEDIA_SIGNING_SALT", "") or "{media}"\n'
+        f'LINK_SALT = os.environ.get("LINK_SALT", "{media}")\n'
+        f'REPORT_SALT = os.environ.get("REPORT_SALT", "{media}")\n',
+    )
+    write(tmp_path, "proj/settings/__init__.py", "INSTALLED_APPS = []\n")
+    write(
+        tmp_path,
+        "media/signing.py",
+        "from django.conf import settings\nfrom django.core import signing\n"
+        "from django.core.signing import Signer, TimestampSigner\n"
+        "def signer():\n    return Signer(salt=settings.MEDIA_SIGNING_SALT)\n"
+        "def link(value):\n    return signing.dumps(value, salt=settings.LINK_SALT)\n"
+        "def report(value):\n    return hashlib.sha256(settings.REPORT_SALT + value)\n",
+    )
+    [found] = findings_for(tmp_path, "leaks", "LEAK-SECRET-ENV-DEFAULT")
+    # A signing salt only namespaces signatures made with SECRET_KEY; a salt mixed into a hash
+    # is the secret itself.
+    assert found.locations[0].line == 4
+    assert "REPORT_SALT" in found.title + found.detail
+    assert "MEDIA_SIGNING_SALT" not in found.title + found.detail
+    assert "LINK_SALT" not in found.title + found.detail

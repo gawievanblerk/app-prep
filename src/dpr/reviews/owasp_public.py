@@ -17,13 +17,14 @@ from dpr.model import Finding, Location, Route, Tag
 from dpr.parsing import pyast
 from dpr.redact import snippet
 from dpr.reviews.access import PUBLIC, Access, access, path_params, unread_guard
-from dpr.reviews.lookups import PY_ORM, owned, user_model
+from dpr.reviews.lookups import PY_ORM, Lookup, owned, user_model
 from dpr.reviews.lookups_route import handler_functions, route_lookups
 from dpr.reviews.owasp_hooks import callback_routes, reachable
 from dpr.reviews.paid_targets import py_target
 from dpr.reviews.paths import is_test
 from dpr.reviews.record_lists import has_file_field, personal_model, route_lists
 from dpr.reviews.request_values import PERSONAL_KEY, reads, request_names, trace
+from dpr.reviews.unscoped import route_unscoped, sequential_id
 from dpr.rules import Context, make_finding, rule
 
 TOKEN_CHECK = re.compile(r"check_token\(|signing\.loads\(|\.unsign\(|verify_token|verify_signature")
@@ -52,6 +53,7 @@ ACTIONS = {
     "personal": "looks up personal data by {label}",
     "file": "returns a file",
     "list": "lists stored {model} records",
+    "lookup": "looks up a {found} record by {key}",
     "job": "starts a background job",
     "write": "runs a back-office write that takes no input",
 }
@@ -65,6 +67,8 @@ class Sensitive:
     label: str
     exact: bool
     model: str = ""
+    lookup: Lookup | None = None  # an unscoped lookup this finding carries
+    sequential: Location | None = None
 
 
 def _records(fn: ast.AST) -> dict[str, str]:
@@ -207,7 +211,11 @@ def _sensitive(ctx: Context, route: Route, level: Access) -> Sensitive | None:
         or listed is not None
         and listed[2]
     )
-    return Sensitive(route, kinds, label, exact, listed[1] if listed else "")
+    carried = next(iter(route_unscoped(ctx, route)), None)
+    if carried is not None and "personal" not in kinds:
+        kinds["lookup"] = carried.location
+    sequential = sequential_id(ctx, carried) if carried is not None else None
+    return Sensitive(route, kinds, label, exact, listed[1] if listed else "", carried, sequential)
 
 
 def public_sensitive(ctx: Context) -> list[Sensitive]:
@@ -229,8 +237,8 @@ def public_sensitive(ctx: Context) -> list[Sensitive]:
 
 
 def public_sensitive_routes(ctx: Context) -> set[Route]:
-    """Routes reported as CONFIRMED: their unscoped lookup is part of that finding."""
-    return {item.route for item in public_sensitive(ctx) if item.exact}
+    """Routes this rule reports: their unscoped lookup is part of that finding."""
+    return {item.route for item in public_sensitive(ctx)}
 
 
 @rule(
@@ -244,8 +252,14 @@ def public_sensitive_actions(ctx: Context) -> Iterator[Finding]:
     for item in public_sensitive(ctx):
         route = item.route
         kinds = sorted(item.kinds, key=ORDER.index)
+        lookup = item.lookup
         actions = [
-            ACTIONS[k].format(label=item.label or "a request value", model=item.model)
+            ACTIONS[k].format(
+                label=item.label or "a request value",
+                model=item.model,
+                found=lookup.model or "stored" if lookup else "",
+                key=", ".join(lookup.keys) if lookup else "",
+            )
             for k in kinds
         ]
         proofs = []
@@ -259,12 +273,16 @@ def public_sensitive_actions(ctx: Context) -> Iterator[Finding]:
             )
         first = item.kinds[kinds[0]]
         locations = [first] + [item.kinds[k] for k in kinds[1:] if item.kinds[k] != first]
+        locations += [item.sequential] if item.sequential is not None else []
+        severity = None if item.exact else "high"
+        if item.sequential is not None:
+            severity = "critical"
         yield make_finding(
             "OWASP-A01-PUBLIC-SENSITIVE",
             tag=Tag.CONFIRMED if item.exact else Tag.INFERRED,
             locations=locations,
             snippet=snippet(ctx.index.text(first.file), first.line),
-            severity=None if item.exact else "high",
+            severity=severity,
             proof_needed=" ".join(proofs) or None,
             method=route.method,
             path=route.path,

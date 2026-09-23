@@ -67,20 +67,20 @@ def test_app_code_is_not_vendored(tmp_path):
 
 
 def test_third_party_and_library_named_folders(tmp_path):
-    write(tmp_path, "docs/third-party/site/OneDrive.js", "var nonce = Math.random();\n")
-    write(tmp_path, "docs/third-party/site/page.html", "<script src='https://x.test/a.js'>")
-    write(tmp_path, "docs/third-party/site/aa-notes.aux", "notes")
-    write(tmp_path, "docs/third-party/contacts.md", "# Suppliers\n")
+    write(tmp_path, "web/third-party/site/OneDrive.js", "var nonce = Math.random();\n")
+    write(tmp_path, "web/third-party/site/page.html", "<script src='https://x.test/a.js'>")
+    write(tmp_path, "web/third-party/site/aa-notes.aux", "notes")
+    write(tmp_path, "web/third-party/contacts.md", "# Suppliers\n")
     write(tmp_path, "static/pdfjs/web/viewer.js", "viewer();\n")
     write(tmp_path, "static/pdfjs/package.json", '{"name": "pdfjs-dist", "version": "2.6.347"}')
     write(tmp_path, "static/pdfjs/build/pdf.js.map", "{}")
     index = RepoIndex(tmp_path)
     found = {lib.folder: lib for lib in detect_vendored(index).libraries}
-    assert found["docs/third-party/site"].name == "site"
-    assert found["docs/third-party/site"].files[0] == "docs/third-party/site/OneDrive.js"
-    assert not is_vendored(index, "docs/third-party/contacts.md")
+    assert found["web/third-party/site"].name == "site"
+    assert found["web/third-party/site"].files[0] == "web/third-party/site/OneDrive.js"
+    assert not is_vendored(index, "web/third-party/contacts.md")
     assert (found["static/pdfjs"].name, found["static/pdfjs"].version) == ("PDF.js", "2.6.347")
-    assert is_vendored(index, "docs/third-party/site/page.html")
+    assert is_vendored(index, "web/third-party/site/page.html")
     assert is_vendored(index, "static/pdfjs/build/pdf.js.map")
 
 
@@ -119,3 +119,28 @@ def test_collected_static_folder_is_skipped_and_only_its_libraries_are_named(tmp
     assert [(lib.name, lib.version) for lib in detect_vendored(index).libraries] == [
         ("jQuery", "3.6.0")
     ]
+
+
+def test_documentation_copies_are_vendored_but_not_libraries(tmp_path):
+    write(tmp_path, "app/docs/third-party/flow_files/OneDrive.js", "var n = Math.random();\n")
+    write(tmp_path, "app/docs/third-party/flow_files/jquery-1.7.1.min.js", "/*! jQuery v1.7.1 */")
+    write(tmp_path, "app/docs/third-party/flow.html", "<script src='flow_files/app.js'>")
+    write(tmp_path, "app/static/js/jquery-1.7.1.min.js", "/*! jQuery v1.7.1 */")
+    index = RepoIndex(tmp_path)
+    assert [lib.files for lib in detect_vendored(index).libraries] == [
+        ("app/static/js/jquery-1.7.1.min.js",)
+    ]
+    assert is_vendored(index, "app/docs/third-party/flow_files/OneDrive.js")
+    assert is_vendored(index, "app/docs/third-party/flow_files/jquery-1.7.1.min.js")
+
+
+def test_version_constants_name_the_version(tmp_path):
+    body = "/* Copyright 2019 Mozilla Foundation */\n" + "var x = 1;\n" * 400
+    write(tmp_path, "static/pdfjs/build/pdf.worker.js", body + "var pdfjsVersion = '2.2.222';\n")
+    write(tmp_path, "static/pdfjs/web/viewer.js", "viewer();\n")
+    write(tmp_path, "static/js/jquery.js", "/* jQuery */\n" + body + 'version = "1.12.4",\n')
+    write(tmp_path, "static/js/moment.js", body + 'var otherVersion = "9.9.9";\n')
+    found = libraries(tmp_path)
+    assert ("PDF.js", "2.2.222") in found
+    assert ("jQuery", "1.12.4") in found
+    assert ("Moment.js", None) in found

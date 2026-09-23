@@ -201,6 +201,39 @@ def _py_error(ctx: Context, rel: str, tree: ast.Module, call: ast.Call, arg: ast
 
 
 Hit = tuple[int, str, bool]
+OPERATOR_INPUT = re.compile(r"^(?:input|getpass(?:\.getpass)?|sys\.argv|os\.environ\.get)$")
+
+
+def _operator_value(node: ast.AST | None) -> bool:
+    """A literal, or what the person running the script typed or passed: `input()`,
+    `getpass()`, `sys.argv[...]`, and string methods of those."""
+    while isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        if OPERATOR_INPUT.match(pyast.dotted(node.func) or ""):
+            return True
+        node = node.func.value  # input(...).strip() -> input(...)
+    if isinstance(node, ast.Subscript):
+        node = node.value
+    if isinstance(node, ast.Call):
+        node = node.func
+    if isinstance(node, ast.BoolOp):
+        return all(_operator_value(v) for v in node.values)
+    return isinstance(node, ast.Constant) or bool(OPERATOR_INPUT.match(pyast.dotted(node) or ""))
+
+
+def _operator_name(scope: ast.AST, arg: ast.AST) -> bool:
+    """A bare name that its scope only ever sets to the operator's own input or a literal."""
+    if not isinstance(arg, ast.Name):
+        return False
+    values = [
+        node.value
+        for node in ast.walk(scope)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == arg.id for t in node.targets)
+    ]
+    params = scope.args if isinstance(scope, ast.FunctionDef | ast.AsyncFunctionDef) else None
+    if params is not None and arg.id in {a.arg for a in [*params.args, *params.kwonlyargs]}:
+        return False
+    return bool(values) and all(_operator_value(v) for v in values)
 
 
 def _python(ctx: Context, rel: str) -> Iterator[Hit]:
@@ -209,7 +242,9 @@ def _python(ctx: Context, rel: str) -> Iterator[Hit]:
         return
     script = bool(SCRIPT_PATH.search(rel)) or "__main__" in ctx.index.text(rel)
     for call in pyast.calls(tree, PY_LOG_CALL):
+        scope = _function_at(ctx, rel, tree, call.lineno) or tree
         values = [*call.args, *(k.value for k in call.keywords if k.arg == "extra")]
+        values = [v for v in values if not _operator_name(scope, v)]
         kinds = [_py_kind(a) for a in values]
         if any(_py_error(ctx, rel, tree, call, a) for a in call.args):
             kinds.append("object")

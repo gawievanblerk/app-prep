@@ -13,6 +13,7 @@ from dpr.redact import snippet
 from dpr.reviews.access import PUBLIC, access, unread_guard
 from dpr.reviews.lookups_route import handler_functions
 from dpr.reviews.paths import is_test
+from dpr.reviews.unscoped import route_unscoped, sequential_id
 from dpr.rules import Context, make_finding, rule
 
 CALLBACK_NAME = re.compile(
@@ -113,14 +114,26 @@ def unsigned_callback(ctx: Context) -> Iterator[Finding]:
             "Confirm the web server or proxy does not already limit this path to the "
             "provider's addresses."
         )
+        locations = [Location(route.file, route.line), Location(route.file, change.lineno)]
+        lookup = next(iter(route_unscoped(ctx, route)), None)
+        sequential = sequential_id(ctx, lookup) if lookup is not None else None
+        extra = ""
+        if lookup is not None:
+            locations += [lookup.location, *([sequential] if sequential else [])]
+            extra = (
+                f" It picks the {lookup.model or 'record'} to change by {', '.join(lookup.keys)} "
+                "from the request, with no check that the provider may change that record."
+            )
         yield make_finding(
             "OWASP-A01-UNSIGNED-CALLBACK",
             tag=Tag.INFERRED,
-            locations=[Location(route.file, route.line), Location(route.file, change.lineno)],
+            locations=list(dict.fromkeys(locations)),
             snippet=snippet(ctx.index.text(route.file), change.lineno),
+            severity="critical" if sequential is not None else None,
             proof_needed=proof,
             method=route.method,
             path=route.path,
+            extra=extra,
         )
 
 

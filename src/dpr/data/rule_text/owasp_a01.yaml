@@ -35,7 +35,7 @@ OWASP-A01-PUBLIC-SENSITIVE:
 OWASP-A01-UNSIGNED-CALLBACK:
   title: Callback ${method} ${path} changes data without checking the caller
   effort_minutes: 60
-  detail: ${method} ${path} looks like a provider callback, is public, and writes data, but neither the handler nor its decorators check a signature, shared secret or source address.
+  detail: ${method} ${path} looks like a provider callback, is public, and writes data, but neither the handler nor its decorators check a signature, shared secret or source address.${extra}
   attack: 1. Find the callback path (it is fixed and often shared with the provider). 2. Send a forged request with chosen parameters. 3. The app records a consent, confirmation or result that the provider never sent.
   blast: Every record the callback creates or changes, such as consents, confirmations and delivery results.
   fix: Verify the provider's HMAC signature (hmac.compare_digest over the raw body with a shared secret) or a secret token in a header, and reject anything else with 403. If the provider cannot sign, allow only its IP addresses at the proxy and in the view.

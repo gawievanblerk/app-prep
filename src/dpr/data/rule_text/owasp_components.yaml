@@ -1,7 +1,7 @@
 OWASP-A06-VENDORED-LIB:
   title: Third-party library ${library} is copied into the repository
   effort_minutes: 30
-  detail: ${count} file(s)${where} are a copy of ${library} (found by ${evidence}). A copied library gets no updates from a package manager and no dependency audit sees it, so a known flaw in this version stays until someone replaces the file by hand.${version_note} Code-pattern rules (XSS, eval, secrets in URLs, weak random, source maps) do not scan it; each copied library is listed once here instead.
+  detail: ${count} file(s)${where} are ${copies} of ${library} (found by ${evidence}). A copied library gets no updates from a package manager and no dependency audit sees it, so a known flaw in this version stays until someone replaces the file by hand.${version_note} Code-pattern rules (XSS, eval, secrets in URLs, weak random, source maps) do not scan it; each copied library is listed once here instead.
   proof_needed: Open the files and confirm they are a third-party library rather than the app's own code, and check whether any page still loads them.
   attack: Look up published vulnerabilities for this library version and use one against the pages that load it.
   blast: Whatever the pages that load the library can read or do in a visitor's browser.

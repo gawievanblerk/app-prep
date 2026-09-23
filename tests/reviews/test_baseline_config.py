@@ -139,7 +139,10 @@ def test_mixed_content(tmp_path):
         "src/Logo.tsx",
         'export const Logo = () => <img src="https://cdn.example.com/l.png" />\n',
     )
+    write(tmp_path, "static/pdfjs/web/viewer.js", "viewer();\n")
+    write(tmp_path, "static/pdfjs/api/draft/page.html", '<img src="http://cdn.example.com/p.png">')
     [f] = findings_for(tmp_path, "baseline", "BASE-MIXED-CONTENT")
+    # The copied library's own HTML is vendored and not scanned.
     assert [str(loc) for loc in f.locations] == ["public/index.html:2"]
 
 
