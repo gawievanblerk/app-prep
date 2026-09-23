@@ -42,3 +42,11 @@ LEAK-LOGGED-PII:
   blast: Everyone with access to the logs, the log platform, and anything that keeps them for its retention period.
   fix: Log a request id and an error code instead of the object. If personal data must be logged, list the log destination as a data store in the review 1 inventory.
   verify: Trigger the path in a test and inspect the log line.
+LEAK-PII-LITERAL-IN-CODE:
+  title: Personal values written into ${file}
+  effort_minutes: 30
+  detail: ${file} contains ${what}, written as literals in the code. No value is printed here. Every clone and fork holds a copy, and git history keeps them after the lines are removed.
+  proof_needed: Only the shape of the numbers was checked (no checksum). Confirm they belong to real people, such as staff or customers, rather than made-up examples.
+  blast: Every person whose number is in the file, exposed to anyone with repository access.
+  fix: Move the values to the database or to environment settings kept outside the repository, load them at run time, and plan a history rewrite if the numbers are real.
+  verify: Search the file for 13-digit and 10-digit numbers and confirm none remain; run git log -p on the file to see which commits still hold them.

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from functools import cache
 
 from dpr.data import load
+from dpr.pii_values import DIGITS13, IBAN, MOBILE_TEXT, iban_valid, sa_id_valid
 
 JWT = re.compile(r"eyJ[0-9A-Za-z_-]{8,}\.(eyJ[0-9A-Za-z_-]{8,})\.[0-9A-Za-z_-]{8,}")
 URL_CREDS = re.compile(r"((?<=[a-zA-Z0-9+.-])://[^\s/:@'\"]*:)([^\s/'\"]+)(@)")
@@ -210,8 +211,8 @@ def redact(text: str) -> str:
     concatenated as a separate literal), literals assigned to password, secret, token, API key or
     salt names, including adjacent, concatenated and triple-quoted literals, literal defaults of
     secret-named environment reads, auth=("user", "...") passwords and literal Basic, Bearer or
-    Token authorization values. Every email
-    address is masked too: a personal value is never printed."""
+    Token authorization values. Every email address, South African mobile number, IBAN and
+    ID number that passes its checks is masked too: a personal value is never printed."""
     for kind, _live, pattern in _patterns():
         text = pattern.sub(f"<redacted:{kind}>", text)
     text = JWT.sub("<redacted:jwt>", text)
@@ -225,6 +226,9 @@ def redact(text: str) -> str:
     text = AUTH_VALUE.sub(r"\1<redacted:secret>", text)
     text = _mask_secret_literals(text)
     text = SECRET_ENV.sub(_env_secret, text)
+    text = DIGITS13.sub(lambda m: "<redacted:id-number>" if sa_id_valid(m[0]) else m[0], text)
+    text = IBAN.sub(lambda m: "<redacted:iban>" if iban_valid(m[0]) else m[0], text)
+    text = MOBILE_TEXT.sub("<redacted:phone>", text)
     return EMAIL.sub("<redacted:email>", text)
 
 

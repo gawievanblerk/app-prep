@@ -70,6 +70,12 @@ def summary_parts(ctx: Context, findings: list[Finding]) -> list[Part]:
             "No outbound HTTP call carries a literal credential.",
             "{n} file(s) pass literal credentials to HTTP calls, listed below.",
         ),
+        _count(
+            findings,
+            "LEAK-PII-LITERAL-IN-CODE",
+            "No code file lists ID numbers or mobile numbers as literals.",
+            "{n} code file(s) hold ID numbers or mobile numbers as literals, listed below.",
+        ),
     ]
     if not ctx.detection.git.is_repo:
         history[:2] = ["Not a git repository, so tracked files and history were not checked."]

@@ -213,3 +213,22 @@ def test_env_defaults_auth_pairs_and_salts_are_masked():
         '"app.example.invalid")'
     )
     assert redact("auth = f'Bearer {token}'") == "auth = f'Bearer {token}'"
+
+
+def test_redact_masks_id_numbers_ibans_and_mobile_numbers():
+    from tests.fake_pii import failing_luhn, fake_iban, fake_id, fake_mobile
+
+    person, iban, mobile = fake_id(4), fake_iban(2), fake_mobile(5)
+    spaced = f"{mobile[:3]} {mobile[3:6]} {mobile[6:]}"
+    international = "+27" + mobile[1:]
+    near_miss = failing_luhn(4)
+    text = f'ids = ["{person}", "{near_miss}"]; pay("{iban}"); sms("{spaced}", "{international}")'
+    out = redact(text)
+    for value in (person, iban, mobile, spaced, international, international[1:]):
+        assert value not in out
+    assert near_miss in out
+    assert out.count("<redacted:id-number>") == 1
+    assert out.count("<redacted:iban>") == 1
+    assert out.count("<redacted:phone>") == 2
+    assert snippet(f"x = '{person}'", 1) == "x = '<redacted:id-number>'"
+    assert redact("order 1704067200001 at 12:00") == "order 1704067200001 at 12:00"
