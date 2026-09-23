@@ -6,6 +6,7 @@ import re
 
 from dpr.model import Route
 from dpr.parsing import jsts
+from dpr.redact import mask_path
 from dpr.reviews.access_names import ADMIN, ADMIN_WORD, AUTHENTICATED, Access, auth_name, public
 from dpr.rules import Context
 
@@ -71,7 +72,7 @@ def _matcher_covers(text: str, path: str) -> bool:
     patterns = re.findall(r"""['"](/[^'"]*)['"]""", text[text.find("matcher") :])
     if "matcher" not in text or not patterns:
         return True
-    for pattern in patterns:
+    for pattern in map(mask_path, patterns):
         prefix = re.split(r"[:(\[*]", pattern, maxsplit=1)[0].rstrip("/")
         regex = _path_regex(pattern) if path.startswith("/") else None
         if regex is not None and regex.fullmatch(path):

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import re
+from collections import Counter
 from dataclasses import dataclass
 from functools import cache
 
@@ -72,6 +74,14 @@ CODE_VALUE = re.compile(r"^(?:[$<{(\[]|(?:os|process|env|settings|config|self)\b
 EMAIL = re.compile(
     r"(?<![\w.+-])[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})"
 )
+PATH_TOKEN = "<redacted:path-token>"
+UUID_TOKEN = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}")
+HEX_TOKEN = re.compile(r"[0-9a-f]{16,}|[0-9A-F]{16,}")
+B64_TOKEN = re.compile(r"[A-Za-z0-9_-]{16,}")
+CASE_WORD = re.compile(r"[A-Z]?[a-z]+|[A-Z]+|[0-9]+|[_-]+")
+# A whole URL path segment of 16 or more token characters in snippet text: after a slash or
+# before one.
+PATH_SEGMENT = re.compile(r"(?<![\w-])(?:(?<=/)[\w-]{16,}|[\w-]{16,}(?=/))(?![\w-])", re.ASCII)
 
 
 @dataclass(frozen=True)
@@ -205,14 +215,47 @@ def _mask_secret_literals(text: str) -> str:
     return "".join(out) + text[position:]
 
 
+def _entropy(text: str) -> float:
+    counts = Counter(text)
+    return -sum(n / len(text) * math.log2(n / len(text)) for n in counts.values())
+
+
+def is_path_token(segment: str) -> bool:
+    """A literal URL path segment that reads as a random secret (a capability URL): 16 or more
+    characters of hex, a UUID, or base64url that switches case in short runs. Words,
+    versions, numeric ids, slugs and parameters (`<int:pk>`, `:id`, `{id}`) are not."""
+    if len(segment) < 16 or segment.isdigit():
+        return False
+    if UUID_TOKEN.fullmatch(segment):
+        return True
+    if HEX_TOKEN.fullmatch(segment):
+        return any(c.isdigit() for c in segment) and _entropy(segment) >= 2.5
+    if not B64_TOKEN.fullmatch(segment):
+        return False
+    # Random base64url breaks into short case runs; camelCase words and slugs into long ones.
+    words = [w for w in CASE_WORD.findall(segment) if w[0].isalpha()]
+    return (
+        any(c.isupper() for c in segment)
+        and any(c.islower() for c in segment)
+        and sum(map(len, words)) < 3 * len(words)
+        and _entropy(segment) >= 3.5
+    )
+
+
+def mask_path(path: str) -> str:
+    """A route path with every secret-looking literal segment replaced by PATH_TOKEN."""
+    return "/".join(PATH_TOKEN if is_path_token(part) else part for part in path.split("/"))
+
+
 def redact(text: str) -> str:
     """Mask key patterns, service JWTs and credential shapes: URL passwords (with or without a
     user name), password flags on command lines, secret query parameter values (also a value
     concatenated as a separate literal), literals assigned to password, secret, token, API key or
     salt names, including adjacent, concatenated and triple-quoted literals, literal defaults of
     secret-named environment reads, auth=("user", "...") passwords and literal Basic, Bearer or
-    Token authorization values. Every email address, South African mobile number, IBAN and
-    ID number that passes its checks is masked too: a personal value is never printed."""
+    Token authorization values, and secret-looking URL path segments (capability URLs). Every
+    email address, South African mobile number, IBAN and ID number that passes its checks is
+    masked too: a personal value is never printed."""
     for kind, _live, pattern in _patterns():
         text = pattern.sub(f"<redacted:{kind}>", text)
     text = JWT.sub("<redacted:jwt>", text)
@@ -229,6 +272,7 @@ def redact(text: str) -> str:
     text = DIGITS13.sub(lambda m: "<redacted:id-number>" if sa_id_valid(m[0]) else m[0], text)
     text = IBAN.sub(lambda m: "<redacted:iban>" if iban_valid(m[0]) else m[0], text)
     text = MOBILE_TEXT.sub("<redacted:phone>", text)
+    text = PATH_SEGMENT.sub(lambda m: PATH_TOKEN if is_path_token(m[0]) else m[0], text)
     return EMAIL.sub("<redacted:email>", text)
 
 

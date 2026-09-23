@@ -11,6 +11,7 @@ import re
 
 from dpr.model import Route
 from dpr.parsing import imports, jsts, pyast
+from dpr.redact import mask_path
 from dpr.reviews import access_frameworks as frameworks
 from dpr.reviews.access_names import (
     ABSENCE,
@@ -205,7 +206,7 @@ def _fastapi(ctx: Context, route: Route) -> Access:
 
 
 def _covers(mount: str, path: str) -> bool:
-    mount = mount.rstrip("/")
+    mount = mask_path(mount).rstrip("/")
     if not mount:
         return True
     parts = re.split(r"(:\w+|\*)", mount)

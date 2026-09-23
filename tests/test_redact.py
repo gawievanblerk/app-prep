@@ -2,7 +2,16 @@ import base64
 import dataclasses
 import json
 
-from dpr.redact import KeyHit, find_keys, is_secret_name, public_prefix, redact, snippet
+from dpr.redact import (
+    KeyHit,
+    find_keys,
+    is_path_token,
+    is_secret_name,
+    mask_path,
+    public_prefix,
+    redact,
+    snippet,
+)
 
 LIVE = "sk_" + "live_" + "a1B2c3D4e5F6g7H8i9J0k1L2"
 TEST = "sk_" + "test_" + "a1B2c3D4e5F6g7H8i9J0k1L2"
@@ -232,3 +241,35 @@ def test_redact_masks_id_numbers_ibans_and_mobile_numbers():
     assert out.count("<redacted:phone>") == 2
     assert snippet(f"x = '{person}'", 1) == "x = '<redacted:id-number>'"
     assert redact("order 1704067200001 at 12:00") == "order 1704067200001 at 12:00"
+
+
+# Built at runtime so no token-shaped literal sits in the source.
+HEX_TOKEN = "".join(format((i * 7 + 3) % 16, "x") for i in range(32))
+B64_TOKEN = "Qx7" + "rT2mZp9" + "_Lk4Wv8Ns1"
+UUID = "123e4567-" + "e89b-12d3-a456-" + "426614174000"
+
+
+def test_mask_path_hides_secret_segments_and_keeps_ordinary_ones():
+    for token in (HEX_TOKEN, HEX_TOKEN.upper(), B64_TOKEN, UUID):
+        assert is_path_token(token), token
+        assert mask_path(f"/sms/{token}/delivery") == "/sms/<redacted:path-token>/delivery"
+    for path in (
+        "/api/v2/users/<int:pk>",
+        "/reset-password-confirm",
+        "/orders/12345678901234567890",
+        "/getUserProfileV2Info",
+        "/Reg26aConfirmationResultHook",
+        "/.well-known/openid-configuration",
+        "/files/{file_id}/:name/[slug]",
+        "/deadbeefdeadbeef",
+    ):
+        assert mask_path(path) == path, path
+
+
+def test_redact_masks_a_secret_path_segment_in_a_snippet():
+    line = f"    path('sms/{HEX_TOKEN}/delivery', views.delivery),"
+    assert redact(line) == "    path('sms/<redacted:path-token>/delivery', views.delivery),"
+    assert redact(f"re_path(r'^{B64_TOKEN}/$', hook)") == (
+        "re_path(r'^<redacted:path-token>/$', hook)"
+    )
+    assert redact("see /docs/internationalization/guide") == "see /docs/internationalization/guide"

@@ -9,7 +9,7 @@ from collections.abc import Iterator
 
 from dpr.model import Finding, Location, Route, Tag
 from dpr.parsing import pyast
-from dpr.redact import snippet
+from dpr.redact import PATH_TOKEN, snippet
 from dpr.reviews.access import PUBLIC, access, unread_guard
 from dpr.reviews.lookups_route import handler_functions
 from dpr.reviews.paths import is_test
@@ -118,9 +118,14 @@ def unsigned_callback(ctx: Context) -> Iterator[Finding]:
         lookup = next(iter(route_unscoped(ctx, route)), None)
         sequential = sequential_id(ctx, lookup) if lookup is not None else None
         extra = ""
+        if PATH_TOKEN in route.path:
+            extra = (
+                " The route is protected only by a secret path segment, which ends up in "
+                "access logs, proxies and the provider's settings."
+            )
         if lookup is not None:
             locations += [lookup.location, *([sequential] if sequential else [])]
-            extra = (
+            extra += (
                 f" It picks the {lookup.model or 'record'} to change by {', '.join(lookup.keys)} "
                 "from the request, with no check that the provider may change that record."
             )
