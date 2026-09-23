@@ -11,6 +11,7 @@ from dpr.parsing import jsts, pyast
 from dpr.redact import snippet
 from dpr.reviews.paths import is_test
 from dpr.reviews.sql_constants import js_constant, py_constant
+from dpr.reviews.sql_fixed import FixedSql, has_placeholder, unrouted_scripts
 from dpr.rules import Context, make_finding, rule
 from dpr.vendored import is_vendored
 from dpr.walk import line_of
@@ -127,9 +128,17 @@ def _py_from_request(fn: ast.AST | None, first: ast.AST) -> bool:
     return False
 
 
-def _sql(ctx: Context, rel: str, line: int, from_request: bool, what: str) -> Finding:
+def _sql(
+    ctx: Context, rel: str, line: int, from_request: bool, what: str, bound: bool = False
+) -> Finding:
+    """High, or medium when values travel as bound arguments beside the unresolved text; low
+    in a script under scripts/ that no application file imports."""
+    severity = "medium" if bound and not from_request else None
+    if rel in unrouted_scripts(ctx.index):
+        severity = "low"
     return make_finding(
         "OWASP-A03-RAW-SQL",
+        severity=severity,
         tag=Tag.CONFIRMED if from_request else Tag.INFERRED,
         locations=[Location(rel, line)],
         snippet=snippet(ctx.index.text(rel), line),
@@ -157,9 +166,12 @@ def raw_sql(ctx: Context) -> Iterator[Finding]:
                     continue
                 if built and all(js_constant(p) for p in _js_parts(first)):
                     continue
+                if FixedSql(ctx.index, entry.rel).fixed(first):
+                    continue
                 what = f"{name} receives SQL built from values at runtime."
                 from_request = _js_from_request(call, first)
-                yield _sql(ctx, entry.rel, jsts.line(tree, call), from_request, what)
+                bound = len(args) > 1 and has_placeholder(first)
+                yield _sql(ctx, entry.rel, jsts.line(tree, call), from_request, what, bound)
     for entry in ctx.index.py_files:
         if is_test(entry.rel) or MIGRATIONS.search(entry.rel) or is_vendored(ctx.index, entry.rel):
             continue

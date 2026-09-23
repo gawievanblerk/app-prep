@@ -294,3 +294,150 @@ def test_weak_random_needs_a_secret_name_or_a_secret_use(tmp_path):
         ("app/advisors.py:9", "CONFIRMED"),
     ]
     assert "passed to set_password()" in next(f.detail for f in found if f.locations[0].line == 9)
+
+
+def sql_rows(found):
+    return sorted((str(f.locations[0]), f.severity.value, f.tag.value) for f in found)
+
+
+def test_raw_sql_with_bound_arguments_and_fixed_fragments_is_not_reported(tmp_path):
+    write(
+        tmp_path,
+        "server/src/services/scope.ts",
+        "export function statusClause(param: string, alias = 'j'): string {\n"
+        "  return `${alias}.status = ${param}`\n"
+        "}\n",
+    )
+    write(
+        tmp_path,
+        "server/src/controllers/report.controller.ts",
+        "import { statusClause } from '../services/scope'\n"
+        "const BASE_SQL = 'SELECT id FROM ledger_rows'\n"
+        "const ACTIVE_SQL = `SELECT * FROM plans WHERE firm_id = $1`\n"
+        "function ownerMatch(alias: string, param: string): string {\n"
+        "  return `${alias}.owner_id = ${param}`\n"
+        "}\n"
+        "function listClause(alias = 'j'): string {\n"
+        "  return `${alias}.state IN (${STATES.map(s => `'${s}'`).join(', ')})`\n"
+        "}\n"
+        "function scopeFor(other: string | undefined, next: number) {\n"
+        "  if (!other) return { clause: '', params: [] }\n"
+        "  return { clause: ` AND o.key = $${next}`, params: [other] }\n"
+        "}\n"
+        "function buildLoad(id: string) {\n"
+        "  const text = `SELECT * FROM rows WHERE id = $1 AND ${statusClause('$1')}`\n"
+        "  return { text, params: [id] }\n"
+        "}\n"
+        "export async function summary(req, res) {\n"
+        "  const { id } = req.params\n"
+        "  const other = req.query.other as string\n"
+        "  await prisma.$queryRawUnsafe(`SELECT * FROM rows r WHERE r.id = $1 AND ${ownerMatch('r', '$2')}`, id, other)\n"
+        "  await prisma.$queryRawUnsafe(`${BASE_SQL} WHERE id = $1 AND ${listClause()}`, id)\n"
+        "  await prisma.$queryRawUnsafe(`SELECT * FROM rows WHERE id = $1 ${other ? 'AND a = 1' : 'AND b = 2'}`, id)\n"
+        "  await prisma.$queryRawUnsafe(`SELECT * FROM rows WHERE ${statusClause('$1')}`, id)\n"
+        "  let query = `SELECT * FROM rows r WHERE r.id = $1`\n"
+        "  const params: any[] = [id]\n"
+        "  if (other) {\n"
+        "    query += ` AND ${ownerMatch('r', '$2')}`\n"
+        "    params.push(other)\n"
+        "  }\n"
+        "  await prisma.$queryRawUnsafe(query, ...params)\n"
+        "  const run = async (label: string, sql: string, ...args: any[]) => {\n"
+        "    await prisma.$queryRawUnsafe(sql, ...args)\n"
+        "  }\n"
+        "  await run('a', `DELETE FROM rows WHERE id = $1`, id)\n"
+        "  await run('b', 'DELETE FROM notes WHERE row_id = $1', id)\n"
+        "  await prisma.$queryRawUnsafe(ACTIVE_SQL, id)\n"
+        "  const scope = scopeFor(other, 2)\n"
+        "  await prisma.$queryRawUnsafe(`SELECT * FROM rows o WHERE o.id = $1${scope.clause}`, id, ...scope.params)\n"
+        "  const held = ownerMatch('o', '$2')\n"
+        "  await prisma.$queryRawUnsafe(`SELECT * FROM rows o WHERE o.id = $1 AND ${held}`, id, other)\n"
+        "  const { text: loadSql, params: loadParams } = buildLoad(id)\n"
+        "  await prisma.$queryRawUnsafe(loadSql, ...loadParams)\n"
+        "  const marks = req.body.items.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2})`)\n"
+        "  await prisma.$queryRawUnsafe(`INSERT INTO t (a, b) VALUES ${marks.join(', ')}`, ...values)\n"
+        "  res.json({})\n"
+        "}\n",
+    )
+    assert sql_rows(findings_for(tmp_path, "owasp", "OWASP-A03-RAW-SQL")) == []
+
+
+def test_raw_sql_keeps_request_values_and_rates_what_is_left(tmp_path):
+    write(
+        tmp_path,
+        "server/src/controllers/search.controller.ts",
+        "export async function search(req, res) {\n"
+        "  await prisma.$queryRawUnsafe(`SELECT * FROM rows WHERE name = '${req.body.name}'`)\n"
+        "  await pool.query('SELECT * FROM rows WHERE id = ' + req.params.id)\n"
+        "  const run = async (sql: string) => prisma.$queryRawUnsafe(sql)\n"
+        "  await run(`DELETE FROM rows WHERE id = ${req.params.id}`)\n"
+        "}\n"
+        "export async function listRows(extra: string, id: string) {\n"
+        "  return prisma.$queryRawUnsafe(`SELECT * FROM rows WHERE id = $1 ${extra}`, id)\n"
+        "}\n"
+        "export async function sortRows(order: string) {\n"
+        "  return prisma.$queryRawUnsafe(`SELECT * FROM rows ORDER BY ${order}`)\n"
+        "}\n",
+    )
+    write(
+        tmp_path,
+        "server/src/scripts/heal-rows.ts",
+        "async function heal(table: string, id?: string) {\n"
+        "  await prisma.$queryRawUnsafe(`DELETE FROM ${table} WHERE id = $1`, id)\n"
+        "  await prisma.$queryRawUnsafe(`DELETE FROM ${table}`)\n"
+        "}\n"
+        "heal(process.argv[2], process.argv[3])\n",
+    )
+    write(
+        tmp_path,
+        "server/src/scripts/shared-sql.ts",
+        "export async function purge(table: string) {\n"
+        "  await prisma.$queryRawUnsafe(`DELETE FROM ${table}`)\n"
+        "}\n",
+    )
+    write(
+        tmp_path,
+        "server/src/routes/admin.ts",
+        "import { purge } from '../scripts/shared-sql'\n"
+        "router.post('/purge', async (req, res) => { await purge('rows'); res.json({}) })\n",
+    )
+    write(
+        tmp_path,
+        "api/db.py",
+        "from sqlalchemy import text\n"
+        "def find(session, user_input):\n"
+        "    return session.execute(text(f\"SELECT * FROM rows WHERE name = '{user_input}'\"))\n",
+    )
+    assert sql_rows(findings_for(tmp_path, "owasp", "OWASP-A03-RAW-SQL")) == [
+        ("api/db.py:3", "high", "INFERRED"),
+        ("server/src/controllers/search.controller.ts:11", "high", "INFERRED"),
+        ("server/src/controllers/search.controller.ts:2", "high", "CONFIRMED"),
+        ("server/src/controllers/search.controller.ts:3", "high", "CONFIRMED"),
+        ("server/src/controllers/search.controller.ts:4", "high", "INFERRED"),
+        ("server/src/controllers/search.controller.ts:8", "medium", "INFERRED"),
+        ("server/src/scripts/heal-rows.ts:2", "low", "INFERRED"),
+        ("server/src/scripts/heal-rows.ts:3", "low", "INFERRED"),
+        ("server/src/scripts/shared-sql.ts:2", "high", "INFERRED"),
+    ]
+
+
+def test_raw_sql_helper_parameters_need_every_caller_to_be_visible(tmp_path):
+    write(
+        tmp_path,
+        "server/src/services/rows.ts",
+        "export function listBy(column: string, id: string) {\n"
+        "  return prisma.$queryRawUnsafe(`SELECT * FROM rows WHERE ${column} = $1`, id)\n"
+        "}\n"
+        "export async function one(id: string) {\n"
+        "  return listBy('id', id)\n"
+        "}\n"
+        "function orderBy(column: string) {\n"
+        "  return prisma.$queryRawUnsafe(`SELECT * FROM rows ORDER BY ${column}`)\n"
+        "}\n"
+        "orderBy('id')\n"
+        "export const handlers = { orderBy }\n",
+    )
+    assert sql_rows(findings_for(tmp_path, "owasp", "OWASP-A03-RAW-SQL")) == [
+        ("server/src/services/rows.ts:2", "medium", "INFERRED"),
+        ("server/src/services/rows.ts:8", "high", "INFERRED"),
+    ]
