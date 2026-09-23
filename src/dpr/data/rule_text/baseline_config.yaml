@@ -47,3 +47,27 @@ BASE-MIXED-CONTENT:
   proof_needed: Check whether these URLs reach the deployed pages.
   fix: Change the URLs to https:// or to relative paths.
   verify: Open the deployed page with the browser console open and confirm no mixed content warnings.
+BASE-PICKLE-SESSIONS:
+  title: Sessions are stored with the Pickle serializer
+  effort_minutes: 60
+  detail: SESSION_SERIALIZER is Django's PickleSerializer. Loading a pickled session can run code, so whoever can sign a session (anyone who holds SECRET_KEY) can run code on the server.${key}
+  attack: With the signing key, build a session whose pickled data runs a command when Django loads it, and send it as the session cookie (signed cookie sessions) or through any path that stores attacker data in the session.
+  blast: Remote code execution on the web server, and with it every database row, file and credential the app can reach.
+  fix: Switch to django.contrib.sessions.serializers.JSONSerializer (the default; Django 5 removes PickleSerializer), first changing any code that stores non-JSON values such as querysets or datetimes in the session. Make SECRET_KEY fail closed with no committed fallback.
+  verify: Confirm SESSION_SERIALIZER is gone or JSONSerializer, then sign in, sign out and use the session-dependent features.
+BASE-ENV-DEFAULTS-PROD:
+  title: ${name} means production when the environment sets nothing
+  effort_minutes: 15
+  detail: When the variables it reads are unset, ${what}. A developer laptop, CI job or new environment that forgets the variable behaves as production, with live integrations and production-only switches.
+  attack: No attacker is needed. A test run or local start with real credentials present calls live services, charges or messages real customers.
+  blast: Live side effects from non-production runs, such as debit orders, calls, messages or data written to production services.
+  fix: Default to non-production. Make production an explicit allow-list match, such as IS_PROD = os.environ.get("ENVIRONMENT") == "production", or require the variable and stop start-up when it is missing.
+  verify: Start the app with the variable unset and confirm the setting reads as non-production.
+BASE-FEATURE-DEFAULT-ON:
+  title: Feature switches default to on when they have no row
+  effort_minutes: 15
+  detail: ${names} set to True, so a switch or flag with no database row counts as on. Controls behind switches depend on data, not code, and a fresh environment behaves differently from production.
+  attack: Anyone who can edit switch rows (an admin, a compromised staff account, a data migration) can turn a security control off with an explicit off row, with no code review.
+  blast: Whatever controls sit behind switches, such as checks, caps and screening.
+  fix: Default switches to off (the waffle default) and create explicit on rows for features in use. Keep security controls out of switches, and audit switch changes.
+  verify: Confirm the setting is False or removed, and that the features in use have rows.

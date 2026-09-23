@@ -1,0 +1,24 @@
+BASE-DOCKER-ROOT:
+  title: Container runs as root
+  effort_minutes: 30
+  detail: The final stage of this Dockerfile ${now}, so the application process runs as root inside the container.${dev}
+  attack: Use any code execution or file write bug in the app (a vulnerable PDF or image library, a path traversal) and act as root in the container, with write access to the code and every mounted volume.
+  blast: The container's code, secrets and mounted volumes, and a stronger position for escaping to the host.
+  fix: Create an unprivileged user (RUN useradd --system app), give it only the folders it must write, and add USER app before CMD.
+  verify: Run docker run --rm <image> id and confirm the uid is not 0.
+BASE-WORLD-WRITABLE:
+  title: Files are made world-writable (${modes})
+  effort_minutes: 30
+  detail: These commands set modes that let every user on the machine or container write the files (${modes}), such as the application code or folders holding uploaded documents.
+  attack: Any other account or process on the host or a shared volume, or any file-write bug, replaces application code or edits stored customer documents.
+  blast: Code integrity (a write becomes code execution) and the confidentiality and integrity of every file under these paths.
+  fix: Give ownership to the service user instead (chown app:app) and use 755 for folders and 644 for files, or 750 and 640 when only the service reads them.
+  verify: Run find <path> -perm -o+w after the step and confirm it lists nothing.
+BASE-DOCKERIGNORE-THIN:
+  title: Docker build copies the whole folder into the image
+  effort_minutes: 20
+  detail: The Dockerfile copies the build context with COPY . and ${state} ${missing}. Everything on the build machine under the folder, including files git ignores, ends up in an image layer.
+  attack: Pull the image, or read a cached layer from a registry or CI cache, and extract the git history, env files, dumps, uploads or local settings baked into it.
+  blast: Secrets and personal data in every copy of the image and every registry it is pushed to.
+  fix: Use an allow-list .dockerignore (* then !app/, !requirements.txt and the other paths the build needs), or at least exclude .git, .env*, *.sql and dumps, upload folders, node_modules and ignored local settings, then rebuild and push.
+  verify: Build the image and list its files (docker run --rm <image> find /app) to confirm none of these paths is present.

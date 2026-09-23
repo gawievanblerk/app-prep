@@ -13,6 +13,15 @@ from dpr.rules import Context
 
 JSON_TYPES = re.compile(r"(?i)^(?:json|jsonb|Json|JSON|JSONB|JSONField|MutableDict|dict)")
 KEY_SUFFIX = re.compile(r"(?:_id|_ids|Id|Ids|_by|_uuid|_count|Count|_counts|Counts)$")
+# Prices of a product or plan (and an insurance plan's cover and benefit amounts): a rate
+# table's or a calculator's numbers, not a fact about a person. A total or amount counts as a
+# price only beside a price word (`total_premium`), so an invoice total, a salary, income, a bank
+# account, a balance or a commission stays personal.
+PRICE_WORDS = frozenset(
+    {"premium", "premiums", "price", "prices", "fee", "fees", "cost", "costs", "rate", "rates",
+     "tariff", "tariffs", "cover", "benefit", "benefits"}
+)  # fmt: skip
+PRICE_PARTS = PRICE_WORDS | {"total", "totals", "amount", "amounts", "sum"}
 
 
 @dataclass(frozen=True)
@@ -85,6 +94,18 @@ def classify(name: str, person: bool = True) -> Category | None:
             if _contains(tokens, term):
                 return category
     return None
+
+
+def classify_value(name: str, person: bool = True) -> Category | None:
+    """`classify` for a value a response sends: a financial name whose only financial words are
+    prices (`total_premium`, `premium_payable__sum`, `lc_premium`) is not personal, while
+    `basic_salary`, `commission_amount` and an invoice `total` still are."""
+    category = classify(name, person)
+    parts = words(name)
+    if category is None or category.key != "financial" or not set(parts) & PRICE_WORDS:
+        return category
+    rest = [word for word in parts if word not in PRICE_PARTS]
+    return classify("_".join(rest), person) if rest else None
 
 
 def is_person_model(model: DataModel) -> bool:

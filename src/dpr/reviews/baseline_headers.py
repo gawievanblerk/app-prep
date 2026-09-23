@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from dpr.adapters.headers import HeaderRead, read_headers
 from dpr.discovery.approots import same_root
 from dpr.model import Finding, Location, Tag
+from dpr.reviews.access_frameworks import non_production_settings
 from dpr.reviews.baseline_config import cookie_findings
 from dpr.reviews.headers_static import HEADERS, Surface, api_only, app_root, csp_values, surfaces
 from dpr.rules import Context, make_finding, rule
@@ -85,7 +86,9 @@ def _missing(ctx: Context, key: str) -> Iterator[Finding]:
     lacking = [
         s
         for s in surfaces(ctx)
-        if header not in s.headers and not (key in DOCUMENT_HEADERS and api_only(ctx, s))
+        if header not in s.headers
+        and not (key in DOCUMENT_HEADERS and api_only(ctx, s))
+        and not non_production_settings(ctx, s.location.file)  # test, CI or vendored settings
     ]
     if lacking:
         where = "; ".join(f"{s.name} ({s.kind})" for s in lacking)

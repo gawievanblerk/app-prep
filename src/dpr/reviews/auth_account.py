@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from dpr.discovery.approots import root_of
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
-from dpr.redact import snippet
+from dpr.redact import PATH_TOKEN, mask_path, snippet
 from dpr.reviews.auth_flows import (
     PARAM_SEGMENT,
     Code,
@@ -257,11 +257,12 @@ def _definition_name(node) -> str | None:
 def _references(ctx: Context, files: list[str], path: str) -> list[tuple[str, int, str | None]]:
     found = []
     for rel in files:
-        if path.rsplit("/", 1)[-1] not in ctx.index.text(rel):
+        last = path.rsplit("/", 1)[-1]
+        if last != PATH_TOKEN and last not in ctx.index.text(rel):
             continue
         for tree in jsts.parse_file(ctx.index, rel):
             for node in jsts.walk(tree.root, {"string", "template_string"}):
-                value = jsts.node_text(node).strip("'\"`").split("?")[0]
+                value = mask_path(jsts.node_text(node).strip("'\"`").split("?")[0])
                 if len(value) > 1 and value.startswith("/") and path.endswith(value):
                     found.append((rel, jsts.line(tree, node), _definition_name(node)))
     return found

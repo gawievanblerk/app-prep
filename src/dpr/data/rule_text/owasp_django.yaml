@@ -1,0 +1,49 @@
+OWASP-A01-OPEN-REDIRECT:
+  title: Redirect goes to ${source}
+  effort_minutes: 15
+  detail: The redirect target starts with ${source}, and nothing in the function checks that it stays on this site (url_has_allowed_host_and_scheme, is_safe_url or an allowlist).
+  attack: Send a link to the real site with the value set to a look-alike site. After the user signs in or acts, the site sends them to the fake page, which asks for their password again or approves a payment.
+  blast: Users who follow a crafted link, and whatever they type into the page they land on.
+  fix: Check the value with url_has_allowed_host_and_scheme(url, allowed_hosts={request.get_host()}, require_https=request.is_secure()) (is_safe_url before Django 3.0) and fall back to a fixed page, or redirect to named routes only.
+  verify: Request the page with the value set to https://example.com and confirm the response redirects to this site.
+OWASP-A01-CSRF-EXEMPT:
+  title: ${count} signed-in view(s) turn off CSRF protection
+  effort_minutes: 30
+  detail: These views rely on the session cookie for sign-in and are marked @csrf_exempt, so a page on another site can make a signed-in user's browser call them.${change}${cookie}
+  attack: Get a signed-in staff member to open a page you control. The page submits a hidden form to one of these views, and the browser sends it with their session, so the change runs as them.
+  blast: Every change these views make, with the rights of whoever opens the page.
+  fix: Remove @csrf_exempt and send the CSRF token from the page (the csrfmiddlewaretoken form field, or the X-CSRFToken header for fetch and AJAX calls). Keep csrf_exempt only for machine callers that prove who they are with a signature or token, and set SESSION_COOKIE_SAMESITE and CSRF_COOKIE_SAMESITE to Lax.
+  verify: Post to each view from a page on another origin while signed in and confirm a 403 CSRF failure.
+OWASP-A04-GET-SIDE-EFFECT:
+  title: GET ${path} ${action}
+  effort_minutes: 20
+  detail: The view behind ${path} checks sign-in but not the request method, and a plain GET ${actions}. Links, image tags, link previews and browser prefetching all send GET requests, and CSRF protection does not cover GET.
+  attack: Put an image tag or link pointing at ${path} in an email or web page a signed-in user opens. Their browser sends the GET with their session and the action runs.
+  blast: Whatever the action touches, repeated as often as the URL is loaded.
+  fix: Accept only POST for the action (@require_POST, or a form that posts with the CSRF token), restrict it to the role that needs it, and show a confirmation page on GET.
+  verify: Send a GET to ${path} while signed in and confirm a 405 or a confirmation page, with no change made.
+OWASP-A04-UPLOAD-LIMIT:
+  title: Request and upload size limits are very large or off
+  effort_minutes: 15
+  detail: ${limits}. Django holds a request body up to DATA_UPLOAD_MAX_MEMORY_SIZE, and each uploaded file up to FILE_UPLOAD_MAX_MEMORY_SIZE, in the worker's memory.
+  attack: Send a few requests or uploads of the largest allowed size at once, each held in a worker's memory, until the workers run out of memory or time.
+  blast: Availability of the whole site while workers are exhausted.
+  fix: Set DATA_UPLOAD_MAX_MEMORY_SIZE and FILE_UPLOAD_MAX_MEMORY_SIZE near the defaults (2.5 MB), let larger files stream to disk, and cap the request body at the proxy (client_max_body_size) to the largest legitimate upload.
+  verify: Post a body just above the new limit and confirm a 400 or 413 response.
+OWASP-A04-UNCHECKED-UPLOAD:
+  title: ${count} file upload field(s) in ${app} accept any file type
+  effort_minutes: 60
+  detail: These FileFields (${fields}) have no validators and no clean method that checks them, so any file type and content is accepted and stored. An HTML, SVG or crafted PDF file can run script or exploit a viewer when staff open it.
+  proof_needed: Check whether the views that save these fields check the file's type, size or content before saving, and whether the field is reachable from a user-facing form.
+  attack: Upload an HTML or SVG file with script, or a crafted PDF, as a supporting document, then wait for staff to open it from the site.
+  blast: Staff sessions and machines that open uploaded files, and storage filled with arbitrary files.
+  fix: Add FileExtensionValidator with an allow-list and a size check to each field, check the content (python-magic, or Pillow for images) rather than the browser's content type, and serve uploads with Content-Disposition attachment from a separate domain.
+  verify: Try to upload an .html and an oversized file through each form and confirm both are rejected.
+OWASP-A01-PRIVILEGE-FIELDS:
+  title: ${form} lets its users set ${fields}
+  effort_minutes: 30
+  detail: The form accepts ${fields}, which decide who is a superuser, staff member or what groups and permissions an account has, and views that are not superuser-only use it (${views}). Hiding or filtering the widget does not limit what the form accepts on submit.
+  attack: Sign in as a user who can open one of these views, edit the submitted form to add the superuser flag, a privileged group or a permission to your own account, and save.
+  blast: Every action a superuser can take, including Django admin and impersonation.
+  fix: Remove these fields from the form (or pop them in __init__ unless request.user.is_superuser), restrict the choices on the form field itself rather than the widget, and log every change to them.
+  verify: Submit the form from a non-superuser account with is_superuser or an extra group added and confirm the account does not change.

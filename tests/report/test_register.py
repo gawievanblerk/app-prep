@@ -1,6 +1,15 @@
 from dpr.api import review
 from dpr.cli import summary_lines
-from dpr.model import AppRoot, Finding, Location
+from dpr.model import (
+    AppRoot,
+    Detection,
+    Finding,
+    Location,
+    Part,
+    Report,
+    ReportMeta,
+    ReviewSection,
+)
 from dpr.report.markdown import render_markdown
 from dpr.report.register import build_register
 from tests.reviews.helpers import write
@@ -293,3 +302,65 @@ def test_unpinned_chain_title_reads_as_either_rule():
         [finding("OWASP-A08-UNPINNED-DEPS", "api/requirements.txt", review="owasp")], ROOTS
     )
     assert issue.title == "Unpinned dependencies or installs"
+
+
+def test_role_gated_unscoped_lookups_form_their_own_issue_per_app():
+    gated = [
+        finding(
+            "OWASP-A01-UNSCOPED-QUERY",
+            "api/app/views.py",
+            line,
+            severity="low",
+            tag="INFERRED",
+            review="owasp",
+            title=f"ANY /staff/{line} loads Policy by policy_id with no owner check",
+        )
+        for line in (3, 9, 20)
+    ]
+    issues = build_register([unscoped("/items/<id>", "Item", 5), *gated], ROOTS)
+    titles = sorted((i.title, i.count, i.severity.value) for i in issues)
+    assert titles == [
+        ("GET /items/<id> loads Item by item_id with no owner check", 1, "high"),
+        ("Role-gated back-office routes load records with no owner check", 3, "low"),
+    ]
+
+
+def test_markdown_folds_role_gated_tenant_findings_into_one_entry():
+    gated = [
+        finding(
+            "OWASP-A01-UNSCOPED-QUERY",
+            f"api/app/{name}.py",
+            line,
+            severity="medium",
+            tag="INFERRED",
+            review="owasp",
+            title=f"ANY /staff/{line} loads Brokerage by brokerage_id with no owner check",
+        )
+        for name, line in (("views", 3), ("views", 9), ("admin", 20))
+    ]
+    findings = [unscoped("/items/<id>", "Item", 5), *gated]
+    report = Report(
+        meta=ReportMeta(
+            project="shop",
+            scope=".",
+            revision="abc",
+            date="2026-09-23",
+            reviews_run=("owasp",),
+            method="",
+            applicability=(),
+        ),
+        detection=Detection(app_roots=ROOTS),
+        findings=findings,
+        sections={"owasp": ReviewSection("owasp", [Part("findings", "Findings")])},
+        questions=[],
+        not_covered=[],
+    )
+    text = render_markdown(report)
+    body = text[text.index("## 5. OWASP") :]
+    assert body.count("#### FINDING") == 2
+    assert (
+        "#### FINDING 2: Role-gated routes reach any brokerage, company or branch by its id "
+        "(3 findings)" in body
+    )
+    assert "- `api/app/views.py`: ANY /staff/3 (line 3), ANY /staff/9 (line 9)" in body
+    assert "- `api/app/admin.py`: ANY /staff/20 (line 20)" in body

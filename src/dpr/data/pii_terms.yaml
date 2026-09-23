@@ -19,7 +19,7 @@ categories:
     terms: [ip, ip_address, client_ip, user_agent, device_id, cookie_id, latitude, longitude, geolocation, geo, fingerprint_id]
   - key: identifiers
     label: Contact and identity
-    terms: [email, emails, email_address, phone, phone_number, mobile, telephone, first_name, last_name, full_name, surname, given_name, username, display_name, avatar, avatar_url, address, address_line1, address_line2, address1, address2, street, city, postcode, postal_code, zip, zip_code, date_of_birth, birth_date, dob, birthday, gender, nationality, name, entity_name, contact, recipient]
+    terms: [email, emails, email_address, phone, phone_number, mobile, telephone, first_name, last_name, full_name, firstname, lastname, fullname, surname, given_name, username, display_name, avatar, avatar_url, address, address_line1, address_line2, address1, address2, street, city, postcode, postal_code, zip, zip_code, date_of_birth, birth_date, dob, birthday, gender, nationality, name, entity_name, contact, recipient]
   - key: financial
     label: Financial
     terms: [card_last4, last4, iban, bank_account, account_number, routing_number, vat_number, billing_address, salary, income, premium, commission, commission_amount, indemnity, profit, profit_loss, net_profit, revenue, price, amount, total, fees, balance, invoice, payment]

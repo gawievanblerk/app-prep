@@ -1,0 +1,33 @@
+OWASP-A06-VENDORED-LIB:
+  title: Third-party library ${library} is copied into the repository
+  effort_minutes: 30
+  detail: ${count} file(s)${where} are ${copies} of ${library} (found by ${evidence}). A copied library gets no updates from a package manager and no dependency audit sees it, so a known flaw in this version stays until someone replaces the file by hand.${version_note} Code-pattern rules (XSS, eval, secrets in URLs, weak random, source maps) do not scan it; each copied library is listed once here instead.
+  proof_needed: Open the files and confirm they are a third-party library rather than the app's own code, and check whether any page still loads them.
+  attack: Look up published vulnerabilities for this library version and use one against the pages that load it.
+  blast: Whatever the pages that load the library can read or do in a visitor's browser.
+  fix: Manage it as a dependency and keep it updated. Install ${name} with the project's package manager (npm, pip) or load a pinned CDN build with an integrity hash, delete the copy, and remove it entirely if no page loads it.
+  verify: Confirm the copied files are gone and the pages load the managed version.
+OWASP-A05-DEBUG-ENDPOINT:
+  title: Public ${method} ${path} ${what}
+  effort_minutes: 15
+  detail: ${method} ${path} is a health, test or debug route that anyone can call, and its response includes exception text, settings, versions or environment values.
+  attack: Call ${method} ${path} (for example while a dependency is down) and read the error text, versions or settings it returns.
+  blast: Internal host names, library versions and error detail that help plan other attacks.
+  fix: Return only a status (ok or unavailable) from public health routes and log the detail on the server. Remove test and debug routes (including routes that raise an error to test the error tracker) from production URLs or require staff sign-in.
+  verify: Call ${method} ${path} with a failing dependency and confirm the body holds no exception text, versions or settings.
+OWASP-A06-EOL-COMPONENT:
+  title: ${component} ${version} is past its end of support
+  effort_minutes: 480
+  detail: ${component} ${version} stopped receiving security fixes ${when} (${source}), before this scan on ${today}. Flaws found since then are public and stay unfixed in this version. Dates come from the end-of-life table bundled with dpr, dated ${table_date}; no network was used.
+  attack: Look up the security advisories published for ${component} after its end of support and use one that applies to this app.
+  blast: Whatever the component runs, which is the whole application for a framework or runtime, the container for a base image.
+  fix: Upgrade to a supported release (for Django, the current LTS), run the test suite and deprecation warnings first, and pin exact versions so the upgrade is reproducible.
+  verify: Confirm the declared version in the files listed is a supported release on the vendor's support page.
+OWASP-A06-KNOWN-ADVISORY:
+  title: ${component} ${version} has ${count}
+  effort_minutes: 60
+  detail: "${component} ${version} is pinned or copied into the repository, and dpr's bundled advisory table (dated ${table_date}) lists ${count} for it: ${listed}. The table is a small offline list, not a live advisory database, so other advisories may apply; whether the app reaches the affected code was not checked."
+  attack: Look up the published details of ${advisories}, find a page or endpoint that reaches the affected code, and use the flaw.
+  blast: Whatever the affected component handles, which for a framework or web server is every request, and for a browser library every page that loads it.
+  fix: ${upgrade}. Run the test suite after the upgrade, and for a library copied into the repository, install it with the package manager instead so audits see it.
+  verify: Confirm the version declared or copied at the locations listed is at or above the fixed version of each advisory, and run pip-audit or npm audit (dpr --with-audit) for a full check.

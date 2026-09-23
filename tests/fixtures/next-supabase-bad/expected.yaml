@@ -34,12 +34,12 @@ findings:
   - {rule: LEAK-SENTRY-PII, file: sentry.client.config.ts, line: 5, tag: CONFIRMED}
   - {rule: LEAK-SOURCEMAP, file: .next/static/chunks/main.js.map, line: 1, tag: CONFIRMED}
   - {rule: LEAK-SOURCEMAP, file: next.config.js, line: 2, tag: CONFIRMED}
-  - {rule: OWASP-A01-GUESSABLE-ID, file: "app/api/invoices/[id]/route.ts", line: 7, tag: CONFIRMED}
-  - {rule: OWASP-A01-GUESSABLE-ID, file: "app/api/users/[id]/route.ts", line: 5, tag: CONFIRMED}
   - {rule: OWASP-A01-MASS-ASSIGNMENT, file: app/api/signup/route.ts, line: 8, tag: INFERRED}
   - {rule: OWASP-A01-UNSCOPED-QUERY, file: "app/api/invoices/[id]/route.ts", line: 7, tag: CONFIRMED}
   - {rule: OWASP-A01-UNSCOPED-QUERY, file: "app/api/users/[id]/route.ts", line: 5, tag: INFERRED}
   - {rule: OWASP-A03-XSS-SINK, file: components/Bio.tsx, line: 2, tag: INFERRED}
+  - {rule: OWASP-A06-EOL-COMPONENT, file: package.json, line: 5, tag: CONFIRMED}
+  - {rule: OWASP-A06-KNOWN-ADVISORY, file: package.json, line: 5, tag: CONFIRMED}
   - {rule: OWASP-A08-UNPINNED-DEPS, file: package.json, line: 1, tag: CONFIRMED}
   - {rule: RLS-AUTHENTICATED-NOT-OWNER, file: supabase/migrations/20240101000000_init.sql, line: 8, tag: CONFIRMED}
   - {rule: RLS-CLIENT-OWNER, file: supabase/migrations/20240101000000_init.sql, line: 4, tag: CONFIRMED}

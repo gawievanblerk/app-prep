@@ -1,20 +1,12 @@
 OWASP-A01-UNSCOPED-QUERY:
   title: ${method} ${path} loads ${model} by ${key} with no owner check
   effort_minutes: 15
-  detail: The ${level} route ${method} ${path} looks up a ${model} using ${key} from the request, and neither the query nor a later check ties the record to the caller.
+  detail: The ${level} route ${method} ${path} looks up a ${model} using ${key} from the request, and neither the query nor a later check ties the record to the caller.${extra}
   proof_needed: Confirm the record belongs to a user or tenant and that nothing outside this code path checks ownership.
   attack: 1. Sign in as ${attacker}. 2. Note the identifier of one of your own records. 3. Request the same route with another identifier. 4. Read or change a record that belongs to someone else.
   blast: Every ${model} record reachable through ${method} ${path}.
   fix: Put the caller into the query itself, for example where(Model.id == key, Model.owner_id == current_user.id) or findFirst({ where { id, userId session.user.id } }), and return 404 when nothing matches.
   verify: As user A, request a record that belongs to user B through ${method} ${path} and expect 404.
-OWASP-A01-GUESSABLE-ID:
-  title: ${model} uses sequential IDs in ${path}
-  effort_minutes: 60
-  detail: ${model} has an auto-increment integer primary key and ${path} takes it from the URL, so one working ID reveals all the others.
-  attack: Take your own record ID and count down or up to walk the whole table through ${path}.
-  blast: Every ${model} row, as soon as any lookup on it is missing an ownership check.
-  fix: Keep ownership checks as the real control, and expose a random identifier (UUID or a public slug) in URLs instead of the integer primary key.
-  verify: Confirm the URL identifier is a UUID or slug and that neighbouring integers return 404.
 OWASP-A01-UNGUARDED-METHOD:
   title: ${method} ${path} has no auth check while ${guarded} on the same route does
   effort_minutes: 10
@@ -32,3 +24,28 @@ OWASP-A01-EMAIL-OWNERSHIP:
   blast: Every ${model} whose email is not already held by another account.
   fix: Link the record to the account with an explicit foreign key (for example ${model}.user_id) set by staff or by a verified invite, and filter on that key.
   verify: Change a test account's email to another record's email and confirm that record is not returned.
+OWASP-A01-PUBLIC-SENSITIVE:
+  title: ${method} ${path} ${action} without sign-in
+  effort_minutes: 30
+  detail: Anyone can call ${method} ${path}, which has no login decorator, permission class or auth dependency. It ${actions}.
+  attack: 1. Without signing in, call ${method} ${path}. 2. Repeat it with other values to act on accounts, records or files that belong to other people.
+  blast: Every account, record or file the route can reach, and the jobs it starts.
+  fix: Require sign-in and the matching role on the route (for Django, login_required plus user_passes_test or permission_required). A link meant for customers should carry a random, expiring, single-use token checked on the server; a password reset should use Django's token-based reset views.
+  verify: Call ${method} ${path} without a session and expect a redirect to login or 401.
+OWASP-A01-UNSIGNED-CALLBACK:
+  title: Callback ${method} ${path} changes data without checking the caller
+  effort_minutes: 60
+  detail: ${method} ${path} looks like a provider callback, is public, and writes data, but neither the handler nor its decorators check a signature, shared secret or source address.${extra}
+  attack: 1. Find the callback path (it is fixed and often shared with the provider). 2. Send a forged request with chosen parameters. 3. The app records a consent, confirmation or result that the provider never sent.
+  blast: Every record the callback creates or changes, such as consents, confirmations and delivery results.
+  fix: Verify the provider's HMAC signature (hmac.compare_digest over the raw body with a shared secret) or a secret token in a header, and reject anything else with 403. If the provider cannot sign, allow only its IP addresses at the proxy and in the view.
+  verify: Send a request to ${method} ${path} without the signature or from another address and expect 403 with nothing written.
+OWASP-A01-UNSCOPED-LIST:
+  title: ${method} ${path} returns every ${model} record to ${attacker}
+  effort_minutes: 20
+  detail: The ${method} ${path} route checks only that the caller is signed in, then sends a list of ${model} records that no filter ties to the caller or to a role. Any account that can sign in, including through HTTP Basic or a token when the API accepts them, receives the whole list.
+  proof_needed: Confirm who may see every record.
+  attack: Sign in as ${attacker}, request ${method} ${path} and page through the response to collect every ${model} record.
+  blast: Every ${model} record, with the personal data its serializer or template shows.
+  fix: Remove the route if nothing calls it. Otherwise require a role (a permission class, permission_required or user_passes_test) and filter the queryset to the records the caller may see, in get_queryset or the view itself.
+  verify: Sign in as an ordinary account, request ${method} ${path} and expect 403 or only the caller's own records.

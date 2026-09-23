@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from dpr.redact import mask_path
+
 
 class ScanError(Exception):
     """The scan itself could not run. The CLI maps this to exit code 2."""
@@ -113,6 +115,10 @@ class Route:
     wrappers: tuple[str, ...] = ()
     handler: object = field(default=None, compare=False, repr=False, metadata=NO_JSON)
     tree: object = field(default=None, compare=False, repr=False, metadata=NO_JSON)
+
+    def __post_init__(self) -> None:
+        # A secret-looking literal segment (a capability URL) never reaches any output.
+        object.__setattr__(self, "path", mask_path(self.path))
 
 
 @dataclass(frozen=True)

@@ -14,3 +14,19 @@ LEAK-DEFAULT-CREDENTIAL:
   blast: Whatever database or service accepts the committed value.
   fix: Read the values from an untracked environment file or a secret store with no committed fallback, and change any deployed service that still uses them.
   verify: Search the file for password, secret and URL defaults and confirm each one is a variable reference with no fallback value.
+LEAK-SECRET-ENV-DEFAULT:
+  title: Secret settings fall back to values written in ${file}
+  effort_minutes: 20
+  detail: In ${file}, ${names} ${fall} back to a value written in the code when the environment does not set one. The values are not printed here. Anyone who has the repository holds them, and a deployment that misses a variable silently runs on the committed value.${extra}
+  attack: Read the fallback from the repository (a clone, a former developer's laptop, a leaked archive) and use it against any environment where the variable was never set, such as signing a session cookie with the committed SECRET_KEY or calling the partner API with the committed key.
+  blast: Whatever the secret protects. A signing key lets anyone forge sessions, password reset links and signed tokens; a partner or API key gives that partner's access.
+  fix: Read each secret with no fallback (os.environ["NAME"], or env("NAME") with no default) so a missing variable stops start-up, keep development values in an untracked .env file, and rotate every value that production ever shared with the committed fallback.
+  verify: Start the app with each variable unset and confirm it refuses to start; search the file for the names above and confirm no literal default remains.
+LEAK-LITERAL-HTTP-AUTH:
+  title: Credentials for outbound HTTP calls are written in ${file}
+  effort_minutes: 15
+  detail: ${file} contains ${kinds}. The values are not printed here. Anyone who has the repository can call the provider with them.
+  attack: Copy the credential from the repository and call the provider's API directly, for example to send mail or read account data as this organisation.
+  blast: Everything the provider account allows, billed to and trusted as this organisation.
+  fix: Revoke the credential at the provider now, then read it from the environment or a secret store at the call site.
+  verify: Confirm the provider rejects the old credential and that the file only reads the value from settings or the environment.

@@ -1,10 +1,10 @@
 OWASP-A01-PATH-TRAVERSAL:
-  title: ${method} ${path} writes a file to a path built from ${source}
+  title: ${method} ${path} ${action} a path built from ${source}
   effort_minutes: 20
-  detail: In ${method} ${path}, ${source} reaches a file write path without being reduced to a safe file name, so ../ segments or an absolute name can place the file outside the upload folder.
+  detail: In ${method} ${path}, ${source} reaches a file system path without being reduced to a safe file name, so ../ segments or an absolute name can point outside the intended folder.
   proof_needed: Confirm the call reaches the helper shown and that no caller validates the value first.
-  attack: Upload with a file name or identifier such as ../../app/main.py and overwrite a file the server later loads or serves.
-  blast: Any file the app's process can write, which can mean code execution on the next restart.
+  attack: Send a file name or identifier such as ../../app/main.py and overwrite, delete or read a file the server can reach.
+  blast: Any file the app's process can write or read, which can mean code execution on the next restart or disclosure of settings and keys.
   fix: Store uploads under a server-generated name (a UUID plus a checked extension), use only Path(name).name or secure_filename for display, validate identifiers as UUIDs, and assert the resolved path is inside the upload root before writing.
   verify: Upload a file named ../escape.txt and confirm it is rejected or stored inside the upload folder under a generated name.
 OWASP-A01-MASS-ASSIGNMENT:

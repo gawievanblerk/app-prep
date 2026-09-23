@@ -30,11 +30,18 @@ class Issue:
     effort_minutes: int
 
 
-def _chain_of(rule_id: str) -> tuple[int, dict] | None:
+def chain_of(finding: Finding) -> tuple[int, dict] | None:
+    """The register chain a finding belongs to: its rule is listed, and the chain's `severity`,
+    when it gives one, is the finding's."""
     for position, chain in enumerate(load("register.yaml")["chains"]):
-        if rule_id in chain["rules"]:
+        wanted = chain.get("severity")
+        if finding.rule_id in chain["rules"] and wanted in (None, finding.severity.value):
             return position, chain
     return None
+
+
+def app_of(finding: Finding, roots: list[AppRoot]) -> str:
+    return _app(finding, roots)
 
 
 def _app(finding: Finding, roots: list[AppRoot]) -> str:
@@ -61,7 +68,7 @@ def _linked_key(finding: Finding, spec: dict, position: int, findings: list[Find
 
 
 def _key(finding: Finding, roots: list[AppRoot], findings: list[Finding]) -> tuple:
-    chain = _chain_of(finding.rule_id)
+    chain = chain_of(finding)
     if chain is not None:
         position, spec = chain
         if spec["scope"] == "linked":
@@ -172,7 +179,7 @@ def _title(key: tuple, members: list[Finding], lead: Finding) -> str:
     anchors = [f for f in members if f.rule_id == spec["rules"][0]]
     title = anchors[0].title if anchors else lead.title
     if anchors and len({f.rule_id for f in members}) > 1:
-        title += ", and a start command runs it"
+        title += spec.get("joined", "")
     return title
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import os
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -30,6 +31,7 @@ class Options:
     with_audit: bool = False
     semgrep: str = "auto"
     db_dump: str | None = None
+    today: datetime.date | None = None  # the scan date; end-of-life checks compare with it
 
 
 @dataclass
@@ -111,6 +113,7 @@ def make_finding(
     *,
     tag: Tag | str,
     locations: Iterable,
+    title: str | None = None,
     detail: str | None = None,
     snippet: str | None = None,
     severity: str | None = None,
@@ -130,7 +133,7 @@ def make_finding(
     return Finding(
         rule_id=rule_id,
         review=spec.review,
-        title=_fill(text.title, fmt) or rule_id,
+        title=title or _fill(text.title, fmt) or rule_id,
         tag=tag,
         severity=Severity(severity or spec.severity),
         exploitability=Exploitability(exploitability or spec.exploitability),

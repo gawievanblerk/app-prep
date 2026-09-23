@@ -58,6 +58,24 @@ def summary_parts(ctx: Context, findings: list[Finding]) -> list[Part]:
             "No key pattern matched in build output.",
             "{n} key pattern match(es) in build output, listed below.",
         ),
+        _count(
+            findings,
+            "LEAK-SECRET-ENV-DEFAULT",
+            "No secret setting falls back to a value written in the code.",
+            "{n} file(s) with secret settings that fall back to committed values, listed below.",
+        ),
+        _count(
+            findings,
+            "LEAK-LITERAL-HTTP-AUTH",
+            "No outbound HTTP call carries a literal credential.",
+            "{n} file(s) pass literal credentials to HTTP calls, listed below.",
+        ),
+        _count(
+            findings,
+            "LEAK-PII-LITERAL-IN-CODE",
+            "No code file lists ID numbers or mobile numbers as literals.",
+            "{n} code file(s) hold ID numbers or mobile numbers as literals, listed below.",
+        ),
     ]
     if not ctx.detection.git.is_repo:
         history[:2] = ["Not a git repository, so tracked files and history were not checked."]

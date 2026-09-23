@@ -39,6 +39,7 @@ CONTENT_KEYS = {
 }
 WHOLE_OBJECTS = {"user", "current_user", "customer", "client", "profile", "member", "patient"}
 SKIP_RECIPIENT_CATEGORIES = ("fonts",)
+NO_CONTENT_CATEGORIES = ("storage",)
 SENDER_KEY = re.compile(r"(?i)^(?:sender|from|reply)")
 
 
@@ -156,16 +157,20 @@ def _identifying(key: str) -> bool:
         return True
     if SENDER_KEY.match(key):
         return False
-    category = classify(key)
+    # A keyword argument names an SDK setting, not a person: region_name or bucket_name is not
+    # a personal name, so the bare "name" term does not count here.
+    category = classify(key, person=False)
     return category is not None and category.key not in ("content", "account")
 
 
-def _kinds(keys: list[str]) -> tuple[list[str], list[str], list[str]]:
+def _kinds(keys: list[str], category: str) -> tuple[list[str], list[str], list[str]]:
     identifying = [k for k in keys if _identifying(k)]
+    # The Body of a storage upload is a file of unknown contents, not free text about a person.
     content = [
         k
         for k in keys
-        if k.lower() in CONTENT_KEYS or (classify(k) and classify(k).key == "content")
+        if category not in NO_CONTENT_CATEGORIES
+        and (k.lower() in CONTENT_KEYS or (classify(k) and classify(k).key == "content"))
     ]
     whole = [k for k in keys if k.lower() in WHOLE_OBJECTS]
     return identifying, content, whole
@@ -182,7 +187,7 @@ def sdk_receipts(ctx: Context) -> list[tuple[SdkUse, list[Location], Tag, str]]:
                 continue
             by_root: dict[str, list[tuple[Location, list[str], list[str], list[str]]]] = {}
             for location, keys in recipient_sites(ctx, sdk):
-                i, c, w = _kinds(keys)
+                i, c, w = _kinds(keys, sdk.category)
                 if not (i or c or w):
                     continue
                 home = root_of(ctx.detection.app_roots, location.file)

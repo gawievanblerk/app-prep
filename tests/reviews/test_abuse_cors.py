@@ -107,3 +107,29 @@ def test_error_leak(tmp_path):
         ("api/routes.py:8", "medium"),
         ("app/api/export/route.ts:5", "medium"),
     ]
+
+
+def test_error_leak_needs_an_http_response(tmp_path):
+    write(
+        tmp_path,
+        "shop/urls.py",
+        "from django.urls import path\nfrom . import views\n"
+        "urlpatterns = [path('outcome/', views.outcome), path('sync/', views.sync)]\n",
+    )
+    write(
+        tmp_path,
+        "shop/views.py",
+        "from celery import shared_task\n"
+        "def outcome(request):\n    result = _save(request.data)\n    return Response(result)\n"
+        "def _save(data):\n    try:\n        store(data)\n    except Exception as e:\n"
+        "        return {'error': repr(e)}\n"
+        "def sync(request):\n    push.delay()\n    return JsonResponse({'queued': _check()})\n"
+        "def _check():\n    try:\n        ping()\n    except Exception as e:\n"
+        "        return str(e)\n    return 'ok'\n"
+        "def _internal():\n    try:\n        ping()\n    except Exception as e:\n"
+        "        return {'success': False, 'message': str(e)}\n"
+        "@shared_task\ndef sync_view(pk):\n    try:\n        ping()\n    except Exception as e:\n"
+        "        return {'success': False, 'message': str(e)}\n",
+    )
+    found = findings_for(tmp_path, "abuse", "ABUSE-ERROR-LEAK")
+    assert summary(found) == [("shop/views.py:17", "medium"), ("shop/views.py:9", "medium")]

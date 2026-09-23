@@ -9,9 +9,12 @@ from collections.abc import Iterator
 from dpr.discovery.approots import same_root
 from dpr.model import Finding, Location, Tag
 from dpr.parsing import pyast
+from dpr.parsing.pyenv import means_true, module_assignments, reads_env, when_unset
 from dpr.redact import snippet
+from dpr.reviews.access_frameworks import non_production_settings
 from dpr.reviews.deploy_env import all_false
 from dpr.reviews.paths import is_test
+from dpr.reviews.settings_files import settings_module
 from dpr.rules import Context, make_finding, rule
 
 APP_CALL = r"(?:\w+\.)?(?:FastAPI|Flask|Starlette|run)"
@@ -146,6 +149,24 @@ def openapi_always_on(ctx: Context) -> Iterator[Finding]:
             )
 
 
+def _env_debug(ctx: Context, rel: str, text: str, tree: ast.Module) -> Iterator[Finding]:
+    """DEBUG read from the environment that is on when the variable is unset or misspelt:
+    `False if os.environ.get("DEBUG") == "False" else True`, `env.bool("DEBUG", default=True)`."""
+    if not settings_module(rel, text) or non_production_settings(ctx, rel):
+        return
+    for name, value, line in module_assignments(tree):
+        if name != "DEBUG" or not reads_env(value) or not means_true(when_unset(value)):
+            continue
+        if all_false(ctx, "DEBUG", rel):
+            continue
+        what = (
+            "DEBUG is read from the environment but is on when the variable is unset, so any "
+            "value other than the exact off word (a missing variable, a typo, `false` or `0`) "
+            "leaves debug on."
+        )
+        yield _debug(ctx, rel, line, what)
+
+
 @rule("BASE-DEBUG-ON", review="baseline", severity="high", exploitability="medium", owasp="A05")
 def debug_on(ctx: Context) -> Iterator[Finding]:
     for entry in ctx.index.py_files:
@@ -155,7 +176,7 @@ def debug_on(ctx: Context) -> Iterator[Finding]:
         tree = pyast.parse_file(ctx.index, entry.rel)
         if tree is None:
             continue
-        if "INSTALLED_APPS" in text:
+        if "INSTALLED_APPS" in text and not non_production_settings(ctx, entry.rel):
             for stmt in tree.body:
                 if (
                     isinstance(stmt, ast.Assign)
@@ -165,6 +186,7 @@ def debug_on(ctx: Context) -> Iterator[Finding]:
                 ):
                     what = "Django settings set DEBUG = True."
                     yield _debug(ctx, entry.rel, stmt.lineno, what)
+        yield from _env_debug(ctx, entry.rel, text, tree)
         for call in pyast.calls(tree, APP_CALL):
             if pyast.constant(pyast.kwarg(call, "debug")) is True:
                 what = "The app is created or run with debug=True."

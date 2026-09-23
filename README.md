@@ -69,6 +69,7 @@ Each scan prints a short summary (finding counts, the top three fixes and the fi
 | `--format md,json,sarif` | Output formats, comma separated (default `md,json`) |
 | `--reviews ...` | Run only some reviews: `all`, numbers `1` to `7`, or names `inventory`, `rls`, `auth`, `baseline`, `owasp`, `leaks`, `abuse` (for example `--reviews leaks,owasp`) |
 | `--fail-on LEVEL` | Exit with code 1 when a finding at LEVEL or above exists: `medium`, `high` or `critical` (default `none`) |
+| `--include-untracked` | In a git repository dpr reads tracked files only. This also reads untracked files that git does not ignore. Findings in them say the file is not in the repository |
 | `--answers FILE` | Answers to the open questions, in YAML (create a starter file with `dpr questions`) |
 | `--interactive` | Ask the open questions in the terminal |
 | `--url URL --i-own-this-host` | Also read the security headers of a site you own: three `HEAD` requests, nothing else. `--url` without `--i-own-this-host` is refused |
