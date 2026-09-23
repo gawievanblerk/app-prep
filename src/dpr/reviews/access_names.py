@@ -37,6 +37,7 @@ class Access:
     middleware) that may still guard a route whose answer rests on absence, or, for "mixed",
     the guard that applies only in some places. `role` names a check beyond sign-in (a
     permission, a staff or superuser test, a custom role decorator) when one was read.
+    `gates` names the FastAPI dependencies that guard the route.
     """
 
     level: str
@@ -45,6 +46,7 @@ class Access:
     basis: str = EXPLICIT
     unread: str = ""
     role: str = ""
+    gates: tuple[str, ...] = ()
 
 
 def public(evidence: str, unread: str = "") -> Access:

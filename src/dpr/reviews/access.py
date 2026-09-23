@@ -13,6 +13,8 @@ from dpr.model import Route
 from dpr.parsing import imports, jsts, pyast
 from dpr.redact import mask_path
 from dpr.reviews import access_frameworks as frameworks
+from dpr.reviews.access_gates import dep_names as _dep_names
+from dpr.reviews.access_gates import gate_levels, kwarg_deps
 from dpr.reviews.access_names import (
     ABSENCE,
     ADMIN,
@@ -24,7 +26,6 @@ from dpr.reviews.access_names import (
     PY_DEP,
     Access,
     auth_name,
-    dep_level,
     public,
     strongest,
     unread_guard,
@@ -62,17 +63,6 @@ ROUTER_NAME = re.compile(r"(?i)(?:router|routes)$")
 EXPRESS_SUBJECTS = ("req.user", "req.auth", "req.session", "request.user")
 
 
-def _dep_names(node: ast.AST | None, aliases: dict[str, str]) -> list[str]:
-    names = []
-    for sub in ast.walk(node) if node is not None else []:
-        if isinstance(sub, ast.Call) and PY_DEP.fullmatch(pyast.dotted(sub.func) or ""):
-            if sub.args:
-                names.append((pyast.dotted(sub.args[0]) or "").split(".")[-1])
-        elif isinstance(sub, ast.Name) and sub.id in aliases:
-            names.append(aliases[sub.id])
-    return [n for n in names if n]
-
-
 def fastapi_aliases(ctx: Context) -> dict[str, str]:
     key = ("fastapi-aliases", "")
     if key in ctx.index.cache:
@@ -108,7 +98,7 @@ def _constructor_deps(tree: ast.Module | None, name: str, aliases: dict[str, str
     if isinstance(value, ast.Call) and re.fullmatch(
         r"(?:\w+\.)?(APIRouter|FastAPI)", pyast.dotted(value.func) or ""
     ):
-        return _dep_names(pyast.kwarg(value, "dependencies"), aliases)
+        return kwarg_deps(value, tree, aliases)
     return []
 
 
@@ -139,7 +129,7 @@ def _include_edges(ctx: Context) -> dict[tuple[str, str], list[tuple[tuple[str, 
                 if child is None or not isinstance(call.func, ast.Attribute):
                     continue
                 parent = (entry.rel, pyast.dotted(call.func.value) or "")
-                deps = _dep_names(pyast.kwarg(call, "dependencies"), aliases)
+                deps = kwarg_deps(call, tree, aliases)
                 edges.setdefault(child, []).append((parent, deps))
         ctx.index.cache[key] = edges
     return ctx.index.cache[key]
@@ -170,6 +160,7 @@ def _guarded_everywhere(options: list[list[str]], guards) -> tuple[list[str], li
 
 def _fastapi(ctx: Context, route: Route) -> Access:
     aliases = fastapi_aliases(ctx)
+    gate = gate_levels(ctx.index)
     fn = route.handler
     levels: list[tuple[str, str]] = []
     subjects = []
@@ -180,20 +171,20 @@ def _fastapi(ctx: Context, route: Route) -> Access:
         if param.annotation is not None and SESSION_TYPE.search(ast.unparse(param.annotation)):
             continue
         for name in _dep_names(param.annotation, aliases) + _dep_names(default, aliases):
-            if dep_level(name):
-                levels.append((dep_level(name), name))
+            if gate(name):
+                levels.append((gate(name), name))
                 subjects.append(param.arg)
     names = []
     for dec in fn.decorator_list:
         if isinstance(dec, ast.Call):
-            names += _dep_names(pyast.kwarg(dec, "dependencies"), aliases)
+            names += kwarg_deps(dec, route.tree, aliases)
     router = _router_name(fn)
     disputed: list[str] = []
     if router:
         names += _constructor_deps(route.tree, router, aliases)
-        inherited, disputed = _guarded_everywhere(_chains(ctx, (route.file, router)), dep_level)
+        inherited, disputed = _guarded_everywhere(_chains(ctx, (route.file, router)), gate)
         names += inherited
-    levels += [(dep_level(name), name) for name in names if dep_level(name)]
+    levels += [(gate(name), name) for name in names if gate(name)]
     if not levels and disputed:
         guard = f"Depends({', '.join(disputed)})"
         where = f"{guard} on another include_router mount of this router"
@@ -201,8 +192,9 @@ def _fastapi(ctx: Context, route: Route) -> Access:
     if not levels:
         return public("no authentication dependency", frameworks.py_unread(ctx))
     level = strongest([lv for lv, _ in levels])
-    evidence = ", ".join(dict.fromkeys(name for _, name in levels))
-    return Access(level, tuple(dict.fromkeys(subjects)), f"Depends({evidence})")
+    gates = tuple(dict.fromkeys(name for _, name in levels))
+    subjects = tuple(dict.fromkeys(subjects))
+    return Access(level, subjects, f"Depends({', '.join(gates)})", gates=gates)
 
 
 def _covers(mount: str, path: str) -> bool:

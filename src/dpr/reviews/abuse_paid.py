@@ -12,6 +12,7 @@ from dpr.parsing import jsts
 from dpr.parsing.mounts import limiter_mounts
 from dpr.redact import snippet
 from dpr.reviews.access import PUBLIC, access, unread_guard
+from dpr.reviews.access_gates import FailOpen, fail_open, internal_gate
 from dpr.reviews.auth_axes import axes_for
 from dpr.reviews.auth_flows import flows_of
 from dpr.reviews.paid import PaidRoute, costs, paid_routes
@@ -69,6 +70,11 @@ def is_limited(ctx: Context, route: Route) -> bool:
     return False
 
 
+def internal_only(ctx: Context, route: Route) -> bool:
+    """The route sits behind a service-to-service token: only another backend calls it."""
+    return any(internal_gate(ctx.index, name) for name in access(ctx, route).gates)
+
+
 def _paid_detail(paid: PaidRoute) -> dict[str, object]:
     cost = costs().get(paid.sdk.category, {"note": "provider pricing"})
     via = f" through {paid.via}()" if paid.via else ""
@@ -110,6 +116,8 @@ def paid_unauth(ctx: Context) -> Iterator[Finding]:
 def paid_unlimited(ctx: Context) -> Iterator[Finding]:
     for paid in paid_routes(ctx):
         route = paid.route
+        if internal_only(ctx, route):
+            continue  # the limit belongs to the backend routes that call this service
         if not is_limited(ctx, route) and not is_test(route.file):
             cost = costs().get(paid.sdk.category, {})
             yield make_finding(
@@ -122,6 +130,38 @@ def paid_unlimited(ctx: Context) -> Iterator[Finding]:
                 window=cost.get("window", "1 h"),
                 **_paid_detail(paid),
             )
+
+
+@rule("ABUSE-GATE-FAIL-OPEN", review="abuse", severity="low", exploitability="low", owasp="A07")
+def gate_fail_open(ctx: Context) -> Iterator[Finding]:
+    """One finding per service whose internal-token gate lets requests through when its
+    secret is unset."""
+    paid = {p.route for p in paid_routes(ctx)}
+    services: dict[str, dict[FailOpen, list[Route]]] = {}
+    for route in ctx.detection.routes:
+        if route.framework != "fastapi" or is_test(route.file):
+            continue
+        for name in access(ctx, route).gates:
+            found = fail_open(ctx.index, name)
+            if found is not None:
+                home = root_of(ctx.detection.app_roots, route.file)
+                services.setdefault(home, {}).setdefault(found, []).append(route)
+    for _home, gates in sorted(services.items()):
+        routes = list(dict.fromkeys(r for listed in gates.values() for r in listed))
+        first = min(gates, key=lambda g: (g.rel, g.line))
+        count = sum(1 for r in routes if r in paid)
+        yield make_finding(
+            "ABUSE-GATE-FAIL-OPEN",
+            tag=Tag.CONFIRMED,
+            locations=[
+                Location(g.rel, g.line) for g in sorted(gates, key=lambda g: (g.rel, g.line))
+            ],
+            snippet=snippet(ctx.index.text(first.rel), first.line),
+            gate=first.name,
+            setting=first.setting,
+            routes=len(routes),
+            paid=f"{count} paid route{'s' if count != 1 else ''}",
+        )
 
 
 @rule("ABUSE-NO-KILL-SWITCH", review="abuse", severity="low", exploitability="low", owasp="A04")

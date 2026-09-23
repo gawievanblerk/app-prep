@@ -251,7 +251,7 @@ def test_auth_words_match_whole_name_tokens(tmp_path):
 
 def test_fastapi_include_router_dependencies(tmp_path):
     write(tmp_path, "requirements.txt", "fastapi\nopenai\n")
-    write(tmp_path, "app/deps.py", "def get_current_active_user(): ...\n")
+    write(tmp_path, "app/deps.py", "def get_current_active_user():\n    return read_session()\n")
     write(
         tmp_path,
         "app/main.py",
@@ -435,7 +435,7 @@ def test_django_login_required_middleware_and_drf_defaults_in_any_settings_modul
 def fastapi_ai_router(root):
     write(root, "requirements.txt", "fastapi\nopenai\npytest\n")
     write(root, "app/__init__.py", "")
-    write(root, "app/deps.py", "def get_current_user():\n    return None\n")
+    write(root, "app/deps.py", "def get_current_user():\n    return read_session()\n")
     write(root, "app/routers/__init__.py", "")
     write(
         root,
