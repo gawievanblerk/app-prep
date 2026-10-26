@@ -8,6 +8,7 @@ import dpr.reviews.baseline_debug  # noqa: F401  (registers rules)
 import dpr.reviews.baseline_docker  # noqa: F401  (registers rules)
 import dpr.reviews.baseline_infra  # noqa: F401  (registers rules)
 import dpr.reviews.baseline_literals  # noqa: F401  (registers rules)
+import dpr.reviews.baseline_passwords  # noqa: F401  (registers rules)
 import dpr.reviews.baseline_settings  # noqa: F401  (registers rules)
 from dpr.model import Finding, Part, ReviewSection
 from dpr.reviews.baseline_headers import live_reads

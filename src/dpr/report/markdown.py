@@ -10,6 +10,7 @@ from dpr.model import Finding, Part, Report
 from dpr.questions.lawyer import lawyer_questions
 from dpr.rank import order_for_section
 from dpr.report.register import app_of, build_register, chain_of
+from dpr.report.standards import STATUS_LABELS, status_counts
 from dpr.reviews import LABELS, REVIEWS, TITLES, number
 
 DISCLAIMER = (
@@ -213,6 +214,42 @@ def _register(report: Report) -> str:
     return "### Findings register\n\n" + _table(columns, rows)
 
 
+STANDARDS_INTRO = (
+    "Each control below is matched to the dpr rules that test it in code. Findings means at "
+    "least one of those rules fired. No findings in code means every rule ran and none fired; "
+    "it is not proof that the control is in place. Evidence needed marks controls that only "
+    "documents, settings outside the repository or people can show. This is readiness for an "
+    "assessment, not a certification or an audit result. Section labels are short names; check "
+    "them against the published text of each standard."
+)
+
+
+def _standards(report: Report) -> str:
+    if not report.standards:
+        return ""
+    labels = list(STATUS_LABELS.values())
+    rows = [
+        (f.name, str(len(f.controls)), *(str(n) for n in status_counts(f).values()))
+        for f in report.standards
+    ]
+    lines = [
+        "## Standards readiness",
+        "",
+        STANDARDS_INTRO,
+        "",
+        _table(("Standard", "Controls", *labels), rows),
+    ]
+    for f in report.standards:
+        lines += ["", f"### {f.name}", "", f.scope]
+        if f.signal:
+            lines += ["", f.signal]
+        controls = [
+            (c.ref, c.name, STATUS_LABELS[c.status], c.detail or "None.") for c in f.controls
+        ]
+        lines += ["", _table(("Ref", "Control", "Status", "What dpr found"), controls)]
+    return "\n".join(lines)
+
+
 def _view(report: Report) -> dict:
     issues = issues_of(report)
     counts = {s: sum(i.severity.value == s for i in issues) for s in SEVERITIES}
@@ -256,6 +293,7 @@ def _view(report: Report) -> dict:
             for slug, reason in report.meta.applicability
         ),
         "sections": sections,
+        "standards": _standards(report),
         "answered": "\n".join(
             [
                 *(

@@ -30,6 +30,7 @@ SECTIONS = (
     "## 5. OWASP sweep",
     "## 6. Leak hunt",
     "## 7. Abuse and bill guard",
+    "## Standards readiness",
     "## Open questions",
     "## What this review did not cover",
 )
