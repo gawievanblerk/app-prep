@@ -224,6 +224,18 @@ STANDARDS_INTRO = (
 )
 
 
+OWASP_TOP_TEN = "OWASP Top 10 2021 (review 5, OWASP sweep)"
+
+
+def _standards_tested(report: Report) -> str:
+    """The standards this report tests against, listed under the header."""
+    names = [OWASP_TOP_TEN] if "owasp" in report.meta.reviews_run else []
+    names += [f"{f.name} (readiness, see Standards readiness)" for f in report.standards]
+    if not names:
+        return ""
+    return "Standards tested:\n\n" + "\n".join(f"- {name}" for name in names)
+
+
 def _standards(report: Report) -> str:
     if not report.standards:
         return ""
@@ -283,6 +295,7 @@ def _view(report: Report) -> dict:
     return {
         "meta": report.meta,
         "reviews_run": ", ".join(report.meta.reviews_run) or "none",
+        "standards_tested": _standards_tested(report),
         "disclaimer": DISCLAIMER,
         "summary_table": summary,
         "top_fixes": top,

@@ -2,6 +2,10 @@
 
 All notable changes to dpr are listed here. Versions follow semantic versioning.
 
+## [0.2.1] - 2026-10-26
+
+- The report header lists the standards tested: the OWASP Top 10 2021 when review 5 runs, and each standard in the readiness section.
+
 ## [0.2.0] - 2026-10-26
 
 This release cuts false positives sharply, adds rule packs found missing in real scans, and adds a standards readiness section to the report.
