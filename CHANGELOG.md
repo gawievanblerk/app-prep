@@ -2,7 +2,25 @@
 
 All notable changes to dpr are listed here. Versions follow semantic versioning.
 
-## [Unreleased]
+## [0.2.0] - 2026-10-26
+
+This release cuts false positives sharply, adds rule packs found missing in real scans, and adds a standards readiness section to the report.
+
+### Accuracy
+
+- In a git repository dpr scans tracked files only. `--include-untracked` adds untracked files that git does not ignore, and findings in them say the file is not in the repository.
+- Vendored and minified third-party libraries are reported once per library as a dependency issue, instead of running code rules on them.
+- False positives cut in many rules: path traversal, debug and weak hash settings in test modules, weak random tokens, raw SQL built from helpers and bound arguments, escaped Markup values, hardcoded keys in test scripts and example comments, container rules outside the shipped build stage, and unscoped lookups.
+- LLM calls and rendered files no longer count as public-sensitive actions.
+- FastAPI dependency gates on routers and apps, custom auth decorators and class-based view fields are read, so guarded routes are not reported as open.
+- JS routes are traced into paid routes of another service in the same repository.
+- Secret-looking path segments in route paths are masked in every output.
+- Three bundled advisory entries were corrected against public sources.
+
+### Rules added in this release
+
+- A Django and deploy rule pack, secret fallbacks to committed values, Pickle sessions, settings that fail open, sensitive public routes, and personal data found by value in data files and code.
+
 
 ### Standards readiness
 
