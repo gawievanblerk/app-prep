@@ -214,3 +214,20 @@ def test_cli_standards_option(tmp_path, capsys):
     data = json.loads(report.read_text())
     assert [s["id"] for s in data["standards"]] == ["hipaa", "popia"]
     assert main(["scan", str(root), "--out", str(out), "--standards", "sox"]) == 2
+
+
+def test_header_lists_the_standards_tested(tmp_path):
+    text = dpr.render_markdown(dpr.review(small_app(tmp_path)))
+    header = text.split("## Summary")[0]
+    assert "Standards tested:\n\n- OWASP Top 10 2021 (review 5, OWASP sweep)\n" in header
+    for name in ("OWASP ASVS 5.0", "NIST SP 800-63B Rev. 4", "ISO 27799:2016", "GDPR", "POPIA"):
+        assert f"- {name} (readiness, see Standards readiness)" in header
+
+
+def test_header_list_follows_the_selection(tmp_path):
+    report = dpr.review(small_app(tmp_path), reviews=["leaks"], standards=["popia"])
+    header = dpr.render_markdown(report).split("## Summary")[0]
+    assert "OWASP Top 10" not in header
+    assert "- POPIA (readiness, see Standards readiness)" in header
+    report = dpr.review(small_app(tmp_path), reviews=["leaks"], standards=["none"])
+    assert "Standards tested" not in dpr.render_markdown(report)
