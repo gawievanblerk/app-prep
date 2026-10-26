@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from dpr.model import Finding, Report
+from dpr.report.standards import standard_tags
 
 SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 LEVELS = {"critical": "error", "high": "error", "medium": "warning", "low": "note"}
@@ -23,12 +24,16 @@ def _properties(f: Finding) -> dict:
 
 
 def _rule(f: Finding) -> dict:
+    properties = {"review": f.review, **({"owasp": f.owasp} if f.owasp else {})}
+    tags = standard_tags(f.rule_id)
+    if tags:
+        properties["tags"] = tags
     return {
         "id": f.rule_id,
         "name": f.rule_id,
         "shortDescription": {"text": f.title},
         "help": {"text": f.fix},
-        "properties": {"review": f.review, **({"owasp": f.owasp} if f.owasp else {})},
+        "properties": properties,
     }
 
 

@@ -22,3 +22,12 @@ BASE-HTTPS-NOT-ENFORCED:
   blast: Requests and responses on the plain HTTP path, including cookies without the Secure flag.
   fix: Set https_only = true on Azure App Service and Function Apps, viewer_protocol_policy = "redirect-to-https" on CloudFront, or a redirect action on HTTP load balancer listeners.
   verify: curl -sSI http://your-host/ and confirm a 301 to https://.
+BASE-STORAGE-UNENCRYPTED:
+  title: Data storage is not encrypted at rest
+  effort_minutes: 60
+  detail: ${what} Disks, snapshots and backups of this storage then hold personal data in readable form.
+  proof_needed: Check the deployed resource in the cloud console; it may have been created from an encrypted snapshot or changed outside Terraform.
+  attack: Read a leaked or shared snapshot, or a decommissioned disk, without any key.
+  blast: Every record in this storage and in its snapshots and backups.
+  fix: Turn encryption at rest on (storage_encrypted = true or encrypted = true, with a KMS key you control). Existing databases and volumes need a migration through an encrypted snapshot.
+  verify: Run terraform plan and confirm the attribute is true, then check the resource in the console shows encryption with the expected key.

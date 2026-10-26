@@ -17,6 +17,7 @@ from dpr.questions.prompt import ask_on_terminal
 from dpr.rank import dedupe, rank
 from dpr.report.coverage import coverage_notes
 from dpr.report.register import build_register
+from dpr.report.standards import build_standards, resolve_standards
 from dpr.reviews import REVIEWS, RUN_ORDER, available, number, resolve_reviews
 from dpr.rules import Context, Options, run_checks
 from dpr.walk import RepoIndex
@@ -98,9 +99,11 @@ def review(
     db_dump: str | None = None,
     today: datetime.date | None = None,
     include_untracked: bool = False,
+    standards: Iterable[str] = ("all",),
 ) -> Report:
     _validate(url, owns_host, semgrep, db_dump)
     selected = resolve_reviews(reviews)
+    chosen_standards = resolve_standards(standards)
     index, detection = discover(path, include_untracked)
     options = Options(
         url=url,
@@ -181,6 +184,7 @@ def review(
     )
     not_covered = list(dict.fromkeys([*index.notes, *index.skipped, *ctx.not_covered]))
     ranked = rank(dedupe(findings))
+    register = build_register(ranked, detection.app_roots)
     return Report(
         meta=meta,
         detection=detection,
@@ -189,5 +193,6 @@ def review(
         questions=results,
         not_covered=not_covered,
         answered=list(ctx.facts.get("answered", [])),
-        register=build_register(ranked, detection.app_roots),
+        register=register,
+        standards=build_standards(chosen_standards, ranked, register, set(sections), results),
     )

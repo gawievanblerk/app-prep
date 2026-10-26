@@ -2,6 +2,20 @@
 
 All notable changes to dpr are listed here. Versions follow semantic versioning.
 
+## [Unreleased]
+
+### Standards readiness
+
+- A new report section maps every dpr rule to the controls of seven standards: OWASP ASVS 5.0, NIST SP 800-63B Rev. 4, ISO 27799:2016, IEC 81001-5-1:2021, the HIPAA Security and Privacy Rules, GDPR and POPIA. Each control shows Findings (with register ids), No findings in code, Partly checked, Not checked, or Evidence needed, plus the answers to related open questions. The health standards also say whether the data inventory found health fields.
+- `--standards LIST` (and `standards=` in `dpr.review()`) picks the standards to report: `all` (default), `none`, or ids such as `hipaa,popia`.
+- The JSON report has a `standards` list, and SARIF rules carry the controls they speak to as `tags`.
+
+### New rules
+
+- BASE-PASSWORD-COMPOSITION: password rules that demand set character types.
+- BASE-PASSWORD-EXPIRY: passwords that expire on a schedule.
+- BASE-STORAGE-UNENCRYPTED: Terraform databases, volumes, file systems and caches without encryption at rest.
+
 ## [0.1.0] - 2026-09-22
 
 First release. dpr reviews a JS/TS or Python repository for data protection issues without an LLM and writes Markdown, JSON and SARIF reports. A default scan opens no network connection and never prints a secret or personal value.

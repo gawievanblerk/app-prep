@@ -233,6 +233,25 @@ class Answer:
     evidence: str
 
 
+@dataclass(frozen=True)
+class ControlReadiness:
+    ref: str
+    name: str
+    status: str  # "findings" | "clear" | "partial" | "not-checked" | "evidence"
+    detail: str
+    rules: tuple[str, ...] = ()  # rules of this control that fired
+    issues: tuple[str, ...] = ()  # register ids of the issues those findings belong to
+
+
+@dataclass(frozen=True)
+class FrameworkReadiness:
+    id: str
+    name: str
+    scope: str
+    signal: str  # what the scan saw that bears on whether the standard applies; "" when none
+    controls: tuple[ControlReadiness, ...] = ()
+
+
 @dataclass
 class Report:
     meta: ReportMeta
@@ -243,3 +262,4 @@ class Report:
     not_covered: list[str]
     answered: list[Answer] = field(default_factory=list)
     register: list = field(default_factory=list)  # list[dpr.report.register.Issue]
+    standards: list[FrameworkReadiness] = field(default_factory=list)

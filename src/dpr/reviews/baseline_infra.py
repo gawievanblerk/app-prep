@@ -192,3 +192,52 @@ def https_not_enforced(ctx: Context) -> Iterator[Finding]:
                 snippet=snippet(text, line),
                 what=what,
             )
+
+
+# Resource kind to (encryption attribute, whether the provider default leaves it unencrypted).
+# Where an account-level default can turn encryption on (EBS), only an explicit false counts.
+ENCRYPTION_ATTRIBUTES = {
+    "aws_db_instance": ("storage_encrypted", True),
+    "aws_rds_cluster": ("storage_encrypted", True),
+    "aws_docdb_cluster": ("storage_encrypted", True),
+    "aws_neptune_cluster": ("storage_encrypted", True),
+    "aws_efs_file_system": ("encrypted", True),
+    "aws_ebs_volume": ("encrypted", False),
+    "aws_redshift_cluster": ("encrypted", False),
+    "aws_elasticache_replication_group": ("at_rest_encryption_enabled", False),
+}
+INHERITS_ENCRYPTION = ("replicate_source_db", "snapshot_identifier", "source_db_instance")
+
+
+@rule(
+    "BASE-STORAGE-UNENCRYPTED",
+    review="baseline",
+    severity="medium",
+    exploitability="low",
+    owasp="A02",
+)
+def storage_unencrypted(ctx: Context) -> Iterator[Finding]:
+    for rel, text, block in _terraform(ctx):
+        kind, name = block.labels
+        if kind not in ENCRYPTION_ATTRIBUTES:
+            continue
+        attribute, default_off = ENCRYPTION_ATTRIBUTES[kind]
+        attrs = hcl.attributes(block)
+        value, line = attrs.get(attribute, ("", 0))
+        if value.strip() == "false":
+            tag, what = Tag.CONFIRMED, f"{kind} {name} sets {attribute} = false."
+        elif value or not default_off or any(a in attrs for a in INHERITS_ENCRYPTION):
+            continue
+        elif hcl.unquote(attrs.get("engine_mode", ("", 0))[0]) == "serverless":
+            continue
+        else:
+            line = block.line
+            tag = Tag.INFERRED
+            what = f"{kind} {name} does not set {attribute}, and the provider default is off."
+        yield make_finding(
+            "BASE-STORAGE-UNENCRYPTED",
+            tag=tag,
+            locations=[Location(rel, line)],
+            snippet=snippet(text, line),
+            what=what,
+        )

@@ -74,6 +74,7 @@ Each scan prints a short summary (finding counts, the top three fixes and the fi
 | `--interactive` | Ask the open questions in the terminal |
 | `--url URL --i-own-this-host` | Also read the security headers of a site you own: three `HEAD` requests, nothing else. `--url` without `--i-own-this-host` is refused |
 | `--login-path PATH` | The login page path for the live header read (default `/login` or a detected route) |
+| `--standards LIST` | Standards readiness to report, comma separated: `all` (default), `none`, or `asvs`, `nist-800-63b`, `iso-27799`, `iec-81001-5-1`, `hipaa`, `gdpr`, `popia` |
 | `--db-dump FILE` | Output of the database check queries printed in the report's review 2 section; the live policies then replace what the migrations say |
 
 Exit codes: `0` scan done, `1` a finding at or above `--fail-on`, `2` bad arguments or a scan error.
@@ -105,6 +106,17 @@ print(render_markdown(report))
 ```
 
 `render_json` and `render_sarif` return the other formats.
+
+### Standards readiness
+
+The report has a readiness view for seven standards, placed before the open questions: OWASP ASVS 5.0, NIST SP 800-63B Rev. 4, ISO 27799:2016, IEC 81001-5-1:2021, the HIPAA Security and Privacy Rules, GDPR and POPIA. Each control is matched to the dpr rules that test it in code (`src/dpr/data/standards.yaml`) and gets one status:
+
+- Findings: at least one of its rules fired. The register ids of those issues are listed.
+- No findings in code: every rule ran and none fired. This is not proof that the control is in place.
+- Partly checked or Not checked: some or all of the reviews that own its rules did not run.
+- Evidence needed: only documents, settings outside the repository or people can show it, such as a risk analysis, a breach procedure or a lawful basis.
+
+For ISO 27799, IEC 81001-5-1 and HIPAA the report also says whether the data inventory found health fields. This is readiness for an assessment, not a certification, an audit result or legal advice. Check the section labels against the published text of each standard.
 
 ### Evidence tags
 
