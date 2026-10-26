@@ -8,13 +8,16 @@ import json
 import re
 from collections.abc import Iterator
 from pathlib import PurePosixPath
+from string import Template
 
 from dpr.model import Finding, Location, Tag
 from dpr.parsing.pymigrations import migration_folders
+from dpr.pii_values import ValueCounts, table_counts, text_counts
 from dpr.reviews.leaks_logs import words
 from dpr.reviews.paths import is_test
 from dpr.reviews.personal import classify, personal_fields
 from dpr.rules import Context, make_finding, rule
+from dpr.vendored import is_vendored
 
 CODE_SUFFIXES = (
     ".py",
@@ -122,23 +125,111 @@ def _csv_keys(text: str) -> list[str]:
         return []
 
 
+LOCAL_DETAIL = (
+    "${file} is in the working folder and ${what};${size} anyone who can read this machine, its "
+    "backups or a copy of the folder can read the records."
+)
+LOCAL_FIX = (
+    "Confirm whether the records are real. If they are, move them out of the project folder to "
+    "storage approved for personal data, delete the local copy, and keep the path in .gitignore "
+    "so it is never committed."
+)
+NO_GIT_DETAIL = (
+    "${file} is in the scanned folder and ${what};${size} git is not available, so whether the "
+    "file is committed is not known."
+)
+# Delimited data files (None: sniffed) and free-text data files, both judged by value.
+TABLE_SUFFIXES = {".csv": ",", ".tsv": "\t", ".psv": "|", ".txt": None, ".dat": None}
+TEXT_SUFFIXES = (".json", ".jsonl", ".ndjson", ".sql", ".xml", ".yaml", ".yml")
+# Licence and project notes list their authors' addresses; they are not records.
+NOTES = re.compile(
+    r"(?i)(?:^|/)(?:licen[cs]e|copying|authors|contributors|notice|readme|changelog|history)"
+    r"(?:[._-][^/]*)?$"
+)
+
+
+def _delimiter(text: str) -> str | None:
+    """The delimiter every one of the first five non-empty lines uses the same number of times."""
+    lines = [line for line in text[:8192].splitlines() if line.strip()][:5]
+    for delimiter in (",", "\t", "|", ";"):
+        found = {line.count(delimiter) for line in lines}
+        if len(lines) >= 2 and len(found) == 1 and found != {0}:
+            return delimiter
+    return None
+
+
+def value_counts(text: str, suffix: str) -> ValueCounts:
+    if suffix in TABLE_SUFFIXES:
+        delimiter = _delimiter(text) or TABLE_SUFFIXES[suffix]
+        return table_counts(text, delimiter) if delimiter else text_counts(text)
+    return text_counts(text)
+
+
+def _personal_keys(text: str, suffix: str) -> list[str]:
+    if suffix not in (".csv", ".json"):
+        return []
+    keys = _csv_keys(text) if suffix == ".csv" else _json_keys(text)
+    personal = [k for k in keys if classify(k) and classify(k).key in DATA_CATEGORIES]
+    return personal if len(personal) >= 2 and any(STRONG_KEYS.search(k) for k in personal) else []
+
+
+def _what(personal: list[str], counts: ValueCounts) -> str:
+    parts = []
+    if personal:
+        parts.append(f"its columns or keys look like personal data ({', '.join(personal[:8])})")
+    if counts:
+        header = " (no header row)" if counts.headerless else ""
+        parts.append(f"its values include {counts.describe()}{header}")
+    return ", and ".join(parts)
+
+
+def _where(ctx: Context, rel: str) -> dict:
+    """Title, severity and text for a data file by what git knows about it: only a tracked
+    file is called committed."""
+    tracked = ctx.index.tracked
+    if tracked is None:
+        return {"where": "in the scanned folder", "detail_text": NO_GIT_DETAIL}
+    if rel in tracked:
+        return {"where": "committed to the repository"}
+    return {
+        "where": "in the working folder, not committed",
+        "detail_text": LOCAL_DETAIL,
+        "severity": "medium",
+        "fix": LOCAL_FIX,
+        "verify": "Search the project folder for the file name and confirm it is gone.",
+    }
+
+
 @rule("INV-PII-FILE-IN-REPO", review="inventory", severity="high", exploitability="medium")
 def pii_file_in_repo(ctx: Context) -> Iterator[Finding]:
+    """A data file with personal column names or keys, or with personal values: several ID
+    numbers or IBANs that pass their checks, account numbers next to a branch code, or bulk
+    mobile numbers and email addresses. Counts only; no value is kept or reported."""
     for entry in ctx.index.files:
         suffix = PurePosixPath(entry.rel).suffix.lower()
-        if suffix not in (".csv", ".json") or CONFIG_JSON.search(entry.rel):
+        if suffix not in TABLE_SUFFIXES and suffix not in TEXT_SUFFIXES:
+            continue
+        if CONFIG_JSON.search(entry.rel) or NOTES.search(entry.rel):
+            continue
+        if is_vendored(ctx.index, entry.rel):
             continue
         text = ctx.index.text(entry.rel)
-        keys = _csv_keys(text) if suffix == ".csv" else _json_keys(text)
-        personal = [k for k in keys if classify(k) and classify(k).key in DATA_CATEGORIES]
-        if len(personal) >= 2 and any(STRONG_KEYS.search(k) for k in personal):
-            rows = text.count("\n") if suffix == ".csv" else None
-            size = f" about {rows} rows," if rows else ""
-            yield make_finding(
-                "INV-PII-FILE-IN-REPO",
-                tag=Tag.CONFIRMED,
-                locations=[Location(entry.rel, 1)],
-                file=entry.rel,
-                columns=", ".join(personal[:8]),
-                size=size,
-            )
+        counts = value_counts(text, suffix)
+        personal = [] if counts.headerless else _personal_keys(text, suffix)
+        if not personal and not counts:
+            continue
+        rows = text.count("\n") if suffix in TABLE_SUFFIXES else None
+        where = _where(ctx, entry.rel)
+        if not personal and is_test(entry.rel):
+            where["severity"] = "low"
+        fmt = {"file": entry.rel, "what": _what(personal, counts)}
+        fmt["size"] = f" about {rows} rows," if rows else ""
+        template = where.pop("detail_text", None)
+        yield make_finding(
+            "INV-PII-FILE-IN-REPO",
+            tag=Tag.CONFIRMED if personal or counts.confirmed else Tag.INFERRED,
+            locations=[Location(entry.rel, 1)],
+            detail=Template(template).safe_substitute(fmt) if template else None,
+            **where,
+            **fmt,
+        )

@@ -9,7 +9,8 @@ from jinja2 import Environment, PackageLoader
 from dpr.model import Finding, Part, Report
 from dpr.questions.lawyer import lawyer_questions
 from dpr.rank import order_for_section
-from dpr.report.register import build_register
+from dpr.report.register import app_of, build_register, chain_of
+from dpr.report.standards import STATUS_LABELS, status_counts
 from dpr.reviews import LABELS, REVIEWS, TITLES, number
 
 DISCLAIMER = (
@@ -49,8 +50,13 @@ def _table(columns: tuple[str, ...], rows: list[tuple[str, ...]] | tuple) -> str
     return "\n".join(lines)
 
 
+WHERE_LIMIT = 20
+
+
 def _block(label: str, position: int, f: Finding) -> str:
-    where = ", ".join(f"`{loc}`" for loc in f.locations) or "not tied to a file"
+    where = ", ".join(f"`{loc}`" for loc in f.locations[:WHERE_LIMIT]) or "not tied to a file"
+    if len(f.locations) > WHERE_LIMIT:
+        where += f" and {len(f.locations) - WHERE_LIMIT} more (all in the JSON report)"
     lines = [
         f"#### {label} {position}: {f.title}",
         "",
@@ -102,8 +108,58 @@ def _part_body(slug: str, part: Part, report: Report) -> str:
         items = order_for_section(slug, report.findings)
         if not items:
             return "None found."
-        return "\n\n".join(_block(LABELS[slug], i, f) for i, f in enumerate(items, start=1))
+        return "\n\n".join(_blocks(LABELS[slug], items, report))
     return part.body
+
+
+def _folded(label: str, position: int, spec: dict, members: list[Finding]) -> str:
+    """One entry for the findings of a folded register chain: a line per file listing each
+    finding's subject and line. The JSON report keeps every finding in full."""
+    lead = members[0]
+    by_file: dict[str, list[str]] = {}
+    for f in members:
+        where = f.locations[0] if f.locations else None
+        subject = re.sub(r"\s+(?:loads|returns|lists|runs|starts|sends)\b.*$", "", f.title)
+        by_file.setdefault(where.file if where else "not tied to a file", []).append(
+            f"{subject} (line {where.line})" if where else subject
+        )
+    lines = [
+        f"#### {label} {position}: {spec['title']} ({len(members)} findings)",
+        "",
+        f"Severity: {lead.severity.value}, tag: {lead.tag.value}, effort: about "
+        f"{lead.effort_minutes} min each",
+        "",
+        spec.get("detail", lead.detail),
+        "",
+        *(f"- `{file}`: {', '.join(items)}" for file, items in by_file.items()),
+        "",
+        "Fix:",
+        "",
+        lead.fix,
+    ]
+    return "\n".join(lines)
+
+
+def _blocks(label: str, items: list[Finding], report: Report) -> list[str]:
+    """Finding blocks in order; the members of a folded chain (register.yaml `fold`) become one
+    entry per app at the place of the first."""
+    roots = report.detection.app_roots
+    groups: dict[tuple, list[Finding]] = {}
+    for f in items:
+        chain = chain_of(f)
+        if chain is not None and chain[1].get("fold"):
+            groups.setdefault((chain[0], app_of(f, roots)), []).append(f)
+    blocks, done = [], set()
+    for f in items:
+        chain = chain_of(f)
+        key = (chain[0], app_of(f, roots)) if chain is not None else None
+        if key in groups:
+            if key not in done:
+                done.add(key)
+                blocks.append(_folded(label, len(blocks) + 1, chain[1], groups[key]))
+            continue
+        blocks.append(_block(label, len(blocks) + 1, f))
+    return blocks
 
 
 def _app_roots(report: Report) -> str:
@@ -158,6 +214,42 @@ def _register(report: Report) -> str:
     return "### Findings register\n\n" + _table(columns, rows)
 
 
+STANDARDS_INTRO = (
+    "Each control below is matched to the dpr rules that test it in code. Findings means at "
+    "least one of those rules fired. No findings in code means every rule ran and none fired; "
+    "it is not proof that the control is in place. Evidence needed marks controls that only "
+    "documents, settings outside the repository or people can show. This is readiness for an "
+    "assessment, not a certification or an audit result. Section labels are short names; check "
+    "them against the published text of each standard."
+)
+
+
+def _standards(report: Report) -> str:
+    if not report.standards:
+        return ""
+    labels = list(STATUS_LABELS.values())
+    rows = [
+        (f.name, str(len(f.controls)), *(str(n) for n in status_counts(f).values()))
+        for f in report.standards
+    ]
+    lines = [
+        "## Standards readiness",
+        "",
+        STANDARDS_INTRO,
+        "",
+        _table(("Standard", "Controls", *labels), rows),
+    ]
+    for f in report.standards:
+        lines += ["", f"### {f.name}", "", f.scope]
+        if f.signal:
+            lines += ["", f.signal]
+        controls = [
+            (c.ref, c.name, STATUS_LABELS[c.status], c.detail or "None.") for c in f.controls
+        ]
+        lines += ["", _table(("Ref", "Control", "Status", "What dpr found"), controls)]
+    return "\n".join(lines)
+
+
 def _view(report: Report) -> dict:
     issues = issues_of(report)
     counts = {s: sum(i.severity.value == s for i in issues) for s in SEVERITIES}
@@ -201,6 +293,7 @@ def _view(report: Report) -> dict:
             for slug, reason in report.meta.applicability
         ),
         "sections": sections,
+        "standards": _standards(report),
         "answered": "\n".join(
             [
                 *(

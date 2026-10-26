@@ -129,6 +129,15 @@ def test_django_settings_surface(tmp_path):
     }
 
 
+def test_header_findings_cite_production_settings_only(tmp_path):
+    write(tmp_path, "proj/settings.py", "INSTALLED_APPS = ['proj']\nMIDDLEWARE = []\n")
+    write(tmp_path, "proj/tests_settings.py", "INSTALLED_APPS = ['proj']\nMIDDLEWARE = []\n")
+    write(tmp_path, "proj/djangojs/LICENSE", "MIT")
+    write(tmp_path, "proj/djangojs/settings.py", "INSTALLED_APPS = []\nMIDDLEWARE = []\n")
+    [csp] = findings_for(tmp_path, "baseline", "BASE-HEADER-MISSING-CSP")
+    assert [loc.file for loc in csp.locations] == ["proj/settings.py"]
+
+
 def test_weak_csp_reason():
     assert weak_csp_reason("default-src 'self'; script-src 'self' 'unsafe-inline'") == (
         "script-src allows 'unsafe-inline'"

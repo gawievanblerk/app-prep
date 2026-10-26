@@ -207,7 +207,12 @@ def _js_local_functions(ctx: Context, tree) -> dict[str, object]:
 
 def js_call_target(ctx: Context, tree, call) -> tuple[object, object, bool] | None:
     """(tree, function, exact) for a call that resolves through this file or its imports."""
-    func = jsts.unwrap(call.child_by_field_name("function"))
+    return js_name_target(ctx, tree, jsts.unwrap(call.child_by_field_name("function")))
+
+
+def js_name_target(ctx: Context, tree, func) -> tuple[object, object, bool] | None:
+    """(tree, function, exact) for a name or `module.name` resolved through this file or its
+    imports."""
     names = imports.js_imports(ctx.index, tree.rel)
     if func is not None and func.type == "identifier":
         name = jsts.node_text(func)

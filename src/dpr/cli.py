@@ -15,6 +15,7 @@ from dpr.questions.catalogue import answers_template, questions_for
 from dpr.report.json_out import render_json
 from dpr.report.markdown import render_markdown
 from dpr.report.sarif import render_sarif
+from dpr.report.standards import standard_ids
 from dpr.reviews import REVIEWS
 
 FORMATS = ("md", "json", "sarif")
@@ -48,6 +49,18 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--format", default="md,json", help="comma separated: md, json, sarif")
     scan.add_argument("--out", metavar="DIR")
     scan.add_argument("--fail-on", default="none", choices=list(FAIL_LEVELS))
+    scan.add_argument(
+        "--standards",
+        default="all",
+        metavar="LIST",
+        help="standards readiness to report, comma separated: all, none, or "
+        + ", ".join(standard_ids()),
+    )
+    scan.add_argument(
+        "--include-untracked",
+        action="store_true",
+        help="in a git repository, also scan untracked files that git does not ignore",
+    )
 
     questions = commands.add_parser("questions", help="write a starter answers file")
     questions.add_argument("path", nargs="?", default=".")
@@ -122,6 +135,8 @@ def _scan(args: argparse.Namespace) -> int:
         with_audit=args.with_audit,
         semgrep=args.semgrep,
         db_dump=args.db_dump,
+        include_untracked=args.include_untracked,
+        standards=[part for part in args.standards.split(",") if part.strip()],
     )
     root = Path(args.path)
     out_dir = Path(args.out) if args.out else root / "data-protection-review"

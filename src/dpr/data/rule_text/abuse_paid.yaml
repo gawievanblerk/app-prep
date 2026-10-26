@@ -32,3 +32,11 @@ ABUSE-FORM-NO-CHALLENGE:
   blast: Fake accounts and rows, email quota and sender reputation, and credential stuffing against sign-in.
   fix: Add an invisible challenge (Cloudflare Turnstile or hCaptcha) verified on the server, a honeypot field as the free first line, and per-IP limits on every route listed.
   verify: Submit one of these forms from a script without a challenge token and expect a rejection.
+ABUSE-GATE-FAIL-OPEN:
+  title: The ${gate}() token check lets every request through when ${setting} is unset
+  effort_minutes: 10
+  detail: ${routes} routes, including ${paid}, sit behind ${gate}(), which compares a request header with ${setting} but returns without checking when that value is empty. A deployment that misses the variable serves every route to anyone who can reach the service.
+  attack: Reach the service directly (a shared network, a misrouted ingress, a leaked internal URL) in an environment where ${setting} was never set, and call any route with no header.
+  blast: Every route behind the gate, including the paid ones, billed and answered for any caller.
+  fix: Refuse to start, or reject every request with 503, when ${setting} is unset outside local development, and set it in every deployed environment.
+  verify: Start the service without ${setting} in a production-like configuration and confirm it fails to start or answers 503, then call a gated route without the header and expect 401.

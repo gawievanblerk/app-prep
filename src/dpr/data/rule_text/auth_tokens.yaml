@@ -42,3 +42,11 @@ AUTH-VERIFY-REUSABLE:
   blast: Accounts whose verification state can be replayed.
   fix: Clear the token or record a used-at time in the same update that marks the email verified.
   verify: Replay a used verification link and confirm it is refused.
+AUTH-TOKEN-COMPARE:
+  title: Request tokens are compared with == in ${file}
+  effort_minutes: 10
+  detail: A token, key or signature sent in the request is compared with the expected secret using ==, != or in. These comparisons stop at the first character that differs, so response timing reveals how much of a guess is right, and a patient caller can recover the secret one character at a time.
+  attack: Send many requests with guesses that differ in one position and measure the response time to learn the secret byte by byte.
+  blast: Whatever the token or key unlocks, typically a service account or a partner API.
+  fix: Compare with hmac.compare_digest(supplied, expected) (secrets.compare_digest), after checking both values are present, and store API tokens as hashes where the lookup allows it.
+  verify: Confirm every comparison listed now uses compare_digest and that a missing token still returns 401, not 500.

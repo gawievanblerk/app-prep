@@ -1,0 +1,25 @@
+OWASP-A02-PLAIN-HTTP-CALL:
+  title: Calls to ${hosts} use plain HTTP
+  effort_minutes: 30
+  detail: These requests or URL settings use http:// to ${hosts}, a host outside the local network, so the request and the answer cross the internet unencrypted.${carried}
+  attack: From any network on the path (a hosting provider, an ISP, public Wi-Fi at an office), read the requests to collect credentials and personal data, or change the answers.
+  blast: The credentials and personal data sent in these requests, and whatever the provider's answers decide in the app.
+  fix: Use https:// with certificate checks on, ask the provider for an HTTPS endpoint if there is none, move credentials out of the URL into a header or POST body, and rotate any credential that has travelled in the clear.
+  verify: Confirm the configured URLs start with https:// and a packet capture of one call shows no readable credentials.
+OWASP-A05-NO-TIMEOUT:
+  title: ${count} outbound call(s) have no timeout
+  effort_minutes: 15
+  detail: These requests or urlopen calls set no timeout, so they wait forever when the other service hangs. Each waiting call holds a web worker or task.
+  attack: No attacker is needed. A slow or hung provider ties up workers until the site stops answering.
+  blast: Availability of the site or the task queue while a provider is slow.
+  fix: Pass timeout=(connect, read) on every call, for example through a shared requests.Session wrapper that sets a default, and handle the Timeout exception.
+  verify: Point one call at a host that never answers and confirm it fails within the timeout.
+OWASP-A05-HARDCODED-VENDOR-URL:
+  title: Live vendor address ${names} is fixed in code
+  effort_minutes: 15
+  detail: ${names} holds a live provider address written in code, with no environment variable that can change it, although a test address or environment-driven settings sit beside it. Every environment, including staging, local and CI, calls the live provider.
+  proof_needed: Confirm the address is the provider's live service and that non-production environments are not meant to use it.
+  attack: No attacker is needed. A test run, staging job or scan sends real requests to the live provider, such as a payroll deduction, a credit bureau lookup or a message to a real customer.
+  blast: Live side effects and costs from non-production runs, and personal data sent from environments that should not hold it.
+  fix: Read the address from the environment with a test or sandbox default (or no default, failing at start-up), and set the live address only in production configuration.
+  verify: Start a non-production environment without the variable and confirm calls go to the sandbox or fail closed.

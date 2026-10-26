@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import PurePosixPath
 
+from dpr.data import load
 from dpr.gitutil import tracked_files
 from dpr.model import Detection
 from dpr.rules import Options
@@ -27,6 +28,13 @@ def coverage_notes(root, detection: Detection, options: Options, sections: set[s
     notes = []
     if not options.with_audit:
         notes.append("Dependency vulnerability audit (npm audit, pip-audit) was not run")
+    if "owasp" in sections:
+        notes.append(
+            "Known advisories (OWASP-A06-KNOWN-ADVISORY) were matched only against dpr's small "
+            f"bundled advisory table dated {load('advisories.yaml')['as_of']}, not a live "
+            "advisory database: packages, versions and advisories missing from it are not "
+            "reported, and version ranges (>=, ^, ~) are not resolved"
+        )
     if "leaks" in sections:
         notes.append(
             "Git history was checked for committed .env files only; a full secret scan of every "

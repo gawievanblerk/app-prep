@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from dpr.redact import mask_path
+
 
 class ScanError(Exception):
     """The scan itself could not run. The CLI maps this to exit code 2."""
@@ -113,6 +115,10 @@ class Route:
     wrappers: tuple[str, ...] = ()
     handler: object = field(default=None, compare=False, repr=False, metadata=NO_JSON)
     tree: object = field(default=None, compare=False, repr=False, metadata=NO_JSON)
+
+    def __post_init__(self) -> None:
+        # A secret-looking literal segment (a capability URL) never reaches any output.
+        object.__setattr__(self, "path", mask_path(self.path))
 
 
 @dataclass(frozen=True)
@@ -227,6 +233,25 @@ class Answer:
     evidence: str
 
 
+@dataclass(frozen=True)
+class ControlReadiness:
+    ref: str
+    name: str
+    status: str  # "findings" | "clear" | "partial" | "not-checked" | "evidence"
+    detail: str
+    rules: tuple[str, ...] = ()  # rules of this control that fired
+    issues: tuple[str, ...] = ()  # register ids of the issues those findings belong to
+
+
+@dataclass(frozen=True)
+class FrameworkReadiness:
+    id: str
+    name: str
+    scope: str
+    signal: str  # what the scan saw that bears on whether the standard applies; "" when none
+    controls: tuple[ControlReadiness, ...] = ()
+
+
 @dataclass
 class Report:
     meta: ReportMeta
@@ -237,3 +262,4 @@ class Report:
     not_covered: list[str]
     answered: list[Answer] = field(default_factory=list)
     register: list = field(default_factory=list)  # list[dpr.report.register.Issue]
+    standards: list[FrameworkReadiness] = field(default_factory=list)

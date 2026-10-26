@@ -6,16 +6,26 @@ import ast
 import re
 
 import dpr.reviews.owasp_a01  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_advisories  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_assign  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_audit  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_eol  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_forms  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_hooks  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_inject  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_integrity  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_methods  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_misc  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_outbound  # noqa: F401  (registers rules)
 import dpr.reviews.owasp_paths  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_public  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_redirect  # noqa: F401  (registers rules)
+import dpr.reviews.owasp_vendored  # noqa: F401  (registers rules)
 from dpr.model import Finding, Part, ReviewSection, Route
 from dpr.parsing import jsts
 from dpr.reviews.access import ADMIN, PUBLIC, access
-from dpr.reviews.lookups import PY_ORM, route_lookups, subject_text
+from dpr.reviews.lookups import PY_ORM, subject_text
+from dpr.reviews.lookups_route import route_lookups
 from dpr.reviews.owasp_a01 import unscoped
 from dpr.rules import Context
 
@@ -35,7 +45,11 @@ NOTES = {
     "A04": "Missing rate limits and bot protection are reported in review 7.",
     "A05": "Debug mode and missing headers are reported in review 4 (BASE-DEBUG-ON, "
     "BASE-HEADER-MISSING-*); error text and CORS in review 7 (ABUSE-ERROR-LEAK, ABUSE-CORS-*).",
-    "A06": "Not run: the dependency audit adapters arrive in a later version.",
+    "A06": "Libraries copied into the repository are listed (OWASP-A06-VENDORED-LIB), "
+    "declared framework, runtime and base image versions are checked against a bundled "
+    "end-of-life table (OWASP-A06-EOL-COMPONENT), and exact pins and copied library versions "
+    "against a small bundled advisory table (OWASP-A06-KNOWN-ADVISORY); a full dependency audit "
+    "(pip-audit, npm audit) runs only with --with-audit.",
     "A07": "Session and account failure paths are reported in review 3 (AUTH-* findings); "
     "committed passwords in review 4.",
 }

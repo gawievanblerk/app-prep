@@ -1,0 +1,87 @@
+# End of security support for frameworks, runtimes and base images, bundled so a scan needs no
+# network. Keys are release cycles; values are the last day of security fixes (YYYY-MM-DD).
+# A version older than the oldest listed cycle is out of support too. Check and extend this
+# table at each dpr release, and update `as_of`.
+as_of: 2026-06-01
+components:
+  django:
+    label: Django
+    kind: framework
+    source: djangoproject.com/download (supported versions)
+    cycles:
+      "1.11": 2020-04-01
+      "2.0": 2019-04-01
+      "2.1": 2019-12-02
+      "2.2": 2022-04-11
+      "3.0": 2021-04-06
+      "3.1": 2021-12-07
+      "3.2": 2024-04-01
+      "4.0": 2023-04-01
+      "4.1": 2023-12-01
+      "4.2": 2026-04-30
+      "5.0": 2025-04-02
+      "5.1": 2025-12-03
+      "5.2": 2028-04-30
+  python:
+    label: Python
+    kind: runtime
+    source: devguide.python.org/versions
+    cycles:
+      "2.7": 2020-01-01
+      "3.5": 2020-09-13
+      "3.6": 2021-12-23
+      "3.7": 2023-06-27
+      "3.8": 2024-10-07
+      "3.9": 2025-10-31
+      "3.10": 2026-10-31
+      "3.11": 2027-10-31
+      "3.12": 2028-10-31
+      "3.13": 2029-10-31
+  node:
+    label: Node.js
+    kind: runtime
+    source: nodejs.org release schedule
+    cycles:
+      "10": 2021-04-30
+      "12": 2022-04-30
+      "14": 2023-04-30
+      "15": 2021-06-01
+      "16": 2023-09-11
+      "17": 2022-06-01
+      "18": 2025-04-30
+      "19": 2023-06-01
+      "20": 2026-04-30
+      "21": 2024-06-01
+      "22": 2027-04-30
+      "23": 2025-06-01
+      "24": 2028-04-30
+  next:
+    label: Next.js
+    kind: framework
+    source: Next.js support policy (a major leaves support when the major two versions later ships)
+    cycles:
+      "12": 2023-10-26
+      "13": 2024-10-21
+      "14": 2025-10-21
+  express:
+    label: Express
+    kind: framework
+    source: expressjs.com support (3.x is end of life; date of the last 3.x release)
+    cycles:
+      "3": 2015-07-31
+  ubuntu:
+    label: Ubuntu base image
+    kind: image
+    source: ubuntu.com/about/release-cycle (end of standard support)
+    cycles:
+      "16.04": 2021-04-30
+      "18.04": 2023-05-31
+      "20.04": 2025-05-31
+  debian:
+    label: Debian base image
+    kind: image
+    source: wiki.debian.org/LTS (end of LTS)
+    cycles:
+      "9": 2022-06-30
+      "10": 2024-06-30
+      "11": 2026-08-31

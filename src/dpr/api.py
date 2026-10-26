@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import os
 import sys
@@ -16,6 +17,7 @@ from dpr.questions.prompt import ask_on_terminal
 from dpr.rank import dedupe, rank
 from dpr.report.coverage import coverage_notes
 from dpr.report.register import build_register
+from dpr.report.standards import build_standards, resolve_standards
 from dpr.reviews import REVIEWS, RUN_ORDER, available, number, resolve_reviews
 from dpr.rules import Context, Options, run_checks
 from dpr.walk import RepoIndex
@@ -34,8 +36,15 @@ SKIPPED_OPTIONS = (
 )
 
 
-def discover(path: str | os.PathLike[str]) -> tuple[RepoIndex, Detection]:
-    index = RepoIndex(path)
+UNTRACKED = (
+    " {file} is not tracked by git: it is in this working folder only, not in the repository."
+)
+
+
+def discover(
+    path: str | os.PathLike[str], include_untracked: bool = False
+) -> tuple[RepoIndex, Detection]:
+    index = RepoIndex(path, include_untracked=include_untracked)
     index.sanity_check()
     return index, detect(index)
 
@@ -49,6 +58,18 @@ def _validate(url: str | None, owns_host: bool, semgrep: str, db_dump: str | Non
         raise ScanError(f"semgrep rules folder not found: {semgrep}")
     if db_dump and not Path(db_dump).is_file():
         raise ScanError(f"database dump not found: {db_dump}")
+
+
+def _mark_untracked(findings: list[Finding], index: RepoIndex) -> list[Finding]:
+    """Say so on a finding whose every site is in an untracked file scanned on request."""
+    marked = []
+    for finding in findings:
+        files = {loc.file for loc in finding.locations}
+        if files and files <= index.untracked:
+            note = UNTRACKED.format(file=finding.locations[0].file)
+            finding = dataclasses.replace(finding, detail=finding.detail + note)
+        marked.append(finding)
+    return marked
 
 
 def _reason(slug: str, selected: list[str], modules: dict, sections: dict, notes: list[str]) -> str:
@@ -77,10 +98,13 @@ def review(
     semgrep: str = "auto",
     db_dump: str | None = None,
     today: datetime.date | None = None,
+    include_untracked: bool = False,
+    standards: Iterable[str] = ("all",),
 ) -> Report:
     _validate(url, owns_host, semgrep, db_dump)
     selected = resolve_reviews(reviews)
-    index, detection = discover(path)
+    chosen_standards = resolve_standards(standards)
+    index, detection = discover(path, include_untracked)
     options = Options(
         url=url,
         owns_host=owns_host,
@@ -88,6 +112,7 @@ def review(
         with_audit=with_audit,
         semgrep=semgrep,
         db_dump=db_dump,
+        today=today or datetime.date.today(),
     )
     ask = ask_on_terminal if interactive and sys.stdin.isatty() else None
     results, warnings = resolve(
@@ -132,7 +157,7 @@ def review(
                     raise
                 ctx.not_covered.append(f"review {slug} failed: {type(exc).__name__}")
 
-    findings = lower_undeployed(findings, detection.app_roots)
+    findings = lower_undeployed(_mark_untracked(findings, index), detection.app_roots)
     for root in undeployed(detection.app_roots):
         ctx.not_covered.append(
             f"App root {root.path} is not named by any deploy or CI configuration; its findings "
@@ -152,13 +177,14 @@ def review(
         project=index.root.name,
         scope=str(path),
         revision=detection.git.revision,
-        date=(today or datetime.date.today()).isoformat(),
+        date=options.today.isoformat(),
         reviews_run=tuple(slug for slug in REVIEWS if slug in sections),
         method="Static analysis of the repository",
         applicability=applicability,
     )
-    not_covered = list(dict.fromkeys([*index.skipped, *ctx.not_covered]))
+    not_covered = list(dict.fromkeys([*index.notes, *index.skipped, *ctx.not_covered]))
     ranked = rank(dedupe(findings))
+    register = build_register(ranked, detection.app_roots)
     return Report(
         meta=meta,
         detection=detection,
@@ -167,5 +193,6 @@ def review(
         questions=results,
         not_covered=not_covered,
         answered=list(ctx.facts.get("answered", [])),
-        register=build_register(ranked, detection.app_roots),
+        register=register,
+        standards=build_standards(chosen_standards, ranked, register, set(sections), results),
     )

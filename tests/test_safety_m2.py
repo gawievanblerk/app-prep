@@ -82,7 +82,11 @@ SPLIT_B = "Split" + "Half-Two-" + "5522"
 ESCAPED = "it" + "\\'s-Secret-" + "4411"
 TRIPLE = "Triple" + "Quoted-Line-" + "One-8812"
 FORM_QUOTED = "form" + "Quoted-" + "30551"
+ENV_DEFAULT = "env" + "Default-" + "61207"
+AUTH_PAIR = "auth" + "Pair-" + "77013"
 CORPUS = (
+    ENV_DEFAULT,
+    AUTH_PAIR,
     FORM_QUOTED,
     CONCAT_KEY,
     SPLIT_A,
@@ -164,6 +168,18 @@ def credential_corpus(root):
         "app/login.py",
         f"def form(user):\n    return f\"user={{user}}&password='{FORM_QUOTED}'\"\n",
     )
+    write(
+        root,
+        "app/settings.py",
+        "import os\nINSTALLED_APPS = []\n"
+        'DEBUG = os.environ.get("DEBUG", "True"); '
+        f'API_TOKEN = os.environ.get("API_TOKEN", "{ENV_DEFAULT}")\n',
+    )
+    write(
+        root,
+        "app/mail.py",
+        f'import requests\n\ndef send():\n    requests.post("u", auth=("api", "{AUTH_PAIR}"))\n',
+    )
     hasher = "from passlib.context import CryptContext\npwd_context = CryptContext(schemes=['bcrypt'])\n\n"
     write(
         root,
@@ -200,7 +216,10 @@ def test_credential_shapes_never_reach_any_output(tmp_path, capsys):
         ("BASE-LITERAL-PASSWORD-HASH", "app/seed_split.py"),
         ("BASE-LITERAL-PASSWORD-HASH", "app/seed_escaped.py"),
         ("BASE-LITERAL-PASSWORD-HASH", "app/seed_triple.py"),
+        ("BASE-DEBUG-ON", "app/settings.py"),
     } <= fired
+    rules_fired = {f.rule_id for f in report.findings}
+    assert {"LEAK-SECRET-ENV-DEFAULT", "LEAK-LITERAL-HTTP-AUTH"} <= rules_fired
     outputs = [render_markdown(report), render_json(report), render_sarif(report)]
     out_dir = tmp_path / "out"
     assert main(["scan", str(root), "--format", "md,json,sarif", "--out", str(out_dir)]) == 0

@@ -13,6 +13,7 @@ from dpr.redact import snippet
 from dpr.reviews.baseline_accounts import START_FILES
 from dpr.reviews.paths import is_test
 from dpr.rules import Context, make_finding, rule
+from dpr.vendored import is_vendored
 from dpr.walk import line_of
 
 SCRIPT_TAG = re.compile(r"<script\b[^>]*\bsrc\s*=\s*[\"']https?://[^>]*>", re.IGNORECASE)
@@ -60,6 +61,8 @@ def no_sri(ctx: Context) -> Iterator[Finding]:
     for entry in ctx.index.files:
         if not entry.rel.lower().endswith(MARKUP) or is_test(entry.rel):
             continue
+        if is_vendored(ctx.index, entry.rel):  # saved pages of a copied library or docs site
+            continue
         text = ctx.index.text(entry.rel)
         lines = [
             line_of(text, m.start())
@@ -85,7 +88,7 @@ def no_sri(ctx: Context) -> Iterator[Finding]:
 )
 def unsafe_deserialise(ctx: Context) -> Iterator[Finding]:
     for entry in ctx.index.py_files:
-        if is_test(entry.rel):
+        if is_test(entry.rel) or is_vendored(ctx.index, entry.rel):
             continue
         tree = pyast.parse_file(ctx.index, entry.rel)
         for call in pyast.calls(tree, PY_DESERIALISE) if tree else []:
@@ -105,7 +108,7 @@ def unsafe_deserialise(ctx: Context) -> Iterator[Finding]:
             )
     for entry in ctx.index.js_files:
         text = ctx.index.text(entry.rel)
-        if is_test(entry.rel) or "node-serialize" not in text:
+        if is_test(entry.rel) or is_vendored(ctx.index, entry.rel) or "node-serialize" not in text:
             continue
         for match in re.finditer(r"\bunserialize\s*\(", text):
             line = line_of(text, match.start())

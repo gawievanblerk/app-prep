@@ -2,7 +2,16 @@ import base64
 import dataclasses
 import json
 
-from dpr.redact import KeyHit, find_keys, is_secret_name, public_prefix, redact, snippet
+from dpr.redact import (
+    KeyHit,
+    find_keys,
+    is_path_token,
+    is_secret_name,
+    mask_path,
+    public_prefix,
+    redact,
+    snippet,
+)
 
 LIVE = "sk_" + "live_" + "a1B2c3D4e5F6g7H8i9J0k1L2"
 TEST = "sk_" + "test_" + "a1B2c3D4e5F6g7H8i9J0k1L2"
@@ -192,3 +201,75 @@ def test_redact_masks_every_email_address_and_keeps_url_password_labels():
     assert redact(url) == "postgres://app:<redacted:password>@db.corpmail.io/main"
     assert redact("@router.get('/users/{user_id}')") == "@router.get('/users/{user_id}')"
     assert redact('"lodash": "npm:lodash@4.17.21"') == '"lodash": "npm:lodash@4.17.21"'
+
+
+def test_env_defaults_auth_pairs_and_salts_are_masked():
+    value = "fall" + "back-" + "90210x"
+    lines = [
+        f'SECRET_KEY = os.environ.get("SECRET_KEY", "{value}")',
+        f"KEY = getenv('PARTNER_API_KEY', default='{value}')",
+        f'PASSWORD = os.environ.get("SYNC_PASSWORD") or "{value}"',
+        f'KEYS = {{"A": env.str("A_TOKEN", "{value}")}}',
+        f'requests.post(url, auth=("api", "{value}"))',
+        f'headers = {{"Authorization": "Bearer {value}"}}',
+        f'HASHER = Hashids(salt="{value}", min_length=6)',
+    ]
+    for line in lines:
+        masked = redact(line)
+        assert value not in masked, line
+        assert "<redacted:" in masked, line
+    assert redact('DOMAIN = os.environ.get("DOMAIN", "app.example.invalid")').endswith(
+        '"app.example.invalid")'
+    )
+    assert redact("auth = f'Bearer {token}'") == "auth = f'Bearer {token}'"
+
+
+def test_redact_masks_id_numbers_ibans_and_mobile_numbers():
+    from tests.fake_pii import failing_luhn, fake_iban, fake_id, fake_mobile
+
+    person, iban, mobile = fake_id(4), fake_iban(2), fake_mobile(5)
+    spaced = f"{mobile[:3]} {mobile[3:6]} {mobile[6:]}"
+    international = "+27" + mobile[1:]
+    near_miss = failing_luhn(4)
+    text = f'ids = ["{person}", "{near_miss}"]; pay("{iban}"); sms("{spaced}", "{international}")'
+    out = redact(text)
+    for value in (person, iban, mobile, spaced, international, international[1:]):
+        assert value not in out
+    assert near_miss in out
+    assert out.count("<redacted:id-number>") == 1
+    assert out.count("<redacted:iban>") == 1
+    assert out.count("<redacted:phone>") == 2
+    assert snippet(f"x = '{person}'", 1) == "x = '<redacted:id-number>'"
+    assert redact("order 1704067200001 at 12:00") == "order 1704067200001 at 12:00"
+
+
+# Built at runtime so no token-shaped literal sits in the source.
+HEX_TOKEN = "".join(format((i * 7 + 3) % 16, "x") for i in range(32))
+B64_TOKEN = "Qx7" + "rT2mZp9" + "_Lk4Wv8Ns1"
+UUID = "123e4567-" + "e89b-12d3-a456-" + "426614174000"
+
+
+def test_mask_path_hides_secret_segments_and_keeps_ordinary_ones():
+    for token in (HEX_TOKEN, HEX_TOKEN.upper(), B64_TOKEN, UUID):
+        assert is_path_token(token), token
+        assert mask_path(f"/sms/{token}/delivery") == "/sms/<redacted:path-token>/delivery"
+    for path in (
+        "/api/v2/users/<int:pk>",
+        "/reset-password-confirm",
+        "/orders/12345678901234567890",
+        "/getUserProfileV2Info",
+        "/Reg26aConfirmationResultHook",
+        "/.well-known/openid-configuration",
+        "/files/{file_id}/:name/[slug]",
+        "/deadbeefdeadbeef",
+    ):
+        assert mask_path(path) == path, path
+
+
+def test_redact_masks_a_secret_path_segment_in_a_snippet():
+    line = f"    path('sms/{HEX_TOKEN}/delivery', views.delivery),"
+    assert redact(line) == "    path('sms/<redacted:path-token>/delivery', views.delivery),"
+    assert redact(f"re_path(r'^{B64_TOKEN}/$', hook)") == (
+        "re_path(r'^<redacted:path-token>/$', hook)"
+    )
+    assert redact("see /docs/internationalization/guide") == "see /docs/internationalization/guide"

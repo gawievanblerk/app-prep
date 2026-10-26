@@ -1,0 +1,445 @@
+# Readiness map: each control of a standard names the dpr rules whose findings speak to it, the
+# evidence that only people or documents can give, and the open questions that bear on it.
+#
+# A control with `rules` is checked in code: it shows Findings when any of its rules fired, and
+# No findings in code when every review that owns those rules ran clean. A control with only
+# `evidence` cannot be read from code. `questions` are question ids from questions.yaml; their
+# answers, or the fact that they are still open, are printed next to the control.
+#
+# `health: true` marks a standard for health software or health data: the report then says
+# whether the inventory found health fields.
+#
+# Clause and section labels are short names for orientation. Check them against the published
+# text of each standard. Readiness is not certification and not a legal opinion.
+frameworks:
+  - id: asvs
+    name: OWASP ASVS 5.0
+    scope: Application Security Verification Standard, the verification chapters for web apps and APIs.
+    controls:
+      - ref: V1
+        name: Encoding and sanitization
+        rules: [OWASP-A03-RAW-SQL, OWASP-A03-XSS-SINK, OWASP-A03-COMMAND, OWASP-A03-HTML-EMAIL, OWASP-A08-UNSAFE-DESERIALISE, OWASP-A05-XML-PARSER, OWASP-A10-SSRF]
+      - ref: V2
+        name: Validation, business logic and anti-automation
+        rules: [OWASP-A04-CLIENT-PRICE, OWASP-A01-MASS-ASSIGNMENT, OWASP-A01-PRIVILEGE-FIELDS, ABUSE-PAID-UNAUTH, ABUSE-PAID-UNLIMITED, ABUSE-NO-KILL-SWITCH, ABUSE-BULK-UNBOUNDED, ABUSE-FORM-NO-CHALLENGE, ABUSE-INMEMORY-LIMITER, ABUSE-LIMITER-NOT-APPLIED, ABUSE-LIMITER-PROXY-IP]
+      - ref: V3
+        name: Web frontend security
+        rules: [BASE-HEADER-MISSING-CSP, BASE-CSP-WEAK, BASE-HEADER-MISSING-XCTO, BASE-HEADER-MISSING-FRAME, BASE-HEADER-MISSING-REFERRER, BASE-HEADER-MISSING-PERMISSIONS, BASE-HEADER-MISSING-HSTS, BASE-COOKIE-HTTPONLY, BASE-COOKIE-SECURE, BASE-COOKIE-SAMESITE, BASE-SAMESITE-NONE-NO-CSRF, OWASP-A01-CSRF-EXEMPT, OWASP-A04-GET-SIDE-EFFECT, OWASP-A08-NO-SRI, BASE-MIXED-CONTENT, OWASP-A01-OPEN-REDIRECT, ABUSE-CORS-WILDCARD, ABUSE-CORS-REFLECT, ABUSE-CORS-LOOSE-REGEX]
+        questions: [edge_protection]
+      - ref: V4
+        name: API and web service
+        rules: [OWASP-A01-UNGUARDED-METHOD, OWASP-A01-UNSIGNED-CALLBACK, BASE-OPENAPI-ALWAYS-ON]
+      - ref: V5
+        name: File handling
+        rules: [OWASP-A04-UPLOAD-LIMIT, OWASP-A04-UNCHECKED-UPLOAD, ABUSE-UPLOAD-UNBOUNDED, OWASP-A01-PATH-TRAVERSAL, RLS-PUBLIC-BUCKET]
+        questions: [buckets_public]
+      - ref: V6
+        name: Authentication
+        rules: [BASE-SHORT-PASSWORD-MIN, BASE-PASSWORD-COMPOSITION, BASE-PASSWORD-EXPIRY, AUTH-NO-LOCKOUT, AUTH-LOCKOUT-WEAK, AUTH-NO-MFA, AUTH-ENUM-SIGNUP-MESSAGE, AUTH-ENUM-RESET-MESSAGE, AUTH-ENUM-LOCKOUT-STATUS, AUTH-ENUM-TIMING, AUTH-RESET-NO-EXPIRY, AUTH-RESET-TRUSTS-EMAIL, AUTH-EMAIL-CHANGE-UNVERIFIED, AUTH-EMAIL-NOT-UNIQUE, AUTH-SIGNUP-NO-UI, AUTH-VERIFY-NO-EXPIRY, AUTH-VERIFY-REUSABLE, BASE-WEAK-HASH, BASE-LITERAL-PASSWORD-HASH, LEAK-DEFAULT-CREDENTIAL]
+        evidence: Screening new passwords against a breached-password list is not checked by dpr.
+        questions: [provider_hash_params]
+      - ref: V7
+        name: Session management
+        rules: [AUTH-LOGOUT-NO-REVOKE, AUTH-REFRESH-NO-ABSOLUTE-CAP, BASE-PICKLE-SESSIONS]
+        questions: [provider_session_lifetimes]
+      - ref: V8
+        name: Authorization
+        rules: [OWASP-A01-UNSCOPED-QUERY, OWASP-A01-UNSCOPED-LIST, OWASP-A01-EMAIL-OWNERSHIP, OWASP-A01-PUBLIC-SENSITIVE, OWASP-A01-CLIENT-ONLY-GUARD, ABUSE-PAID-ANY-ROLE, ABUSE-GATE-FAIL-OPEN, RLS-POLICY-TRUE, RLS-AUTHENTICATED-NOT-OWNER, RLS-WEAK-WITH-CHECK, RLS-WRONG-ROLE, RLS-CLIENT-OWNER, RLS-TENANT-UNBOUND, RLS-TABLE-OFF, RLS-NO-POLICIES, RLS-SELECT-ONLY, RLS-VIEW-BYPASS, RLS-DEFINER-FUNCTION]
+        questions: [rls_via_dashboard]
+      - ref: V9
+        name: Self-contained tokens
+        rules: [LEAK-SECRET-ENV-DEFAULT]
+        evidence: Token signature algorithm allow-lists, audience and expiry checks are not read by dpr.
+      - ref: V10
+        name: OAuth and OIDC
+        evidence: OAuth and OIDC client and server settings are not read by dpr. Review redirect URI allow-lists, PKCE and state handling against the chapter.
+      - ref: V11
+        name: Cryptography
+        rules: [OWASP-A02-WEAK-RANDOM-TOKEN, AUTH-TOKEN-PLAINTEXT, AUTH-TOKEN-COMPARE, BASE-WEAK-HASH, BASE-STORAGE-UNENCRYPTED]
+      - ref: V12
+        name: Secure communication
+        rules: [BASE-HTTPS-NOT-ENFORCED, BASE-NO-HTTPS-REDIRECT, OWASP-A02-PLAIN-HTTP-CALL]
+        questions: [tls_termination]
+      - ref: V13
+        name: Configuration
+        rules: [BASE-DEBUG-ON, OWASP-A05-DEBUG-ENDPOINT, BASE-VERSION-DISCLOSURE, BASE-ENV-DEFAULTS-PROD, BASE-FEATURE-DEFAULT-ON, BASE-SEED-ON-START, BASE-DB-ADMIN-LOGIN, BASE-DB-NETWORK-OPEN, BASE-DOCKER-ROOT, BASE-WORLD-WRITABLE, BASE-DOCKERIGNORE-THIN, LEAK-ENV-TRACKED, LEAK-ENV-IN-HISTORY, LEAK-HARDCODED-KEY, LEAK-KEY-IN-BUILD, LEAK-PUBLIC-SECRET, LEAK-PUBLIC-GATE-KEY, LEAK-LITERAL-HTTP-AUTH, LEAK-SOURCEMAP, OWASP-A05-NO-TIMEOUT, OWASP-A05-HARDCODED-VENDOR-URL]
+        questions: [prod_config_matches_repo]
+      - ref: V14
+        name: Data protection
+        rules: [LEAK-BROAD-RESPONSE, LEAK-SSR-PROPS, LEAK-SENTRY-PII, INV-SDK-RECEIVES-PII, OWASP-A02-SECRET-IN-URL, BASE-CACHE-AUTH, LEAK-PII-LITERAL-IN-CODE, LEAK-COMMITTED-DATA-FILE, INV-PII-FILE-IN-REPO, INV-UNUSED-FIELD]
+      - ref: V15
+        name: Secure coding and architecture
+        rules: [OWASP-A06-VENDORED-LIB, OWASP-A06-EOL-COMPONENT, OWASP-A06-KNOWN-ADVISORY, OWASP-A08-UNPINNED-DEPS, OWASP-A08-UNPINNED-INSTALL, OWASP-A08-CI-UNTRUSTED]
+      - ref: V16
+        name: Security logging and error handling
+        rules: [OWASP-A09-NO-AUTH-FAIL-LOG, OWASP-A09-NO-READ-AUDIT, LEAK-LOGGED-PII, LEAK-REQUEST-LOG, ABUSE-ERROR-LEAK]
+        questions: [log_tool_access_retention, alert_channel]
+      - ref: V17
+        name: WebRTC
+        evidence: WebRTC is not read by dpr. This chapter applies only when the app uses WebRTC.
+
+  - id: nist-800-63b
+    name: NIST SP 800-63B Rev. 4
+    scope: Digital identity guidelines for authentication and authenticator management. Labels name the topic, not a section number.
+    controls:
+      - ref: Passwords
+        name: Minimum password length
+        rules: [BASE-SHORT-PASSWORD-MIN]
+        evidence: dpr flags minimums under 8 characters. Rev. 4 asks for at least 15 characters when a password is the only factor.
+      - ref: Passwords
+        name: No composition rules
+        rules: [BASE-PASSWORD-COMPOSITION]
+      - ref: Passwords
+        name: No forced periodic change
+        rules: [BASE-PASSWORD-EXPIRY]
+      - ref: Passwords
+        name: Blocklist of compromised and common passwords
+        evidence: Screening new passwords against a breached-password list is not checked by dpr.
+      - ref: Verifier storage
+        name: Passwords stored salted and hashed with a cost factor
+        rules: [BASE-WEAK-HASH, BASE-LITERAL-PASSWORD-HASH]
+        questions: [provider_hash_params]
+      - ref: Rate limiting
+        name: Throttle failed authentication attempts
+        rules: [AUTH-NO-LOCKOUT, AUTH-LOCKOUT-WEAK, ABUSE-INMEMORY-LIMITER, ABUSE-LIMITER-NOT-APPLIED, ABUSE-LIMITER-PROXY-IP]
+      - ref: AAL2
+        name: Multi-factor authentication
+        rules: [AUTH-NO-MFA]
+      - ref: Authenticator secrets
+        name: One-time codes and links are random, hashed, short-lived and single use
+        rules: [OWASP-A02-WEAK-RANDOM-TOKEN, AUTH-TOKEN-PLAINTEXT, AUTH-TOKEN-COMPARE, AUTH-VERIFY-NO-EXPIRY, AUTH-VERIFY-REUSABLE, AUTH-RESET-NO-EXPIRY]
+      - ref: Protected channels
+        name: Authentication runs over an authenticated, encrypted channel
+        rules: [BASE-HTTPS-NOT-ENFORCED, BASE-NO-HTTPS-REDIRECT, OWASP-A02-SECRET-IN-URL, BASE-COOKIE-SECURE]
+        questions: [tls_termination]
+      - ref: Session management
+        name: Session timeouts, reauthentication and logout
+        rules: [AUTH-REFRESH-NO-ABSOLUTE-CAP, AUTH-LOGOUT-NO-REVOKE]
+        questions: [provider_session_lifetimes]
+      - ref: Session management
+        name: Session secrets protected in the browser
+        rules: [BASE-COOKIE-HTTPONLY, BASE-COOKIE-SAMESITE, BASE-SAMESITE-NONE-NO-CSRF, BASE-PICKLE-SESSIONS]
+      - ref: Authenticator lifecycle
+        name: Account recovery and changes to bound identifiers
+        rules: [AUTH-RESET-TRUSTS-EMAIL, AUTH-EMAIL-CHANGE-UNVERIFIED, AUTH-EMAIL-NOT-UNIQUE]
+      - ref: Assurance level
+        name: Chosen authentication assurance level per user group
+        evidence: Record which assurance level each user group needs and why, from the digital identity risk assessment.
+
+  - id: iso-27799
+    name: ISO 27799:2016
+    scope: Information security management in health using ISO/IEC 27002. Labels follow the ISO/IEC 27002:2013 control numbers it builds on.
+    health: true
+    controls:
+      - ref: "5"
+        name: Information security policies
+        evidence: A written information security policy that covers personal health information, approved and reviewed.
+      - ref: "6.1"
+        name: Internal organization and security roles
+        evidence: Named security roles, segregation of duties and an information security forum or owner.
+      - ref: "7"
+        name: Human resource security
+        evidence: Screening, confidentiality agreements and security training for staff with access to health information.
+      - ref: "8.1, 8.2"
+        name: Asset inventory and classification of health information
+        rules: [INV-SPECIAL-CATEGORY, INV-CATCHALL-JSON, INV-UNUSED-FIELD]
+        evidence: An asset register that classifies personal health information. The data inventory section of this report is a starting point.
+        questions: [data_outside_repo]
+      - ref: "9.2"
+        name: User access management
+        rules: [BASE-DB-ADMIN-LOGIN, LEAK-DEFAULT-CREDENTIAL, BASE-LITERAL-PASSWORD-HASH, BASE-SEED-ON-START]
+        questions: [prod_access, db_runtime_role]
+      - ref: "9.4.1"
+        name: Information access restriction
+        rules: [OWASP-A01-UNSCOPED-QUERY, OWASP-A01-UNSCOPED-LIST, OWASP-A01-EMAIL-OWNERSHIP, OWASP-A01-PUBLIC-SENSITIVE, OWASP-A01-CLIENT-ONLY-GUARD, OWASP-A01-UNGUARDED-METHOD, OWASP-A01-MASS-ASSIGNMENT, OWASP-A01-PRIVILEGE-FIELDS, ABUSE-GATE-FAIL-OPEN, RLS-POLICY-TRUE, RLS-AUTHENTICATED-NOT-OWNER, RLS-WEAK-WITH-CHECK, RLS-WRONG-ROLE, RLS-CLIENT-OWNER, RLS-TENANT-UNBOUND, RLS-TABLE-OFF, RLS-NO-POLICIES, RLS-SELECT-ONLY, RLS-VIEW-BYPASS, RLS-DEFINER-FUNCTION, RLS-PUBLIC-BUCKET]
+      - ref: "9.4.2"
+        name: Secure log-on procedures
+        rules: [AUTH-NO-MFA, AUTH-NO-LOCKOUT, AUTH-LOCKOUT-WEAK, AUTH-ENUM-SIGNUP-MESSAGE, AUTH-ENUM-RESET-MESSAGE, AUTH-ENUM-LOCKOUT-STATUS, AUTH-ENUM-TIMING]
+      - ref: "9.4.3"
+        name: Password management system
+        rules: [BASE-SHORT-PASSWORD-MIN, BASE-PASSWORD-COMPOSITION, BASE-WEAK-HASH, AUTH-RESET-NO-EXPIRY, AUTH-RESET-TRUSTS-EMAIL]
+      - ref: "10.1"
+        name: Cryptographic controls and key management
+        rules: [BASE-WEAK-HASH, BASE-STORAGE-UNENCRYPTED, OWASP-A02-WEAK-RANDOM-TOKEN, AUTH-TOKEN-PLAINTEXT, LEAK-HARDCODED-KEY, LEAK-ENV-TRACKED, LEAK-ENV-IN-HISTORY, LEAK-PUBLIC-SECRET, LEAK-KEY-IN-BUILD, LEAK-SECRET-ENV-DEFAULT]
+      - ref: "12.1.4"
+        name: Separation of development, test and production
+        rules: [BASE-ENV-DEFAULTS-PROD, BASE-DEBUG-ON, OWASP-A05-DEBUG-ENDPOINT]
+        questions: [prod_config_matches_repo]
+      - ref: "12.4"
+        name: Logging and monitoring of access to health records
+        rules: [OWASP-A09-NO-READ-AUDIT, OWASP-A09-NO-AUTH-FAIL-LOG, LEAK-LOGGED-PII, LEAK-REQUEST-LOG, LEAK-SENTRY-PII]
+        questions: [log_tool_access_retention]
+      - ref: "12.6"
+        name: Technical vulnerability management
+        rules: [OWASP-A06-VENDORED-LIB, OWASP-A06-EOL-COMPONENT, OWASP-A06-KNOWN-ADVISORY, OWASP-A08-UNPINNED-DEPS, OWASP-A08-UNPINNED-INSTALL]
+      - ref: "13.1"
+        name: Network security management
+        rules: [BASE-DB-NETWORK-OPEN, ABUSE-CORS-WILDCARD, ABUSE-CORS-REFLECT, ABUSE-CORS-LOOSE-REGEX]
+      - ref: "13.2"
+        name: Information transfer
+        rules: [BASE-HTTPS-NOT-ENFORCED, BASE-NO-HTTPS-REDIRECT, BASE-HEADER-MISSING-HSTS, BASE-MIXED-CONTENT, OWASP-A02-PLAIN-HTTP-CALL, OWASP-A02-SECRET-IN-URL]
+        questions: [tls_termination]
+      - ref: "14.2"
+        name: Security in development
+        rules: [OWASP-A03-RAW-SQL, OWASP-A03-XSS-SINK, OWASP-A03-COMMAND, OWASP-A03-HTML-EMAIL, OWASP-A10-SSRF, OWASP-A08-UNSAFE-DESERIALISE, OWASP-A05-XML-PARSER, OWASP-A01-PATH-TRAVERSAL, OWASP-A01-OPEN-REDIRECT, OWASP-A08-CI-UNTRUSTED]
+      - ref: "14.3.1"
+        name: Protection of test data
+        rules: [LEAK-COMMITTED-DATA-FILE, INV-PII-FILE-IN-REPO, LEAK-PII-LITERAL-IN-CODE]
+      - ref: "15"
+        name: Supplier relationships
+        rules: [INV-SDK-RECEIVES-PII]
+        questions: [dpas_in_place]
+      - ref: "16"
+        name: Information security incident management
+        evidence: An incident response procedure for health information, with roles and reporting duties.
+        questions: [alert_channel]
+      - ref: "17"
+        name: Continuity and availability of health information
+        evidence: Backups, tested restores and a continuity plan for systems that hold health records.
+        questions: [db_region]
+      - ref: "18.1.4"
+        name: Privacy and protection of personal health information
+        rules: [INV-NO-DELETION-PATH, INV-CHILDREN-SIGNAL, LEAK-BROAD-RESPONSE, LEAK-SSR-PROPS]
+        questions: [retention_policy]
+
+  - id: iec-81001-5-1
+    name: IEC 81001-5-1:2021
+    scope: Security activities in the health software product life cycle. Labels name the life cycle process; check clause numbers against your copy.
+    health: true
+    controls:
+      - ref: General
+        name: Security risk management and quality system
+        evidence: A security risk management file and threat model for the product, linked to the quality management system.
+      - ref: Development
+        name: Secure development plan and coding standard
+        evidence: A secure development plan, a coding standard and the tools used to enforce it. A dpr scan in CI can be one of those tools.
+      - ref: Requirements
+        name: Product security requirements and capabilities
+        rules: [AUTH-NO-MFA, AUTH-NO-LOCKOUT, OWASP-A09-NO-READ-AUDIT, OWASP-A09-NO-AUTH-FAIL-LOG]
+        evidence: Documented security requirements, including authentication, authorization and audit capabilities for users.
+      - ref: Architecture
+        name: Defence in depth and least privilege in the design
+        rules: [OWASP-A01-CLIENT-ONLY-GUARD, RLS-TABLE-OFF, RLS-VIEW-BYPASS, RLS-DEFINER-FUNCTION, BASE-DB-ADMIN-LOGIN, BASE-DB-NETWORK-OPEN, BASE-DOCKER-ROOT, BASE-WORLD-WRITABLE]
+        questions: [db_runtime_role]
+      - ref: Implementation
+        name: Secure coding
+        rules: [OWASP-A03-RAW-SQL, OWASP-A03-XSS-SINK, OWASP-A03-COMMAND, OWASP-A03-HTML-EMAIL, OWASP-A10-SSRF, OWASP-A08-UNSAFE-DESERIALISE, OWASP-A05-XML-PARSER, OWASP-A01-PATH-TRAVERSAL, OWASP-A02-WEAK-RANDOM-TOKEN, AUTH-TOKEN-COMPARE, LEAK-HARDCODED-KEY, ABUSE-ERROR-LEAK]
+      - ref: Verification
+        name: Security testing, vulnerability and penetration testing
+        evidence: Records of security requirement tests, vulnerability scans and penetration tests. This static review is one input, not a penetration test.
+      - ref: Release
+        name: Secure defaults at release
+        rules: [BASE-DEBUG-ON, BASE-ENV-DEFAULTS-PROD, BASE-FEATURE-DEFAULT-ON, OWASP-A05-DEBUG-ENDPOINT, BASE-OPENAPI-ALWAYS-ON, BASE-VERSION-DISCLOSURE, LEAK-SOURCEMAP, LEAK-KEY-IN-BUILD, LEAK-DEFAULT-CREDENTIAL, BASE-SEED-ON-START]
+        evidence: Security documentation for operators, such as hardening and secure configuration guidance.
+      - ref: Maintenance
+        name: Third-party components (SOUP) and security updates
+        rules: [OWASP-A06-VENDORED-LIB, OWASP-A06-EOL-COMPONENT, OWASP-A06-KNOWN-ADVISORY]
+        evidence: A software bill of materials and a process to monitor and patch third-party components.
+      - ref: Configuration management
+        name: Build and supply chain integrity
+        rules: [OWASP-A08-UNPINNED-DEPS, OWASP-A08-UNPINNED-INSTALL, OWASP-A08-CI-UNTRUSTED, OWASP-A08-NO-SRI, BASE-DOCKERIGNORE-THIN, LEAK-ENV-TRACKED]
+      - ref: Problem resolution
+        name: Vulnerability handling and coordinated disclosure
+        evidence: A way for others to report vulnerabilities, and a process to triage, fix and tell users.
+        questions: [alert_channel]
+
+  - id: hipaa
+    name: HIPAA Security and Privacy Rules
+    scope: 45 CFR Parts 160 and 164, for covered entities and business associates that handle protected health information.
+    health: true
+    controls:
+      - ref: 164.308(a)(1)(ii)(A)
+        name: Risk analysis
+        evidence: A documented, current risk analysis of the systems that hold electronic protected health information. This report is one input.
+      - ref: 164.308(a)(3)-(4)
+        name: Workforce security and information access management
+        rules: [BASE-DB-ADMIN-LOGIN, LEAK-DEFAULT-CREDENTIAL]
+        questions: [prod_access, db_runtime_role]
+      - ref: 164.308(a)(5)(ii)(C)
+        name: Log-in monitoring
+        rules: [OWASP-A09-NO-AUTH-FAIL-LOG, AUTH-NO-LOCKOUT]
+      - ref: 164.308(a)(5)(ii)(D)
+        name: Password management
+        rules: [BASE-SHORT-PASSWORD-MIN, BASE-WEAK-HASH, BASE-LITERAL-PASSWORD-HASH, AUTH-RESET-NO-EXPIRY, AUTH-RESET-TRUSTS-EMAIL]
+      - ref: 164.308(a)(6)
+        name: Security incident procedures
+        evidence: A procedure to identify, respond to and document security incidents.
+        questions: [alert_channel]
+      - ref: 164.308(a)(7)
+        name: Contingency plan
+        evidence: Data backup, disaster recovery and emergency mode operation plans, with restore tests.
+        questions: [db_region]
+      - ref: 164.308(b)(1), 164.314(a)
+        name: Business associate agreements
+        rules: [INV-SDK-RECEIVES-PII, LEAK-SENTRY-PII]
+        questions: [dpas_in_place]
+      - ref: "164.310"
+        name: Physical safeguards
+        evidence: Facility, workstation and device controls, usually from the hosting provider's attestations.
+      - ref: 164.312(a)(1)
+        name: Access control
+        rules: [OWASP-A01-UNSCOPED-QUERY, OWASP-A01-UNSCOPED-LIST, OWASP-A01-EMAIL-OWNERSHIP, OWASP-A01-PUBLIC-SENSITIVE, OWASP-A01-CLIENT-ONLY-GUARD, OWASP-A01-UNGUARDED-METHOD, ABUSE-GATE-FAIL-OPEN, RLS-POLICY-TRUE, RLS-AUTHENTICATED-NOT-OWNER, RLS-WRONG-ROLE, RLS-CLIENT-OWNER, RLS-TENANT-UNBOUND, RLS-TABLE-OFF, RLS-NO-POLICIES, RLS-SELECT-ONLY, RLS-VIEW-BYPASS, RLS-DEFINER-FUNCTION, RLS-PUBLIC-BUCKET]
+      - ref: 164.312(a)(2)(i)
+        name: Unique user identification
+        rules: [AUTH-EMAIL-NOT-UNIQUE, LEAK-DEFAULT-CREDENTIAL, BASE-LITERAL-PASSWORD-HASH]
+      - ref: 164.312(a)(2)(iii)
+        name: Automatic logoff
+        rules: [AUTH-REFRESH-NO-ABSOLUTE-CAP, AUTH-LOGOUT-NO-REVOKE]
+        questions: [provider_session_lifetimes]
+      - ref: 164.312(a)(2)(iv)
+        name: Encryption and decryption at rest
+        rules: [BASE-STORAGE-UNENCRYPTED]
+        evidence: Confirm that databases, object storage and backups holding health data are encrypted at rest.
+      - ref: 164.312(b)
+        name: Audit controls
+        rules: [OWASP-A09-NO-READ-AUDIT, OWASP-A09-NO-AUTH-FAIL-LOG]
+        questions: [log_tool_access_retention]
+      - ref: 164.312(c)(1)
+        name: Integrity
+        rules: [OWASP-A01-MASS-ASSIGNMENT, OWASP-A01-PRIVILEGE-FIELDS, RLS-WEAK-WITH-CHECK, OWASP-A01-UNSIGNED-CALLBACK, OWASP-A04-GET-SIDE-EFFECT, OWASP-A01-CSRF-EXEMPT, BASE-SAMESITE-NONE-NO-CSRF]
+      - ref: 164.312(d)
+        name: Person or entity authentication
+        rules: [AUTH-NO-MFA, AUTH-NO-LOCKOUT, AUTH-LOCKOUT-WEAK, AUTH-TOKEN-PLAINTEXT, AUTH-EMAIL-CHANGE-UNVERIFIED, AUTH-VERIFY-NO-EXPIRY, AUTH-VERIFY-REUSABLE]
+      - ref: 164.312(e)(1)
+        name: Transmission security
+        rules: [BASE-HTTPS-NOT-ENFORCED, BASE-NO-HTTPS-REDIRECT, BASE-HEADER-MISSING-HSTS, BASE-COOKIE-SECURE, BASE-MIXED-CONTENT, OWASP-A02-PLAIN-HTTP-CALL, OWASP-A02-SECRET-IN-URL]
+        questions: [tls_termination]
+      - ref: 164.502(b), 164.514(d)
+        name: Minimum necessary
+        rules: [LEAK-BROAD-RESPONSE, LEAK-SSR-PROPS, INV-UNUSED-FIELD, LEAK-LOGGED-PII, LEAK-REQUEST-LOG]
+      - ref: 164.514(a)-(b)
+        name: De-identified test and sample data
+        rules: [LEAK-COMMITTED-DATA-FILE, INV-PII-FILE-IN-REPO, LEAK-PII-LITERAL-IN-CODE]
+      - ref: 164.400-414
+        name: Breach notification
+        evidence: A breach notification procedure with the 60-day timeline and the people who decide.
+        questions: [alert_channel]
+
+  - id: gdpr
+    name: GDPR
+    scope: Regulation (EU) 2016/679, for personal data of people in the EU or EEA.
+    controls:
+      - ref: Art. 5(1)(c)
+        name: Data minimisation
+        rules: [INV-UNUSED-FIELD, INV-CATCHALL-JSON, LEAK-BROAD-RESPONSE, LEAK-SSR-PROPS, LEAK-LOGGED-PII, LEAK-REQUEST-LOG]
+      - ref: Art. 5(1)(e)
+        name: Storage limitation
+        evidence: A retention period for each category of personal data, and a job or process that enforces it.
+        questions: [retention_policy]
+      - ref: Art. 6
+        name: Lawful basis for each processing purpose
+        evidence: The lawful basis for each purpose, decided with a data protection lawyer.
+      - ref: Art. 8
+        name: Children's data
+        rules: [INV-CHILDREN-SIGNAL]
+      - ref: Art. 9
+        name: Special categories of personal data
+        rules: [INV-SPECIAL-CATEGORY]
+      - ref: Art. 13-14
+        name: Transparency to data subjects
+        rules: [INV-SDK-RECEIVES-PII]
+        evidence: A privacy notice that names the purposes, recipients and retention periods found in this report.
+      - ref: Art. 15, 20
+        name: Access and portability requests
+        evidence: A way to find and export all data held about one person.
+      - ref: Art. 17
+        name: Erasure
+        rules: [INV-NO-DELETION-PATH]
+      - ref: Art. 25
+        name: Data protection by design and by default
+        rules: [LEAK-PII-LITERAL-IN-CODE, LEAK-COMMITTED-DATA-FILE, INV-PII-FILE-IN-REPO, LEAK-SENTRY-PII, OWASP-A02-SECRET-IN-URL, BASE-CACHE-AUTH]
+      - ref: Art. 28
+        name: Processors
+        rules: [INV-SDK-RECEIVES-PII, LEAK-SENTRY-PII]
+        questions: [dpas_in_place]
+      - ref: Art. 30
+        name: Records of processing activities
+        evidence: A record of processing activities. The data inventory section of this report is a starting point.
+        questions: [data_outside_repo]
+      - ref: Art. 32(1)(a)
+        name: Encryption at rest and in transit
+        rules: [BASE-STORAGE-UNENCRYPTED, BASE-HTTPS-NOT-ENFORCED, BASE-NO-HTTPS-REDIRECT, OWASP-A02-PLAIN-HTTP-CALL, BASE-WEAK-HASH, AUTH-TOKEN-PLAINTEXT]
+        questions: [tls_termination]
+      - ref: Art. 32(1)(b)
+        name: Confidentiality of systems and access control
+        rules: [OWASP-A01-UNSCOPED-QUERY, OWASP-A01-UNSCOPED-LIST, OWASP-A01-EMAIL-OWNERSHIP, OWASP-A01-PUBLIC-SENSITIVE, OWASP-A01-CLIENT-ONLY-GUARD, RLS-POLICY-TRUE, RLS-AUTHENTICATED-NOT-OWNER, RLS-TABLE-OFF, RLS-TENANT-UNBOUND, RLS-PUBLIC-BUCKET, LEAK-HARDCODED-KEY, LEAK-PUBLIC-SECRET, LEAK-ENV-TRACKED, AUTH-NO-MFA]
+        questions: [prod_access]
+      - ref: Art. 32(1)(d)
+        name: Regular testing of security measures
+        evidence: Dated records of security reviews and tests. Running dpr in CI gives one such record per change.
+      - ref: Art. 33-34
+        name: Breach notification
+        rules: [OWASP-A09-NO-READ-AUDIT]
+        evidence: A procedure to notify the supervisory authority within 72 hours, and data subjects when the risk is high.
+        questions: [alert_channel]
+      - ref: Art. 35
+        name: Data protection impact assessment
+        evidence: A DPIA where processing is likely to be high risk, for example special category data at scale.
+      - ref: Art. 44-49
+        name: International transfers
+        rules: [INV-SDK-RECEIVES-PII]
+        questions: [db_region, user_countries, company_country]
+
+  - id: popia
+    name: POPIA
+    scope: Protection of Personal Information Act 4 of 2013 (South Africa).
+    controls:
+      - ref: s10
+        name: Minimality
+        rules: [INV-UNUSED-FIELD, INV-CATCHALL-JSON, LEAK-BROAD-RESPONSE, LEAK-SSR-PROPS, LEAK-LOGGED-PII, LEAK-REQUEST-LOG]
+      - ref: s11
+        name: Consent, justification and objection
+        evidence: The justification for each processing purpose, decided with an information officer or lawyer.
+      - ref: s13
+        name: Collection for a specific purpose
+        evidence: A defined, explicit purpose for each category of personal information collected.
+      - ref: s14
+        name: Retention and restriction of records
+        rules: [INV-NO-DELETION-PATH]
+        questions: [retention_policy]
+      - ref: s17
+        name: Documentation of processing operations
+        evidence: Records of processing operations and the PAIA manual. The data inventory section of this report is a starting point.
+        questions: [data_outside_repo]
+      - ref: s18
+        name: Notification to the data subject
+        rules: [INV-SDK-RECEIVES-PII]
+        evidence: A notice at collection that names the purpose, recipients and rights.
+      - ref: s19
+        name: Security safeguards against unauthorised access
+        rules: [OWASP-A01-UNSCOPED-QUERY, OWASP-A01-UNSCOPED-LIST, OWASP-A01-EMAIL-OWNERSHIP, OWASP-A01-PUBLIC-SENSITIVE, OWASP-A01-CLIENT-ONLY-GUARD, RLS-POLICY-TRUE, RLS-AUTHENTICATED-NOT-OWNER, RLS-TABLE-OFF, RLS-TENANT-UNBOUND, RLS-PUBLIC-BUCKET, AUTH-NO-MFA, AUTH-NO-LOCKOUT]
+        questions: [prod_access]
+      - ref: s19
+        name: Security safeguards for secrets, encryption and transport
+        rules: [LEAK-HARDCODED-KEY, LEAK-PUBLIC-SECRET, LEAK-ENV-TRACKED, LEAK-ENV-IN-HISTORY, LEAK-KEY-IN-BUILD, BASE-STORAGE-UNENCRYPTED, BASE-HTTPS-NOT-ENFORCED, OWASP-A02-PLAIN-HTTP-CALL, BASE-WEAK-HASH]
+      - ref: s19(2)
+        name: Identify risks and regularly verify safeguards
+        evidence: A dated risk register and records of regular security reviews. Running dpr in CI gives one such record per change.
+      - ref: s20-21
+        name: Operators processing on the responsible party's behalf
+        rules: [INV-SDK-RECEIVES-PII, LEAK-SENTRY-PII]
+        questions: [dpas_in_place]
+      - ref: s22
+        name: Notification of security compromises
+        rules: [OWASP-A09-NO-READ-AUDIT]
+        evidence: A procedure to notify the Information Regulator and data subjects as soon as reasonably possible.
+        questions: [alert_channel]
+      - ref: s23-25
+        name: Access to and correction of personal information
+        evidence: A way to find, export and correct all information held about one person.
+      - ref: s24
+        name: Deletion of personal information
+        rules: [INV-NO-DELETION-PATH]
+      - ref: s26-33
+        name: Special personal information, including health
+        rules: [INV-SPECIAL-CATEGORY]
+      - ref: s34-35
+        name: Personal information of children
+        rules: [INV-CHILDREN-SIGNAL]
+      - ref: s69
+        name: Direct marketing by electronic communication
+        evidence: Opt-in consent records for electronic direct marketing.
+      - ref: s72
+        name: Transfers outside South Africa
+        rules: [INV-SDK-RECEIVES-PII]
+        questions: [db_region, user_countries, company_country]

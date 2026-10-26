@@ -1,13 +1,16 @@
-"""Route access for Flask and Django, and app-level Python guards the classifier cannot read."""
+"""Route access for Flask, Django and Django Ninja, and app-level Python guards the classifier
+cannot read."""
 
 from __future__ import annotations
 
 import ast
 import re
+from dataclasses import replace
 from pathlib import PurePosixPath
 
 from dpr.model import Route
 from dpr.parsing import pyast
+from dpr.reviews.access_decorators import DJANGO_SUBJECTS, custom_decorator, django_decorator
 from dpr.reviews.access_names import (
     ADMIN,
     AUTHENTICATED,
@@ -19,6 +22,7 @@ from dpr.reviews.access_names import (
 )
 from dpr.reviews.paths import is_test
 from dpr.rules import Context
+from dpr.vendored import is_vendored
 
 PY_HOOK = re.compile(r"(?:\w+\.)*(?:middleware|before_request|before_app_request)")
 HOOK_AUTH = re.compile(
@@ -28,21 +32,21 @@ FLASK_DECORATORS = re.compile(
     r"(?:\w+\.)*(login_required|jwt_required|fresh_jwt_required|auth_required|token_required"
     r"|requires_auth|roles_required|roles_accepted|admin_required|permission_required)"
 )
-DJANGO_DECORATORS = re.compile(
-    r"(?:\w+\.)*(login_required|permission_required|user_passes_test|staff_member_required"
-    r"|superuser_required)"
-)
 DJANGO_MIXINS = re.compile(r"(LoginRequired|PermissionRequired|UserPassesTest)Mixin")
 DRF_VIEW = re.compile(r"(?:APIView|ViewSet|GenericAPIView)$")
+PLAIN_PERMISSIONS = frozenset(
+    {"IsAuthenticated", "AllowAny", "IsAuthenticatedOrReadOnly", "permission_classes",
+     "rest_framework", "permissions", "IsAdminUser"}
+)  # fmt: skip
 READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-LOCAL_SETTINGS = frozenset({"test", "tests", "testing", "local", "dev", "development"})
+LOCAL_SETTINGS = frozenset({"test", "tests", "testing", "ci", "local", "dev", "development"})
 VIEW_ACTIONS = {
     "get": "GET", "head": "HEAD", "options": "OPTIONS", "list": "GET", "retrieve": "GET",
     "post": "POST", "create": "POST", "put": "PUT", "update": "PUT", "patch": "PATCH",
     "partial_update": "PATCH", "delete": "DELETE", "destroy": "DELETE",
 }  # fmt: skip
-DJANGO_SUBJECTS = ("request.user", "self.request.user")
 FLASK_SUBJECTS = ("current_user", "g.user", "get_jwt_identity")
+NINJA_SUBJECTS = ("request.auth", "request.user")
 
 
 def py_unread(ctx: Context) -> str:
@@ -87,6 +91,25 @@ def flask(ctx: Context, route: Route) -> Access:
         admin = "admin" in text.lower()
         return Access(ADMIN if admin else AUTHENTICATED, FLASK_SUBJECTS, f"@{match.group(1)}")
     return public("no login decorator", py_unread(ctx))
+
+
+def ninja(ctx: Context, route: Route) -> Access:
+    """Django Ninja: `auth=` on the operation, else on the NinjaAPI or Router it belongs to.
+    `auth=None` on an operation makes it public."""
+    for dec in route.handler.decorator_list:
+        if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
+            owner = pyast.dotted(dec.func.value) or ""
+            given = pyast.kwarg(dec, "auth")
+            if given is not None:
+                if pyast.constant(given, 0) is None:
+                    return Access(PUBLIC, (), "auth=None")
+                return Access(AUTHENTICATED, NINJA_SUBJECTS, f"auth={ast.unparse(given)}")
+            built = pyast.assignments(route.tree.body).get(owner) if route.tree else None
+            given = pyast.kwarg(built, "auth") if isinstance(built, ast.Call) else None
+            if given is not None and pyast.constant(given, 0) is not None:
+                kind = (pyast.dotted(built.func) or "").split(".")[-1]
+                return Access(AUTHENTICATED, NINJA_SUBJECTS, f"{kind}(auth={ast.unparse(given)})")
+    return public("no auth on the operation or its API", "auth on the NinjaAPI it is added to")
 
 
 def _settings_names(node: ast.AST) -> list[str]:
@@ -147,8 +170,8 @@ def _drf_default(node: ast.AST) -> ast.AST | None:
 
 
 def _local_settings(rel: str) -> bool:
-    """A test, local or development settings module (settings/local.py, dev_settings.py) or
-    any settings file under a tests folder."""
+    """A test, CI, local or development settings module (settings/local.py, ci_settings.py,
+    tests_settings.py) or any settings file under a tests folder."""
     words = set(re.split(r"[_.-]", PurePosixPath(rel).stem.lower()))
     return is_test(rel) or bool(words & LOCAL_SETTINGS)
 
@@ -178,6 +201,23 @@ def _settings_module(ctx: Context, rel: str) -> dict | None:
             elif not value.startswith("django.") and auth_middleware(value.split(".")[-1]):
                 found["unread"] = found["unread"] or f"{value} in {rel}"
     return found
+
+
+def non_production_settings(ctx: Context, rel: str) -> bool:
+    """A Django settings module that production never loads: one inside a vendored package
+    (a copied app's own settings, used by its tests), or a test, CI, local or development
+    module while another settings module holding INSTALLED_APPS exists."""
+    if is_vendored(ctx.index, rel):
+        return True
+    if not _local_settings(rel):
+        return False
+    return any(
+        entry.rel != rel
+        and not _local_settings(entry.rel)
+        and not is_vendored(ctx.index, entry.rel)
+        and "INSTALLED_APPS" in ctx.index.text(entry.rel)
+        for entry in ctx.index.py_files
+    )
 
 
 def django_settings(ctx: Context) -> tuple[bool, str | None, str]:
@@ -224,11 +264,17 @@ def _view_methods(node: ast.AST | None) -> set[str] | None:
     return defined or None
 
 
-def _permission_access(route: Route, kind: str, evidence: str) -> Access:
+def _custom_permission(names: list[str]) -> str:
+    """A permission class that checks more than sign-in, such as DjangoModelPermissions or a
+    project's own IsAdvisor."""
+    return next((n for n in names if n not in PLAIN_PERMISSIONS), "")
+
+
+def _permission_access(route: Route, kind: str, evidence: str, role: str = "") -> Access:
     if kind == "admin":
         return Access(ADMIN, DJANGO_SUBJECTS, evidence)
     if kind == "authenticated":
-        return Access(AUTHENTICATED, DJANGO_SUBJECTS, evidence)
+        return Access(AUTHENTICATED, DJANGO_SUBJECTS, evidence, role=role)
     if kind == "mixed":
         where = "sign-in required by some settings modules only"
         return Access(PUBLIC, (), f"{evidence} differs between settings modules", MIXED, where)
@@ -242,23 +288,32 @@ def _permission_access(route: Route, kind: str, evidence: str) -> Access:
     )
 
 
-def _django_marker(route: Route) -> Access | None:
+def _combined(found: list[Access]) -> Access:
+    """The strongest decorator's access, with the first role check any decorator makes."""
+    best = next((a for a in found if a.level == ADMIN), found[0])
+    return replace(best, role=next((a.role for a in found if a.role), ""))
+
+
+def _django_marker(ctx: Context, route: Route) -> Access | None:
     node = route.handler
+    found = []
     for name, dec in _decorator_names(node):
-        match = DJANGO_DECORATORS.fullmatch(name)
-        if match:
-            admin = match.group(1) in ("staff_member_required", "superuser_required")
-            return Access(ADMIN if admin else AUTHENTICATED, DJANGO_SUBJECTS, f"@{match.group(1)}")
         if name.endswith("permission_classes"):
             names = _permission_names(dec)
             if "AllowAny" in names and not _permission_kind(names):
                 return Access(PUBLIC, (), "AllowAny")
             kind = _permission_kind(names) or "authenticated"
             evidence = "IsAdminUser" if kind == "admin" else "permission_classes"
-            return _permission_access(route, kind, evidence)
+            return _permission_access(route, kind, evidence, _custom_permission(names))
+        guard = django_decorator(name) or custom_decorator(ctx, route.file, name)
+        if guard is not None:
+            found.append(guard)
+    if found:
+        return _combined(found)
     if isinstance(node, ast.ClassDef):
         if any(DJANGO_MIXINS.search(b) for b in pyast.base_names(node)):
-            return Access(AUTHENTICATED, DJANGO_SUBJECTS, "login mixin")
+            role = next((b for b in pyast.base_names(node) if "Permission" in b), "")
+            return Access(AUTHENTICATED, DJANGO_SUBJECTS, "login mixin", role=role)
         value = pyast.assignments(node.body).get("permission_classes")
         if value is not None:
             names = _permission_names(value)
@@ -266,7 +321,7 @@ def _django_marker(route: Route) -> Access | None:
                 return Access(PUBLIC, (), "AllowAny")
             kind = _permission_kind(names) or "authenticated"
             evidence = "IsAdminUser" if kind == "admin" else "permission_classes"
-            return _permission_access(route, kind, evidence)
+            return _permission_access(route, kind, evidence, _custom_permission(names))
     return None
 
 
@@ -289,7 +344,7 @@ def _is_drf(route: Route) -> bool:
 
 def django(ctx: Context, route: Route) -> Access:
     node = route.handler
-    marker = _django_marker(route) if node is not None else None
+    marker = _django_marker(ctx, route) if node is not None else None
     if marker is not None and marker.level != PUBLIC:
         return marker
     login, drf, unread = django_settings(ctx)

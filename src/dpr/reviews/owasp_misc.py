@@ -10,12 +10,23 @@ from dpr.model import Finding, Location, Tag
 from dpr.parsing import jsts, pyast
 from dpr.redact import SECRET_PARAM_NAMES, snippet
 from dpr.reviews.owasp_inject import REQUEST_VALUE
+from dpr.reviews.owasp_outbound import query_credentials
 from dpr.reviews.owasp_paths import request_params
 from dpr.reviews.paths import is_test
+from dpr.reviews.weak_passwords import weak_password_uses
 from dpr.rules import Context, make_finding, rule
+from dpr.vendored import is_vendored
 from dpr.walk import line_of
 
-TOKEN_NAME = re.compile(r"(?i)token|secret|code|otp|reset|nonce|password|salt|api_?key")
+# Names that say the value is a secret. A bare "code" is not one: codes are often identifiers
+# (an advisor or product code), so only one-time and verification codes count.
+TOKEN_NAME = re.compile(
+    r"(?i)token|secret|otp|reset|nonce|passw|passcode|salt|api_?key|(?:private|signing|access)_?key"
+    r"|(?:verif\w*|confirm\w*|auth|login|activation|one_?time|security)_?code|(?:^|_)pin$"
+)
+# Calls that use their argument as a password or a cookie value.
+SECRET_CALLS = re.compile(r"(?:^|\.)(?:set_password|make_password|set_cookie|set_signed_cookie)$")
+LINK_PARAM = re.compile(r"[?&](?:token|code|key|otp)=")
 PY_RANDOM = re.compile(r"random\.(?:random|choice|choices|randint|randrange|sample|getrandbits)")
 SECRET_PARAM = re.compile(rf"[?&]({SECRET_PARAM_NAMES})=")
 ONE_TIME_LINK = re.compile(r"(?i)reset|verif|confirm|invite|magic|activate|unsubscribe")
@@ -109,11 +120,17 @@ def _fixed_host_js(node) -> bool:
     return False
 
 
-def _weak(ctx: Context, rel: str, line: int, name: str, call: str) -> Finding:
+def _weak(ctx: Context, rel: str, line: int, name: str, call: str, use: str = "") -> Finding:
+    detail = (
+        f"{name} comes from {call}, which is predictable and not meant for secrets, and {use}."
+        if use
+        else None
+    )
     return make_finding(
         "OWASP-A02-WEAK-RANDOM-TOKEN",
-        tag=Tag.INFERRED,
+        tag=Tag.CONFIRMED if use else Tag.INFERRED,
         locations=[Location(rel, line)],
+        detail=detail,
         snippet=snippet(ctx.index.text(rel), line),
         name=name,
         call=call,
@@ -129,7 +146,9 @@ def _weak(ctx: Context, rel: str, line: int, name: str, call: str) -> Finding:
 )
 def weak_random_token(ctx: Context) -> Iterator[Finding]:
     for entry in ctx.index.js_files:
-        if is_test(entry.rel) or "Math.random" not in ctx.index.text(entry.rel):
+        if is_test(entry.rel) or is_vendored(ctx.index, entry.rel):
+            continue
+        if "Math.random" not in ctx.index.text(entry.rel):
             continue
         for tree in jsts.parse_file(ctx.index, entry.rel):
             for node in jsts.walk(tree.root, {"variable_declarator", "assignment_expression"}):
@@ -141,7 +160,9 @@ def weak_random_token(ctx: Context) -> Iterator[Finding]:
                 if "Math.random" in value and TOKEN_NAME.search(name):
                     yield _weak(ctx, entry.rel, jsts.line(tree, node), name, "Math.random()")
     for entry in ctx.index.py_files:
-        if is_test(entry.rel) or "random" not in ctx.index.text(entry.rel):
+        if is_test(entry.rel) or is_vendored(ctx.index, entry.rel):
+            continue
+        if "random" not in ctx.index.text(entry.rel):
             continue
         tree = pyast.parse_file(ctx.index, entry.rel)
         for node in ast.walk(tree) if tree else []:
@@ -151,8 +172,60 @@ def weak_random_token(ctx: Context) -> Iterator[Finding]:
                     pyast.dotted(c.func) for c in ast.walk(node.value) if isinstance(c, ast.Call)
                 ]
                 weak = [c for c in calls if c and PY_RANDOM.fullmatch(c)]
-                if weak and TOKEN_NAME.search(name):
+                if not weak:
+                    continue
+                if TOKEN_NAME.search(name):
                     yield _weak(ctx, entry.rel, node.lineno, name, weak[0])
+                    continue
+                scope = pyast.function_at(tree, node.lineno) or tree
+                use = _secret_use(scope, name, node.lineno)
+                if use is not None:
+                    yield _weak(ctx, entry.rel, node.lineno, name, weak[0], use)
+    for use in weak_password_uses(ctx):
+        sent = (
+            f" The same flow sends the password in plain text by email or SMS ({use.sent})."
+            if use.sent
+            else ""
+        )
+        yield make_finding(
+            "OWASP-A02-WEAK-RANDOM-TOKEN",
+            tag=Tag.CONFIRMED,
+            locations=[Location(use.rel, use.line), use.source],
+            detail=(
+                f"The password comes from {use.helper}(), which builds it with Python's random "
+                f"module ({use.source}); random is predictable and not meant for secrets, and "
+                f"the value is set as the account's password.{sent}"
+            ),
+            snippet=snippet(ctx.index.text(use.rel), use.line),
+            name="Password",
+            call=f"{use.helper}() (random)",
+        )
+
+
+def _secret_use(scope: ast.AST, name: str, after: int) -> str | None:
+    """How a value with a neutral name is used as a secret later in the same function: passed
+    to set_password or a cookie, put in a reset or verification link, or sent as an
+    Authorization header."""
+    for node in ast.walk(scope):
+        if getattr(node, "lineno", 0) <= after or name not in pyast.names_in(node):
+            continue
+        if isinstance(node, ast.Call):
+            called = pyast.dotted(node.func) or ""
+            used = [*node.args, *(k.value for k in node.keywords)]
+            if SECRET_CALLS.search(called) and any(name in pyast.names_in(a) for a in used):
+                return f"it is passed to {called.split('.')[-1]}()"
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values, strict=True):
+                header = pyast.constant(key, None)
+                if header == "Authorization" and name in pyast.names_in(value):
+                    return "it is sent as an Authorization header"
+        if isinstance(node, ast.JoinedStr | ast.BinOp):
+            text = " ".join(
+                str(c.value) for c in ast.walk(node) if isinstance(pyast.constant(c, None), str)
+            )
+            if LINK_PARAM.search(text) or (ONE_TIME_LINK.search(text) and "/" in text):
+                return "it is put in a link"
+    return None
 
 
 @rule(
@@ -164,7 +237,7 @@ def weak_random_token(ctx: Context) -> Iterator[Finding]:
 )
 def secret_in_url(ctx: Context) -> Iterator[Finding]:
     for entry in [*ctx.index.js_files, *ctx.index.py_files]:
-        if is_test(entry.rel):
+        if is_test(entry.rel) or is_vendored(ctx.index, entry.rel):
             continue
         text = ctx.index.text(entry.rel)
         for match in SECRET_PARAM.finditer(text):
@@ -181,6 +254,18 @@ def secret_in_url(ctx: Context) -> Iterator[Finding]:
                 snippet=snippet(text, line),
                 param=match.group(1),
             )
+    yield from _query_credentials(ctx)
+
+
+def _query_credentials(ctx: Context) -> Iterator[Finding]:
+    for rel, line, key in query_credentials(ctx):
+        yield make_finding(
+            "OWASP-A02-SECRET-IN-URL",
+            tag=Tag.INFERRED,
+            locations=[Location(rel, line)],
+            snippet=snippet(ctx.index.text(rel), line),
+            param=key,
+        )
 
 
 @rule("OWASP-A04-CLIENT-PRICE", review="owasp", severity="high", exploitability="high", owasp="A04")

@@ -20,9 +20,11 @@ findings:
   - {rule: BASE-DB-NETWORK-OPEN, file: infra/main.tf, line: 4, tag: CONFIRMED}
   - {rule: BASE-HEADER-MISSING-HSTS, file: src/index.ts, line: 5, tag: UNVERIFIED}
   - {rule: BASE-HEADER-MISSING-XCTO, file: src/index.ts, line: 5, tag: UNVERIFIED}
+  - {rule: BASE-STORAGE-UNENCRYPTED, file: infra/main.tf, line: 1, tag: INFERRED}
   - {rule: INV-NO-DELETION-PATH, file: prisma/schema.prisma, line: 6, tag: INFERRED}
   - {rule: INV-SDK-RECEIVES-PII, file: src/lib/mail.ts, line: 6, tag: CONFIRMED}
   - {rule: INV-UNUSED-FIELD, file: prisma/schema.prisma, line: 10, tag: INFERRED}
   - {rule: INV-UNUSED-FIELD, file: prisma/schema.prisma, line: 22, tag: INFERRED}
   - {rule: OWASP-A01-UNSCOPED-QUERY, file: src/routes/orders.ts, line: 8, tag: CONFIRMED}
+  - {rule: OWASP-A06-KNOWN-ADVISORY, file: package.json, line: 10, tag: CONFIRMED}
   - {rule: OWASP-A09-NO-AUTH-FAIL-LOG, file: src/routes/auth.ts, line: 20, tag: INFERRED}

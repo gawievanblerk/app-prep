@@ -10,8 +10,8 @@ def write(root, rel, text):
     return path
 
 
-def findings_for(root, review, rule_id, **options):
+def findings_for(root, review, rule_id, include_untracked=False, **options):
     reviews.available()
-    index = RepoIndex(root)
+    index = RepoIndex(root, include_untracked=include_untracked)
     ctx = rules.Context(index=index, detection=detect(index), options=rules.Options(**options))
     return [f for f in rules.run_checks(review, ctx) if f.rule_id == rule_id]

@@ -100,7 +100,13 @@ def _class_fields(ctx: Context, name: str, depth: int = 0) -> list[str]:
 def _py_fields(ctx: Context, route: Route) -> tuple[list[str], str]:
     fn = route.handler
     fields, sources = [], []
-    for arg in [*fn.args.args, *fn.args.kwonlyargs]:
+    # A class-based view is its methods: read the arguments of each one.
+    methods = [
+        n for n in getattr(fn, "body", []) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    functions = methods if isinstance(fn, ast.ClassDef) else [fn]
+    args = [a for f in functions for a in [*f.args.args, *f.args.kwonlyargs]]
+    for arg in args:
         if arg.annotation is None:
             continue
         names = re.findall(r"[A-Za-z_]\w*", ast.unparse(arg.annotation))

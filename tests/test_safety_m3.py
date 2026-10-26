@@ -30,6 +30,7 @@ SECTIONS = (
     "## 5. OWASP sweep",
     "## 6. Leak hunt",
     "## 7. Abuse and bill guard",
+    "## Standards readiness",
     "## Open questions",
     "## What this review did not cover",
 )
@@ -230,3 +231,71 @@ def test_every_source_module_stays_under_about_400_lines():
         for path in root.rglob("*.py")
     }
     assert {rel: size for rel, size in sizes.items() if size > 410} == {}
+
+
+# A capability URL: the random path segment is the only thing protecting these routes.
+PATH_SECRET = "".join(format((i * 5 + 11) % 16, "x") for i in range(32))
+
+
+def capability_repo(root):
+    write(root, "requirements.txt", "django\nfastapi\n")
+    write(
+        root,
+        "sms/urls.py",
+        "from django.urls import path\nfrom sms import views\n\n"
+        "urlpatterns = [\n"
+        f"    path('sms/{PATH_SECRET}/delivery', views.delivery_hook),\n"
+        "    path('sms/status/', views.status),\n]\n",
+    )
+    write(
+        root,
+        "sms/views.py",
+        "from django.http import HttpResponse\n\n\n"
+        "def delivery_hook(request):\n"
+        "    Delivery.objects.create(ref=request.GET['ref'])\n"
+        "    return HttpResponse('ok')\n\n\n"
+        "def status(request):\n    return HttpResponse('ok')\n",
+    )
+    write(
+        root,
+        "api/main.py",
+        "from fastapi import FastAPI\n\napp = FastAPI()\n\n\n"
+        f"@app.post('/hooks/{PATH_SECRET}')\n"
+        "def fastapi_hook(body: dict):\n    Event.create(**body)\n",
+    )
+    write(root, "web/package.json", '{"dependencies": {"express": "4.19.0"}}\n')
+    write(
+        root,
+        "web/server.js",
+        "const app = require('express')()\n"
+        f"app.post('/webhook/{PATH_SECRET}', (req, res) => {{ db.save(req.body); res.send('ok') }})\n"
+        "app.get('/health', (req, res) => res.send('ok'))\n",
+    )
+    return root
+
+
+def test_secret_path_segment_never_reaches_any_output(tmp_path, capsys):
+    root = capability_repo(tmp_path / "repo")
+    report = review(root)
+    paths = {route.path for route in report.detection.routes}
+    assert {
+        "/sms/<redacted:path-token>/delivery",
+        "/sms/status",
+        "/hooks/<redacted:path-token>",
+        "/webhook/<redacted:path-token>",
+        "/health",
+    } <= paths
+    assert PATH_SECRET not in render_markdown(report)
+    [hook] = [
+        f
+        for f in report.findings
+        if f.rule_id == "OWASP-A01-UNSIGNED-CALLBACK" and "/sms/" in f.title
+    ]
+    assert "protected only by a secret path segment" in hook.detail
+    out_dir = tmp_path / "out"
+    assert main(["scan", str(root), "--format", "md,json,sarif", "--out", str(out_dir)]) == 0
+    captured = capsys.readouterr()
+    outputs = [p.read_text() for p in out_dir.iterdir()] + [captured.out, captured.err]
+    assert len(outputs) == 5
+    assert not any(PATH_SECRET in text for text in outputs)
+    assert any("<redacted:path-token>" in text for text in outputs)

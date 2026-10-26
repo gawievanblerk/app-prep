@@ -35,7 +35,9 @@ class Access:
     read-only permission on a view that also writes). `unread` names a global mechanism the
     classifier cannot read (an auth middleware class, a request hook, unknown app-level
     middleware) that may still guard a route whose answer rests on absence, or, for "mixed",
-    the guard that applies only in some places.
+    the guard that applies only in some places. `role` names a check beyond sign-in (a
+    permission, a staff or superuser test, a custom role decorator) when one was read.
+    `gates` names the FastAPI dependencies that guard the route.
     """
 
     level: str
@@ -43,6 +45,8 @@ class Access:
     evidence: str = ""
     basis: str = EXPLICIT
     unread: str = ""
+    role: str = ""
+    gates: tuple[str, ...] = ()
 
 
 def public(evidence: str, unread: str = "") -> Access:

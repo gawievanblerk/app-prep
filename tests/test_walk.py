@@ -1,4 +1,5 @@
 import os
+import subprocess
 import threading
 
 import pytest
@@ -226,3 +227,77 @@ def test_byte_order_mark_is_dropped_when_reading(tmp_path):
     assert index.skipped == []
     assert "next" in collect_packages(index)[0]
     assert index.env_names(index.env_files[0]) == [("NEXT_PUBLIC_X", 1), ("SECOND", 2)]
+
+
+def _git(root, *args):
+    subprocess.run(
+        ["git", "-C", str(root), "-c", "user.name=dpr", "-c", "user.email=dpr@example.invalid"]
+        + ["-c", "commit.gpgsign=false", *args],
+        check=True,
+        capture_output=True,
+    )
+
+
+def _repo(tmp_path):
+    write(tmp_path, "app.py", "x = 1")
+    write(tmp_path, ".gitignore", "media/\n.env\n")
+    write(tmp_path, "src/tracked.js", "a()")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "initial")
+    write(tmp_path, "scripts/probe.py", "y = 2")
+    write(tmp_path, "media/uploads/people.csv", "email,phone\n")
+    write(tmp_path, ".env", "A=1\n")
+    write(tmp_path, "dist/main.js", "bundle")
+    return tmp_path
+
+
+def test_git_repository_scans_tracked_files_only(tmp_path):
+    index = RepoIndex(_repo(tmp_path))
+    assert rels(index.files) == [".gitignore", "app.py", "src/tracked.js"]
+    assert index.env_files == []
+    assert index.tracked == {".gitignore", "app.py", "src/tracked.js"}
+    assert index.untracked == frozenset()
+    assert index.notes == [
+        "1 untracked file(s) that git does not ignore were not scanned (for example "
+        "scripts/probe.py); pass --include-untracked to scan them"
+    ]
+
+
+def test_build_output_is_read_whatever_git_says(tmp_path):
+    index = RepoIndex(_repo(tmp_path))
+    assert rels(index.build_files) == ["dist/main.js"]
+
+
+def test_include_untracked_adds_files_git_does_not_ignore(tmp_path):
+    index = RepoIndex(_repo(tmp_path), include_untracked=True)
+    assert rels(index.files) == [".gitignore", "app.py", "scripts/probe.py", "src/tracked.js"]
+    assert index.untracked == {"scripts/probe.py"}
+    assert index.notes == []
+
+
+def test_outside_git_every_file_is_walked_with_a_note(tmp_path):
+    write(tmp_path, "app.py")
+    write(tmp_path, "media/uploads/people.csv", "email,phone\n")
+    index = RepoIndex(tmp_path)
+    assert rels(index.files) == ["app.py", "media/uploads/people.csv"]
+    assert index.tracked is None
+    assert index.notes == [
+        "Not a git repository, or git is unavailable: every file under the folder was scanned, "
+        "including files git would ignore, and no finding can say whether a file is committed"
+    ]
+
+
+def test_repository_that_tracks_nothing_scans_files_git_does_not_ignore(tmp_path):
+    write(tmp_path, "app.py")
+    write(tmp_path, ".gitignore", "media/\n")
+    write(tmp_path, "media/people.csv", "email,phone\n")
+    _git(tmp_path, "init", "-q")
+    index = RepoIndex(tmp_path)
+    assert rels(index.files) == [".gitignore", "app.py"]
+    assert index.tracked == frozenset()
+    assert index.untracked == {".gitignore", "app.py"}
+    assert index.notes == [
+        "git tracks no file under the folder yet, so untracked files that git does not ignore "
+        "were scanned"
+    ]

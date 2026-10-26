@@ -9,6 +9,7 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 
+from dpr.gitutil import tracked_files, untracked_files
 from dpr.model import ScanError
 
 SKIP_DIRS = frozenset(
@@ -50,6 +51,10 @@ JS_EXTS = frozenset(
 PY_EXTS = frozenset({".py"})
 ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=[ \t]*(.*?)[ \t\r]*$")
 ENV_QUOTED = re.compile(r"^([\"'])(.*)\1$")
+NO_GIT = (
+    "Not a git repository, or git is unavailable: every file under the folder was scanned, "
+    "including files git would ignore, and no finding can say whether a file is committed"
+)
 
 
 @dataclass(frozen=True)
@@ -85,7 +90,11 @@ def _is_binary(path: Path) -> bool:
 
 
 class RepoIndex:
-    def __init__(self, root: str | os.PathLike[str]) -> None:
+    """Files to scan. In a git repository only tracked files are read, plus untracked files git
+    does not ignore when include_untracked is set. Build output is read whatever git says,
+    because it is generated and usually ignored."""
+
+    def __init__(self, root: str | os.PathLike[str], include_untracked: bool = False) -> None:
         self.root = Path(root).resolve()
         if not self.root.is_dir():
             raise ScanError(f"path is not a directory: {root}")
@@ -93,12 +102,54 @@ class RepoIndex:
         self.build_files: list[SourceFile] = []
         self.env_files: list[SourceFile] = []
         self.skipped: list[str] = []
+        self.notes: list[str] = []
+        # Tracked paths, or None outside git; untracked paths in scope (only with the flag).
+        self.tracked: frozenset[str] | None = None
+        self.untracked: frozenset[str] = frozenset()
         self.cache: dict[tuple[str, str], object] = {}
         self._text: dict[str, str] = {}
+        self._scope: frozenset[str] | None = None
+        self._scope_dirs: frozenset[str] = frozenset()
+        self._set_scope(include_untracked)
         self._walk()
+
+    def _set_scope(self, include_untracked: bool) -> None:
+        tracked = tracked_files(self.root, notes=self.notes)
+        if tracked is None:
+            self.notes.append(NO_GIT)
+            return
+        self.tracked = frozenset(tracked)
+        others = [
+            rel
+            for rel in untracked_files(self.root, notes=self.notes) or []
+            if not SKIP_DIRS.union(BUILD_DIR_NAMES).intersection(rel.split("/")[:-1])
+        ]
+        scope = set(tracked)
+        if not tracked and others:
+            include_untracked = True
+            self.notes.append(
+                "git tracks no file under the folder yet, so untracked files that git does not "
+                "ignore were scanned"
+            )
+        if include_untracked:
+            self.untracked = frozenset(others) - self.tracked
+            scope |= self.untracked
+        elif others:
+            examples = ", ".join(sorted(others, key=lambda p: (p.count("/"), p))[:3])
+            self.notes.append(
+                f"{len(others)} untracked file(s) that git does not ignore were not scanned (for "
+                f"example {examples}); pass --include-untracked to scan them"
+            )
+        self._scope = frozenset(scope)
+        self._scope_dirs = frozenset(
+            str(parent) for rel in scope for parent in Path(rel).parents if str(parent) != "."
+        )
 
     def _rel(self, path: Path) -> str:
         return path.relative_to(self.root).as_posix()
+
+    def _in_scope_dir(self, path: Path) -> bool:
+        return self._scope is None or self._rel(path) in self._scope_dirs
 
     def _walk(self) -> None:
         for dirpath, dirnames, filenames in os.walk(
@@ -120,7 +171,7 @@ class RepoIndex:
                         continue
                     if has_static:
                         self._walk_build(sub / "static")
-                elif name not in SKIP_DIRS:
+                elif name not in SKIP_DIRS and self._in_scope_dir(sub):
                     try:
                         virtualenv = _is_virtualenv(sub, name)
                     except OSError:
@@ -154,10 +205,12 @@ class RepoIndex:
         return info.st_size if stat.S_ISREG(info.st_mode) else None
 
     def _add(self, path: Path) -> None:
+        rel = self._rel(path)
+        if self._scope is not None and rel not in self._scope:
+            return
         size = self._regular_size(path)
         if size is None:
             return
-        rel = self._rel(path)
         entry = SourceFile(rel, path, size)
         try:
             if is_env_file(path.name):

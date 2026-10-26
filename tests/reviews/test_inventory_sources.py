@@ -243,3 +243,37 @@ def test_method_passed_to_run_in_executor_is_followed_for_sent_dicts(tmp_path):
     [finding] = findings_for(tmp_path, "inventory", "INV-SDK-RECEIVES-PII")
     assert (finding.tag.value, str(finding.locations[0])) == ("CONFIRMED", "app/email.py:9")
     assert "identifying fields (recipients, to, address, displayName)" in finding.detail
+
+
+def test_storage_settings_and_upload_bodies_are_not_personal_data(tmp_path):
+    write(tmp_path, "requirements.txt", "boto3\n")
+    write(
+        tmp_path,
+        "app/upload.py",
+        "import boto3\n\ndef upload(path, body, member):\n"
+        "    client = boto3.client('s3', region_name=REGION, endpoint_url=URL)\n"
+        "    client.put_object(Bucket=BUCKET, Key=path, Body=body, ContentMD5=digest(body))\n"
+        "    client.put_object(Bucket=BUCKET, Key=path, Metadata={'email': member.email})\n",
+    )
+    [finding] = findings_for(tmp_path, "inventory", "INV-SDK-RECEIVES-PII")
+    assert [str(loc) for loc in finding.locations] == ["app/upload.py:6"]
+    assert "(email)" in finding.detail and "region_name" not in finding.detail
+
+
+def test_class_based_view_fields_are_read_from_its_methods(tmp_path):
+    write(
+        tmp_path,
+        "shop/urls.py",
+        "from django.urls import path\nfrom . import views\n"
+        "urlpatterns = [path('contact/', views.ContactView.as_view())]\n",
+    )
+    write(
+        tmp_path,
+        "shop/views.py",
+        "from django.views import View\n"
+        "class ContactView(View):\n"
+        "    def post(self, request):\n"
+        "        return save(request.POST['email'], request.POST.get('message'))\n",
+    )
+    points = [c for c in collection_points(context(tmp_path)) if c.route is not None]
+    assert [c.fields for c in points] == [("email", "message")]

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from collections.abc import Iterator
 
 from dpr.discovery.approots import root_of
 from dpr.model import Finding, Location, Tag
+from dpr.parsing import pyast
 from dpr.redact import snippet
 from dpr.reviews.abuse_paid import is_limited
+from dpr.reviews.auth_axes import axes_for
 from dpr.reviews.auth_code import call_names
 from dpr.reviews.auth_flows import Flow, flows_of, lifetimes, record_pass, user_models_in
 from dpr.reviews.deploy_env import declared_for
@@ -19,7 +22,7 @@ COOKIE_OPS = re.compile(
     r"delete_cookie|set_cookie|clearCookie|clear_cookie|cookies\(\)\.delete|cookies\.delete|\.cookie\("
 )
 REVOKE_CALL = re.compile(
-    r"(?i)invalidat|revoke|deny_?list|black_?list|block_?list|destroy|flush|sign_?out"
+    r"(?i)invalidat|revoke|expire|deny_?list|black_?list|block_?list|destroy|flush|sign_?out"
     r"|(?:^|\.)logout$|(?:^|\.)(?:delete|remove|pop|clear)$"
 )
 REVOKE_WRITE = re.compile(r"(?i)invalidated_?at|token_?version|revoked_?at|\bjti\b")
@@ -43,11 +46,24 @@ def _removed_cookie_text(flow: Flow) -> str:
     return COOKIE_OPS.sub(" ", "\n".join(code.text() for code in flow.code))
 
 
+def _django_logout_view(ctx: Context, flow: Flow) -> bool:
+    """A class view built on Django's LogoutView, which calls auth.logout() and so flushes the
+    server-side session."""
+    node = flow.code[0].node
+    if not isinstance(node, ast.ClassDef):
+        return False
+    text = ctx.index.text(flow.code[0].rel)
+    return "django.contrib.auth" in text and any(
+        base.split(".")[-1] == "LogoutView" for base in pyast.base_names(node)
+    )
+
+
 @rule("AUTH-LOGOUT-NO-REVOKE", review="auth", severity="low", exploitability="low", owasp="A07")
 def logout_no_revoke(ctx: Context) -> Iterator[Finding]:
     for flow in flows_of(ctx, "logout"):
         names = [name for code in flow.code for name, _ in call_names(code)]
         revoke = any(REVOKE_CALL.search(n) and not COOKIE_OPS.search(n) for n in names)
+        revoke = revoke or _django_logout_view(ctx, flow)
         if revoke or REVOKE_WRITE.search(_removed_cookie_text(flow)):
             for case in (5, 10):
                 record_pass(
@@ -136,6 +152,11 @@ def _lockout_evidence(ctx: Context, flow: Flow) -> Location | None:
 @rule("AUTH-NO-LOCKOUT", review="auth", severity="medium", exploitability="high", owasp="A07")
 def no_lockout(ctx: Context) -> Iterator[Finding]:
     for flow in flows_of(ctx, "login"):
+        axes = axes_for(ctx, flow.route.file)
+        if axes is not None:
+            text = "Failed sign-ins lock the account (django-axes)"
+            record_pass(ctx, 1, Tag.CONFIRMED, text, axes.enabled)
+            continue
         if declared_for(ctx, flow.route.file, LOCKOUT_PACKAGES):
             continue
         if is_limited(ctx, flow.route):

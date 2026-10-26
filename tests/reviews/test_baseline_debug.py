@@ -166,3 +166,21 @@ def test_secret_reference_and_stage(tmp_path):
     assert deploy_env.start_stage(ctx, "render.yaml", 3) == "staging"
     assert deploy_env.start_stage(ctx, "render.yaml", 10) is None
     assert deploy_env.non_production("staging") and not deploy_env.non_production("production")
+
+
+def test_django_debug_skips_test_ci_and_vendored_settings(tmp_path):
+    apps = "INSTALLED_APPS = ['shop']\nDEBUG = True\n"
+    write(tmp_path, "site/site/settings.py", "INSTALLED_APPS = ['shop']\nDEBUG = False\n")
+    for name in ("tests_settings", "ci_settings", "settings_test", "testing", "local"):
+        write(tmp_path, f"site/site/{name}.py", apps)
+    write(tmp_path, "site/tests/settings.py", apps)
+    write(tmp_path, "site/jsapp/settings.py", apps)
+    write(tmp_path, "site/jsapp/LICENSE", "MIT\n")
+    write(tmp_path, "site/jsapp/views.py", "def view(request):\n    return None\n")
+    assert findings_for(tmp_path, "baseline", "BASE-DEBUG-ON") == []
+
+
+def test_django_debug_in_a_local_module_counts_when_it_is_the_only_one(tmp_path):
+    write(tmp_path, "site/settings/local.py", "INSTALLED_APPS = ['shop']\nDEBUG = True\n")
+    found = findings_for(tmp_path, "baseline", "BASE-DEBUG-ON")
+    assert locs(found) == [("site/settings/local.py:2", "high")]

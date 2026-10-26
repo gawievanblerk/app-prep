@@ -251,7 +251,7 @@ def test_auth_words_match_whole_name_tokens(tmp_path):
 
 def test_fastapi_include_router_dependencies(tmp_path):
     write(tmp_path, "requirements.txt", "fastapi\nopenai\n")
-    write(tmp_path, "app/deps.py", "def get_current_active_user(): ...\n")
+    write(tmp_path, "app/deps.py", "def get_current_active_user():\n    return read_session()\n")
     write(
         tmp_path,
         "app/main.py",
@@ -435,7 +435,7 @@ def test_django_login_required_middleware_and_drf_defaults_in_any_settings_modul
 def fastapi_ai_router(root):
     write(root, "requirements.txt", "fastapi\nopenai\npytest\n")
     write(root, "app/__init__.py", "")
-    write(root, "app/deps.py", "def get_current_user():\n    return None\n")
+    write(root, "app/deps.py", "def get_current_user():\n    return read_session()\n")
     write(root, "app/routers/__init__.py", "")
     write(
         root,
@@ -651,3 +651,62 @@ def test_local_and_test_settings_never_override_production_settings(tmp_path):
     )
     write(only_local, "shop/views.py", views)
     assert classify(only_local)[("ANY", "/generate")].level == "authenticated"
+
+
+def test_django_custom_auth_decorators_resolve_one_level(tmp_path):
+    write(
+        tmp_path,
+        "desk/urls.py",
+        "from django.urls import path\nfrom desk import views\nurlpatterns = [\n"
+        "    path('complaints/', views.complaints), path('calls/', views.calls),\n"
+        "    path('mine/', views.mine), path('stats/', views.stats),\n"
+        "    path('open/', views.open_page), path('logged/', views.logged),\n"
+        "    path('both/', views.both), path('api/', views.ApiList.as_view()),\n]\n",
+    )
+    write(
+        tmp_path,
+        "desk/guards.py",
+        "from django.contrib.auth.decorators import login_required, user_passes_test\n"
+        "def can_view_calls(f):\n"
+        "    return login_required(user_passes_test(lambda u: u.is_call_center_operator)(f))\n"
+        "def signed_in(f):\n    return login_required(f)\n",
+    )
+    write(
+        tmp_path,
+        "desk/views.py",
+        "from django.contrib.auth.decorators import login_required, user_passes_test\n"
+        "from django.core.exceptions import PermissionDenied\n"
+        "from desk.guards import can_view_calls, signed_in\n"
+        "from rest_framework.views import APIView\n"
+        "def complaints_test(user):\n    return user.has_perm('desk.view_complaint')\n"
+        "def is_complaints_user(f):\n    return login_required(user_passes_test(complaints_test)(f))\n"
+        "def owner_only(f):\n"
+        "    def wrapper(request, *args, **kwargs):\n"
+        "        if not request.user.is_manager:\n            raise PermissionDenied\n"
+        "        return f(request, *args, **kwargs)\n    return wrapper\n"
+        "def cached(f):\n    return f\n"
+        "@is_complaints_user\ndef complaints(request):\n    pass\n"
+        "@can_view_calls\ndef calls(request):\n    pass\n"
+        "@owner_only\ndef mine(request):\n    pass\n"
+        "@signed_in\ndef stats(request):\n    pass\n"
+        "@cached\ndef open_page(request):\n    pass\n"
+        "@login_required\ndef logged(request):\n    pass\n"
+        "@login_required\n@user_passes_test(lambda u: u.is_staff)\ndef both(request):\n    pass\n"
+        "class ApiList(APIView):\n    permission_classes = [IsAuthenticated, IsAdvisor]\n"
+        "    def get(self, request):\n        pass\n",
+    )
+    found = classify(tmp_path)
+    got = {path: (a.level, a.role) for (_method, path), a in found.items()}
+    assert got == {
+        "/complaints": ("authenticated", "@is_complaints_user"),
+        "/calls": ("authenticated", "@can_view_calls"),
+        "/mine": ("authenticated", "@owner_only"),
+        "/stats": ("authenticated", ""),
+        "/open": ("public", ""),
+        "/logged": ("authenticated", ""),
+        "/both": ("authenticated", "@user_passes_test"),
+        "/api": ("authenticated", "IsAdvisor"),
+    }
+    assert found[("ANY", "/complaints")].evidence == (
+        "@is_complaints_user (login_required, user_passes_test)"
+    )

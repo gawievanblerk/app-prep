@@ -102,6 +102,22 @@ def test_print_in_operator_scripts_is_low_with_a_console_note(tmp_path):
     assert logged.severity.value == "medium"
 
 
+def test_a_script_echoing_its_operators_own_input_is_not_reported(tmp_path):
+    write(
+        tmp_path,
+        "scripts/get_db.py",
+        "import getpass, sys\n"
+        "user = input('Database user: ')\n"
+        "if not user:\n    user = 'readonly'\n"
+        "print(user)\n"
+        "username = sys.argv[1].strip()\nprint(username)\n"
+        "def show(user):\n    print(user)\n",
+    )
+    [found] = findings_for(tmp_path, "leaks", "LEAK-LOGGED-PII")
+    # A user object passed in is still reported; the operator's own typed name is not.
+    assert [str(loc) for loc in found.locations] == ["scripts/get_db.py:9"]
+
+
 def test_destination_is_named_when_the_app_exports_logs(tmp_path):
     write(tmp_path, "api/requirements.txt", "fastapi\nazure-monitor-opentelemetry\n")
     write(

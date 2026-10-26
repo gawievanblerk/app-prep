@@ -139,7 +139,10 @@ def test_mixed_content(tmp_path):
         "src/Logo.tsx",
         'export const Logo = () => <img src="https://cdn.example.com/l.png" />\n',
     )
+    write(tmp_path, "static/pdfjs/web/viewer.js", "viewer();\n")
+    write(tmp_path, "static/pdfjs/api/draft/page.html", '<img src="http://cdn.example.com/p.png">')
     [f] = findings_for(tmp_path, "baseline", "BASE-MIXED-CONTENT")
+    # The copied library's own HTML is vendored and not scanned.
     assert [str(loc) for loc in f.locations] == ["public/index.html:2"]
 
 
@@ -177,3 +180,13 @@ def test_weak_hash_skips_random_tokens_but_keeps_passwords(tmp_path):
         ("app/tokens.py:10", "critical"),
         ("src/auth.js:8", "critical"),
     ]
+
+
+def test_weak_hasher_in_test_and_ci_settings_is_not_reported(tmp_path):
+    md5 = "INSTALLED_APPS = ['shop']\nPASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']\n"
+    write(tmp_path, "site/site/settings.py", "INSTALLED_APPS = ['shop']\n")
+    write(tmp_path, "site/site/ci_settings.py", md5)
+    write(tmp_path, "site/site/tests_settings.py", md5)
+    write(tmp_path, "site/site/prod.py", md5)
+    found = findings_for(tmp_path, "baseline", "BASE-WEAK-HASH")
+    assert [str(f.locations[0]) for f in found] == ["site/site/prod.py:2"]

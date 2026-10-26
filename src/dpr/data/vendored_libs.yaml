@@ -1,0 +1,53 @@
+# Browser libraries that projects often copy into the repository instead of installing them.
+# files: matched in full against the lower-case file name after the extension, .min, .slim and a
+#        trailing version are removed (jquery-1.10.2.min.js -> jquery). First match wins, so
+#        specific names come before general ones.
+# dirs:  folder names that hold a copy of the library (compared after a trailing version and
+#        -dist are removed, so bootstrap5 and pdfjs-dist match).
+# banner: the name the file's header comment uses before the version, when it differs from name.
+#        An empty banner means the version is read from the file name only.
+# {file} in a name is replaced by the matched file name.
+libraries:
+  - {name: DataTables, files: '(?:jquery\.)?datatables(?:\.[\w-]+)*', dirs: [datatables]}
+  - {name: jQuery UI, files: 'jquery-ui(?:[.-][\w.-]+)?', dirs: [jquery-ui]}
+  - {name: jQuery Migrate, files: 'jquery-migrate'}
+  - {name: jQuery, files: 'jquery', dirs: [jquery]}
+  - {name: '{file} (jQuery plugin)', files: 'jquery[.-][a-z][\w.-]*', banner: ''}
+  - {name: Bootstrap, files: 'bootstrap(?:\.(?:bundle|esm|grid|reboot|utilities|rtl|theme))*', dirs: [bootstrap]}
+  - {name: Select2, files: 'select2(?:\.full)?', dirs: [select2]}
+  - {name: PDF.js, files: 'pdf\.worker|pdf_viewer', dirs: [pdfjs, pdf.js, pdf_js], banner: pdf.js}
+  - {name: Moment.js, files: 'moment(?:-with-locales|-timezone[\w.-]*)?', dirs: [moment], banner: moment}
+  - {name: Lodash, files: 'lodash(?:\.core|\.fp)?', dirs: [lodash]}
+  - {name: Underscore.js, files: 'underscore', banner: underscore}
+  - {name: Popper, files: 'popper(?:-utils)?', banner: popper}
+  - {name: Flatpickr, files: 'flatpickr', dirs: [flatpickr]}
+  - {name: Chart.js, files: 'chart\.(?:bundle|umd)', dirs: [chartjs, chart.js], banner: chart.js}
+  - {name: D3, files: 'd3(?:\.v\d+)?', dirs: [d3]}
+  - {name: Axios, files: 'axios'}
+  - {name: Vue, files: 'vue\.(?:global|runtime|esm-browser)(?:\.prod)?'}
+  - {name: React, files: 'react(?:-dom)?\.(?:production|development)'}
+  - {name: AngularJS, files: 'angular(?:-(?:animate|route|resource|sanitize|cookies))?', banner: angularjs}
+  - {name: Backbone.js, files: 'backbone', banner: backbone}
+  - {name: Knockout, files: 'knockout'}
+  - {name: Handlebars, files: 'handlebars(?:\.runtime)?'}
+  - {name: Mustache, files: 'mustache'}
+  - {name: TinyMCE, files: 'tinymce', dirs: [tinymce]}
+  - {name: CKEditor, files: 'ckeditor', dirs: [ckeditor, ckeditor5]}
+  - {name: MathJax, files: 'mathjax', dirs: [mathjax]}
+  - {name: highlight.js, files: 'highlight\.pack', dirs: [highlight.js, highlightjs]}
+  - {name: Prettify, files: 'prettify|run_prettify', dirs: [google-code-prettify], banner: ''}
+  - {name: Modernizr, files: 'modernizr(?:[.-][\w.-]+)?'}
+  - {name: Summernote, files: 'summernote(?:-[\w-]+)?', dirs: [summernote]}
+  - {name: Dropzone, files: 'dropzone', dirs: [dropzone]}
+  - {name: Leaflet, files: 'leaflet(?:-src)?', dirs: [leaflet]}
+  - {name: SweetAlert, files: 'sweetalert2?(?:\.all)?'}
+  - {name: Toastr, files: 'toastr'}
+  - {name: Jasmine, files: 'jasmine(?:-html)?', dirs: [jasmine]}
+  - {name: QUnit, files: 'qunit', dirs: [qunit]}
+  - {name: RequireJS, files: 'require', banner: requirejs}
+  - {name: Font Awesome, files: 'font-?awesome(?:-all)?', dirs: [font-awesome, fontawesome]}
+  - {name: Normalize.css, files: 'normalize', banner: normalize.css}
+  - {name: Video.js, files: 'video-?js', dirs: [video-js, videojs], banner: video.js}
+  - {name: DOMPurify, files: 'purify', banner: dompurify}
+  - {name: Marked, files: 'marked'}
+  - {name: Socket.IO client, files: 'socket\.io', banner: socket.io}

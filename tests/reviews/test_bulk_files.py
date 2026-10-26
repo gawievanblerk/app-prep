@@ -137,3 +137,12 @@ def test_nearest_schema_never_crosses_app_roots(tmp_path):
     write(tmp_path, "apps/api/app/schemas.py", schema.format(cap=50))
     [(cap, where)] = pick(tmp_path).values()
     assert (cap, str(where)) == (50, "apps/api/app/schemas.py:5")
+
+
+def test_emails_in_untracked_test_files_are_not_called_committed(tmp_path):
+    domain = "north" + "field-farms.com"
+    write(tmp_path, "api/app/main.py", "x = 1\n")
+    committed(tmp_path)
+    write(tmp_path, "api/tests/test_mail.py", f"REAL = 'jane.doe@{domain}'\n")
+    found = findings_for(tmp_path, "leaks", "LEAK-COMMITTED-DATA-FILE", include_untracked=True)
+    assert found == []

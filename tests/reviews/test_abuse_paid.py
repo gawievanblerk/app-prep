@@ -411,7 +411,7 @@ def test_instances_resolve_only_from_the_handler_or_module_level(tmp_path):
     write(
         tmp_path,
         "app/deps.py",
-        "def get_current_user():\n    return None\ndef get_mailer():\n    return None\n",
+        "def get_current_user():\n    return read_session()\ndef get_mailer():\n    return None\n",
     )
     write(
         tmp_path,
